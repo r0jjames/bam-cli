@@ -239,7 +239,7 @@ A `defaults` value that is exactly `${NAME}`, with `NAME` matching `^[A-Za-z_][A
 
 Sources for variable names, in order:
 
-1. `GET /plan/{key}/variable` — declared names and their current values.
+1. The plan variable endpoint (section 9.1) — declared names and their current values.
 2. The `--from` build's variables (default `last`), if source 1 is unsupported.
 3. Neither: the target is written with `plan` only and a comment explaining why.
 
@@ -445,8 +445,8 @@ Core objects:
 ```
 Plan    { key, url, name, project_key, last_build: { key, number, state, finished_at, reason } | null }
 Branch  { key, url, name, short_name, plan_key }
-Variable{ name, value, masked, source }
-Target  { name, plan_key, server, branch, defaults, options, required, watch, timeout, defined_in[] }
+Variable{ name, value, masked, source, last_used }
+Target  { name, plan_key, server, branch, defaults, options, required, watch, timeout_ms, defined_in[] }
 Build   { key, url, plan_key, branch, number, state, reason, custom_build, labels[],
           queued_at, started_at, finished_at, queue_duration_ms, duration_ms, agent,
           revisions[{ repository, revision, short }],
@@ -548,14 +548,14 @@ All calls send `Accept: application/json`; Bamboo defaults to XML without it.
 | Projects | `GET /rest/api/latest/project` |
 | Plans of a project | `GET /rest/api/latest/project/{key}?expand=plans.plan` |
 | Plan | `GET /rest/api/latest/plan/{planKey}` |
-| Plan variables | `GET /rest/api/latest/plan/{planKey}/variable` |
+| Plan variables | `GET /rest/api/latest/plan/{planKey}/variables`, falling back to `/variable`; the working path is cached |
 | Plan branches | `GET /rest/api/latest/plan/{planKey}/branch` |
 | Build history | `GET /rest/api/latest/result/{planKey}?expand=results.result` |
 | Build state | `GET /rest/api/latest/result/{buildKey}?expand=stages.stage.results.result` |
 | Build variables | `GET /rest/api/latest/result/{buildKey}?expand=variables` |
 | Failed tests | `GET /rest/api/latest/result/{buildKey}?expand=testResults.failedTests` |
 | Job log | `GET /rest/api/latest/result/{jobResultKey}?expand=logEntries` |
-| Job log fallback | `GET /download/{planKey}/build_logs/{jobResultKey}.log` |
+| Job log fallback | `GET /download/{jobKey}/build_logs/{jobResultKey}.log` |
 | Trigger | `POST /rest/api/latest/queue/{planKey}?executeAllStages=true` with `bamboo.variable.<name>=<value>` parameters |
 | Stop | `DELETE /rest/api/latest/queue/{buildKey}` |
 | Browse URL | `{server}/browse/{key}` |
