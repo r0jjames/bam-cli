@@ -4,6 +4,7 @@ package bamboo
 
 import (
 	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,6 +16,7 @@ var (
 	urlHostRe   = regexp.MustCompile(`(https?://)([^/"'\s<>]+)`)
 	hostOnlyRe  = regexp.MustCompile(`https?://([^/"'\s<>:]+)`)
 	emailRe     = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)
+	ipv4Re      = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
 	placeholder = "bamboo.example.com"
 )
 
@@ -33,26 +35,62 @@ type Scrubber struct {
 }
 
 // Scrub rewrites every URL host to bamboo.example.com, bare mentions of the
-// recorded host, e-mail addresses, and the listed user names.
+// recorded host (case-insensitive), e-mail addresses, and the listed user names.
 func (s Scrubber) Scrub(data []byte) []byte {
 	out := string(data)
 	out = urlHostRe.ReplaceAllString(out, "${1}"+placeholder)
-	if s.Host != "" {
-		out = strings.ReplaceAll(out, s.Host, placeholder)
-	}
-	out = emailRe.ReplaceAllString(out, "jdoe@example.com")
-	users := append([]string(nil), s.Users...)
-	sort.Slice(users, func(i, j int) bool { return len(users[i]) > len(users[j]) }) // longest first
-	for _, u := range users {
-		if u != "" {
-			out = strings.ReplaceAll(out, u, "jdoe")
+
+	// Build list of terms to redact, in order (longest first for host, then users)
+	terms := s.Terms()
+	for _, term := range terms {
+		if term == "" {
+			continue
 		}
+		// Case-insensitive replacement using regex
+		re := regexp.MustCompile("(?i)" + regexp.QuoteMeta(term))
+		out = re.ReplaceAllString(out, "jdoe")
 	}
+
+	out = emailRe.ReplaceAllString(out, "jdoe@example.com")
 	return []byte(out)
 }
 
+// Terms returns the distinct non-empty terms that Scrub redacts: Host, host without port, and each user name.
+func (s Scrubber) Terms() []string {
+	terms := make(map[string]bool)
+
+	// Add full host with port
+	if s.Host != "" {
+		terms[s.Host] = true
+	}
+
+	// Add host without port (if Host contains a port)
+	if s.Host != "" {
+		host, _, err := net.SplitHostPort(s.Host)
+		if err == nil && host != "" {
+			// SplitHostPort succeeded, so there was a port
+			terms[host] = true
+		}
+	}
+
+	// Add users (non-empty)
+	for _, u := range s.Users {
+		if u != "" {
+			terms[u] = true
+		}
+	}
+
+	// Convert to slice and sort by length (longest first)
+	var result []string
+	for term := range terms {
+		result = append(result, term)
+	}
+	sort.Slice(result, func(i, j int) bool { return len(result[i]) > len(result[j]) })
+	return result
+}
+
 // FixtureHostViolations lists "file: host" for every URL host under root that
-// is not in AllowedFixtureHosts.
+// is not in AllowedFixtureHosts, and for IPv4 addresses except 127.0.0.1.
 func FixtureHostViolations(root string) ([]string, error) {
 	var out []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -63,12 +101,81 @@ func FixtureHostViolations(root string) ([]string, error) {
 		if err != nil {
 			return err
 		}
-		for _, m := range hostOnlyRe.FindAllStringSubmatch(string(data), -1) {
+		content := string(data)
+
+		// Check for disallowed URL hosts
+		for _, m := range hostOnlyRe.FindAllStringSubmatch(content, -1) {
 			if !AllowedFixtureHosts[strings.ToLower(m[1])] {
 				out = append(out, path+": "+m[1])
+			}
+		}
+
+		// Check for IPv4 addresses (except 127.0.0.1)
+		for _, ip := range ipv4Re.FindAllString(content, -1) {
+			if ip != "127.0.0.1" {
+				out = append(out, path+": "+ip)
+			}
+		}
+
+		return nil
+	})
+	return out, err
+}
+
+// LoadDenylist loads terms from a file, one per line, skipping blank lines and lines starting with '#'.
+// Returns nil if the file doesn't exist.
+func LoadDenylist(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var terms []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, "#") {
+			terms = append(terms, line)
+		}
+	}
+	return terms, nil
+}
+
+// FixtureTermViolations walks files under root and reports "path: term" for every term found case-insensitively.
+func FixtureTermViolations(root string, terms []string) ([]string, error) {
+	var out []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		content := strings.ToLower(string(data))
+
+		for _, term := range terms {
+			if strings.Contains(content, strings.ToLower(term)) {
+				out = append(out, path+": "+term)
 			}
 		}
 		return nil
 	})
 	return out, err
+}
+
+// DenylistPath returns the path to the fixture denylist file.
+// Uses BAM_FIXTURE_DENYLIST env var if set, otherwise returns the default path
+// under the user's config directory.
+func DenylistPath(getenv func(string) string) string {
+	if path := getenv("BAM_FIXTURE_DENYLIST"); path != "" {
+		return path
+	}
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(configDir, "bam", "fixture-denylist.txt")
 }

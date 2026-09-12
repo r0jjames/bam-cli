@@ -3,6 +3,7 @@ package bamboo
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -35,4 +36,109 @@ func TestFixtureHostViolations(t *testing.T) {
 	require.Len(t, v, 1)
 	assert.Contains(t, v[0], "bad.json")
 	assert.Contains(t, v[0], "bamboo.corp.internal")
+}
+
+func TestScrubBareHostsAndDifferentCase(t *testing.T) {
+	// Test bare hostname without protocol
+	in := `{"agent":"ci.home.internal","name":"test"}`
+	s := Scrubber{Host: "ci.home.internal", Users: nil}
+	out := string(s.Scrub([]byte(in)))
+	assert.NotContains(t, out, "ci.home.internal")
+	assert.Contains(t, out, "jdoe")
+
+	// Test different case
+	in = `{"host":"CI.HOME.INTERNAL","link":"http://CI.HOME.INTERNAL:8085/x"}`
+	s = Scrubber{Host: "ci.home.internal:8085", Users: nil}
+	out = string(s.Scrub([]byte(in)))
+	assert.NotContains(t, out, "CI.HOME.INTERNAL")
+	assert.NotContains(t, out, "ci.home.internal")
+}
+
+func TestScrubberTerms(t *testing.T) {
+	s := Scrubber{Host: "ci.home.internal:8085", Users: []string{"Real Name", "rjc", "", "Real Name"}}
+	terms := s.Terms()
+	assert.Contains(t, terms, "ci.home.internal:8085")
+	assert.Contains(t, terms, "ci.home.internal")
+	assert.Contains(t, terms, "Real Name")
+	assert.Contains(t, terms, "rjc")
+	assert.NotContains(t, terms, "")
+	// Check no duplicates: convert to map and verify size matches
+	termMap := make(map[string]bool)
+	for _, term := range terms {
+		termMap[term] = true
+	}
+	assert.Equal(t, len(terms), len(termMap), "terms should have no duplicates, got: %v", terms)
+}
+
+func TestFixtureHostViolationsIPAddress(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "has_ip.json"), []byte(`{"host":"10.1.2.3"}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "has_localhost.json"), []byte(`{"host":"127.0.0.1"}`), 0o644))
+
+	v, err := FixtureHostViolations(dir)
+	require.NoError(t, err)
+	// Should find 10.1.2.3 but not 127.0.0.1
+	require.Len(t, v, 1)
+	assert.Contains(t, v[0], "10.1.2.3")
+	assert.NotContains(t, strings.Join(v, ","), "127.0.0.1")
+}
+
+func TestFixtureTermViolations(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "test.json"), []byte(`{"user":"RJC","data":"some data"}`), 0o644))
+
+	v, err := FixtureTermViolations(dir, []string{"rjc"})
+	require.NoError(t, err)
+	require.Len(t, v, 1)
+	assert.Contains(t, v[0], "test.json")
+	assert.Contains(t, v[0], "rjc")
+}
+
+func TestLoadDenylist(t *testing.T) {
+	dir := t.TempDir()
+	denylistPath := filepath.Join(dir, "denylist.txt")
+
+	// Test missing file returns nil
+	v, err := LoadDenylist(filepath.Join(dir, "missing.txt"))
+	require.NoError(t, err)
+	require.Nil(t, v)
+
+	// Test loading with comments and blanks
+	content := `# Comment
+jdoe
+ci.home.internal
+
+# Another comment
+rjc`
+	require.NoError(t, os.WriteFile(denylistPath, []byte(content), 0o644))
+
+	v, err = LoadDenylist(denylistPath)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, v, []string{"jdoe", "ci.home.internal", "rjc"})
+}
+
+func TestDenylistPath(t *testing.T) {
+	// Test with BAM_FIXTURE_DENYLIST set
+	path := DenylistPath(func(key string) string {
+		if key == "BAM_FIXTURE_DENYLIST" {
+			return "/custom/path"
+		}
+		return ""
+	})
+	assert.Equal(t, "/custom/path", path)
+
+	// Test default path
+	path = DenylistPath(func(string) string { return "" })
+	assert.NotEmpty(t, path)
+	assert.Contains(t, path, "bam")
+	assert.Contains(t, path, "fixture-denylist.txt")
+}
+
+func TestFixtureTermViolationsCaseInsensitive(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "test.json"), []byte(`{"host":"CI.HOME.INTERNAL","name":"RJC"}`), 0o644))
+
+	v, err := FixtureTermViolations(dir, []string{"ci.home.internal", "rjc"})
+	require.NoError(t, err)
+	assert.Equal(t, 2, len(v))
 }

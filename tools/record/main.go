@@ -64,6 +64,11 @@ func run() error {
 	_ = json.Unmarshal(body, &me)
 	r.scrub = bamboo.Scrubber{Host: u.Host, Users: []string{me.FullName, me.Name}}
 
+	// Update the fixture denylist with terms from this recording
+	if err := r.updateDenylist(); err != nil {
+		return err
+	}
+
 	project := strings.SplitN(plan, "-", 2)[0]
 	latest, err := r.latestBuild(plan)
 	if err != nil {
@@ -238,4 +243,65 @@ func (r *recorder) recordTriggerAndStop(plan string) error {
 	}
 	return r.record("result_stopped.json", http.MethodGet, "/rest/api/latest/result/"+q.Key,
 		url.Values{"expand": {"stages.stage.results.result"}})
+}
+
+// updateDenylist appends the scrubber's terms to the fixture denylist file.
+func (r *recorder) updateDenylist() error {
+	path := bamboo.DenylistPath(os.Getenv)
+	if path == "" {
+		return nil // If UserConfigDir fails, skip silently
+	}
+
+	// Create directory with 0700
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+
+	// Load existing terms
+	existing, err := bamboo.LoadDenylist(path)
+	if err != nil {
+		return err
+	}
+	existingMap := make(map[string]bool)
+	for _, term := range existing {
+		existingMap[term] = true
+	}
+
+	// Get new terms from scrubber
+	newTerms := r.scrub.Terms()
+
+	// Append only new terms
+	var added []string
+	for _, term := range newTerms {
+		if !existingMap[term] {
+			added = append(added, term)
+			existingMap[term] = true
+		}
+	}
+
+	if len(added) == 0 {
+		return nil
+	}
+
+	// Read current content
+	var content string
+	if data, err := os.ReadFile(path); err == nil {
+		content = string(data)
+		if content != "" && !strings.HasSuffix(content, "\n") {
+			content += "\n"
+		}
+	}
+
+	// Append new terms
+	for _, term := range added {
+		content += term + "\n"
+	}
+
+	// Write back with 0600
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		return err
+	}
+
+	fmt.Printf("fixture denylist: added %d terms to %s\n", len(added), path)
+	return nil
 }
