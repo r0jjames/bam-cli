@@ -1,0 +1,25 @@
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS := -X github.com/r0jjames/bam-cli/internal/cli.version=$(VERSION)
+
+.PHONY: build test lint e2e record check-fixtures docs
+
+build:
+	go build -ldflags "$(LDFLAGS)" -o bin/bam ./cmd/bam
+
+test:
+	go test ./...
+
+lint:
+	golangci-lint run
+
+e2e:
+	go test -tags e2e ./e2e/...
+
+record:
+	go run ./tools/record
+
+check-fixtures:
+	go test ./internal/provider/bamboo -run TestFixtureGuard
+
+docs:
+	go run ./tools/gendocs
