@@ -29,6 +29,7 @@ type Config struct {
 	ProjectPath string
 	MachinePath string
 	RepoRoot    string // git root, or the working directory outside a repository
+	Home        string // user home, for ~ in repos keys
 	Env         Env
 }
 
@@ -93,7 +94,7 @@ func Load(o LoadOptions) (*Config, error) {
 	if err != nil {
 		return nil, errs.Configf("cannot resolve the working directory").Wrap(err)
 	}
-	cfg := &Config{ProjectPath: projectPath, MachinePath: o.MachineFile, RepoRoot: root}
+	cfg := &Config{ProjectPath: projectPath, MachinePath: o.MachineFile, RepoRoot: root, Home: o.Home}
 	cfg.Env = Env{Server: o.Getenv("BAM_SERVER"), URL: o.Getenv("BAM_URL"), Token: o.Getenv("BAM_TOKEN")}
 
 	if projectPath != "" {
