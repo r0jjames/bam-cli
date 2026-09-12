@@ -420,7 +420,7 @@ Raw status codes, response bodies and stack traces appear only with `--debug`.
 | 2 | usage error: bad flag or argument, unknown target, variable validation failure |
 | 3 | configuration error |
 | 4 | authentication error: missing, rejected or expired token |
-| 5 | Bamboo or network error: not found, server error after retries, unreachable |
+| 5 | Bamboo or network error: not found, server error after retries, unreachable; also any unexpected internal error |
 | 6 | `--timeout` reached while the build is still running |
 | 130 | interrupted |
 
