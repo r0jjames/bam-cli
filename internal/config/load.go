@@ -101,6 +101,9 @@ func Load(o LoadOptions) (*Config, error) {
 		if err != nil {
 			return nil, errs.Configf("cannot read %s", projectPath).Wrap(err)
 		}
+		if err := checkProjectCredentialKeys(data, projectPath); err != nil {
+			return nil, err
+		}
 		var pf ProjectFile
 		if err := decodeStrict(data, projectPath, &pf); err != nil {
 			return nil, err
@@ -128,6 +131,9 @@ func Load(o LoadOptions) (*Config, error) {
 			}
 			cfg.Machine = &mf
 		}
+	}
+	if err := validateFiles(cfg); err != nil {
+		return nil, err
 	}
 	return cfg, nil
 }
