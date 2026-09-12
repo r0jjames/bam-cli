@@ -93,3 +93,15 @@ func TestValidTargetName(t *testing.T) {
 	assert.False(t, ValidTargetName("PROJ-PLAN"))
 	assert.False(t, ValidTargetName("2lab"))
 }
+
+func TestEnvServerAliasIsReserved(t *testing.T) {
+	_, err := loadProject(t, "version: 1\nservers:\n  env:\n    url: https://bamboo.example.com\n", "")
+	require.Error(t, err)
+	assert.Equal(t, errs.KindConfig, errs.KindOf(err))
+	assert.Contains(t, err.Error(), `"env" is reserved`)
+
+	_, err = loadProject(t, "", "version: 1\nservers:\n  env:\n    url: https://bamboo.example.com\n")
+	require.Error(t, err)
+	assert.Equal(t, errs.KindConfig, errs.KindOf(err))
+	assert.Contains(t, err.Error(), `"env" is reserved`)
+}

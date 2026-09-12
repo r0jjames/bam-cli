@@ -95,6 +95,9 @@ func mappingValue(m *yaml.Node, key string) *yaml.Node {
 // validateFiles applies the rules that need only one file at a time.
 func validateFiles(c *Config) error {
 	if c.Project != nil {
+		if err := checkReservedAliases(c.ProjectPath, c.Project.Servers); err != nil {
+			return err
+		}
 		if err := checkTargetNames(c.ProjectPath, "targets", c.Project.Targets); err != nil {
 			return err
 		}
@@ -110,6 +113,9 @@ func validateFiles(c *Config) error {
 					WithTry(fmt.Sprintf(`use an environment reference: %s: "${%s}"`, v, EnvNameFor(v)))
 			}
 		}
+	}
+	if err := checkReservedAliases(c.MachinePath, c.Machine.Servers); err != nil {
+		return err
 	}
 	if err := checkTargetNames(c.MachinePath, "targets", c.Machine.Targets); err != nil {
 		return err
@@ -129,6 +135,15 @@ func checkTargetNames(path, where string, targets map[string]Target) error {
 				WithWhy("target names are lowercase letters, digits, - and _, starting with a letter").
 				WithTry(fmt.Sprintf("rename it, for example %q", strings.ToLower(nonAlnumRe.ReplaceAllString(name, "-"))))
 		}
+	}
+	return nil
+}
+
+func checkReservedAliases(path string, servers map[string]Server) error {
+	if _, ok := servers[EnvServerAlias]; ok {
+		return errs.Configf("%s: server alias %q is reserved", path, EnvServerAlias).
+			WithWhy(EnvServerAlias + " is the server defined by BAM_URL").
+			WithTry("rename the alias, for example \"env-server\"")
 	}
 	return nil
 }
