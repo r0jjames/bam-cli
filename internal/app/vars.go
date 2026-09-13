@@ -206,7 +206,7 @@ func (s *Service) ResolveVars(ctx context.Context, ref PlanRef, o VarOptions) (V
 				continue
 			}
 			if !slices.Contains(t.Options[name], v.Value) {
-				return VarSet{}, errs.Usagef("%s=%q is not allowed by target %s", name, v.Value, t.Name).
+				return VarSet{}, errs.Usagef("%s=%q is not allowed by target %s", name, v.Display(), t.Name).
 					WithWhy("allowed: " + strings.Join(t.Options[name], ", "))
 			}
 		}

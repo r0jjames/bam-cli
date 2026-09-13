@@ -3,6 +3,7 @@ package app
 import (
 	"testing"
 
+	"github.com/r0jjames/bam-cli/internal/config"
 	"github.com/r0jjames/bam-cli/internal/errs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -119,6 +120,22 @@ func TestResolveVarsFromUnsupported(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, errs.KindBamboo, errs.KindOf(err))
 	assert.Contains(t, err.Error(), "cannot reuse variables of PROJ-PROV12-8")
+}
+
+func TestOptionsErrorNeverShowsSecret(t *testing.T) {
+	s := newService(t, fakeBamboo())
+	withEnv(s, map[string]string{"LAB_DB_PASSWORD": "hunter2"})
+	tgt := s.Cfg.Project.Targets["provision-lab"]
+	tgt.Options = config.StringListMap{"db_password": {"a", "b"}}
+	s.Cfg.Project.Targets["provision-lab"] = tgt
+	ref, err := s.ResolvePlan(bg, "provision-lab", "")
+	require.NoError(t, err)
+
+	_, err = s.ResolveVars(bg, ref, VarOptions{Flags: []string{"cluster_name=x"}})
+	require.Error(t, err)
+	assert.Equal(t, errs.KindUsage, errs.KindOf(err))
+	assert.Contains(t, err.Error(), `db_password="********" is not allowed`)
+	assert.NotContains(t, err.Error(), "hunter2")
 }
 
 func TestPlanVars(t *testing.T) {
