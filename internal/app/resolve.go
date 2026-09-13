@@ -1,0 +1,174 @@
+package app
+
+import (
+	"context"
+	"fmt"
+	"regexp"
+	"sort"
+	"strings"
+
+	"github.com/r0jjames/bam-cli/internal/config"
+	"github.com/r0jjames/bam-cli/internal/errs"
+	"github.com/r0jjames/bam-cli/internal/provider"
+)
+
+var (
+	planKeyRe  = regexp.MustCompile(`^[A-Z][A-Z0-9]*-[A-Z][A-Z0-9]*$`)
+	buildKeyRe = regexp.MustCompile(`^[A-Z][A-Z0-9]*-[A-Z][A-Z0-9]*-[0-9]+$`)
+	digitsRe   = regexp.MustCompile(`^[0-9]+$`)
+)
+
+// IsPlanKey reports whether s looks like PROJ-PLAN (or a branch plan key).
+func IsPlanKey(s string) bool { return planKeyRe.MatchString(s) }
+
+// IsBuildKey reports whether s looks like PROJ-PLAN-123.
+func IsBuildKey(s string) bool { return buildKeyRe.MatchString(s) }
+
+// PlanRef is a resolved plan, and the branch plan to act on.
+type PlanRef struct {
+	PlanKey   string // branch plan key when a branch is chosen, else MasterKey
+	MasterKey string
+	Branch    string // branch short name; empty for the default branch
+	Target    *config.ResolvedTarget
+}
+
+// ResolvePlan turns a target name or plan key into a PlanRef. branch
+// overrides the target's branch.
+func (s *Service) ResolvePlan(ctx context.Context, arg, branch string) (PlanRef, error) {
+	var ref PlanRef
+	switch {
+	case config.ValidTargetName(arg):
+		t, ok, err := s.Cfg.Target(arg)
+		if err != nil {
+			return PlanRef{}, err
+		}
+		if !ok {
+			return PlanRef{}, s.unknownTarget(arg)
+		}
+		ref = PlanRef{PlanKey: t.Plan, MasterKey: t.Plan, Target: &t}
+		if branch == "" {
+			branch = t.Branch
+		}
+	case IsPlanKey(arg):
+		ref = PlanRef{PlanKey: arg, MasterKey: arg}
+	default:
+		return PlanRef{}, errs.Usagef("%q is neither a target nor a plan key", arg).
+			WithTry("bam target list, or a plan key such as PROJ-PLAN")
+	}
+	if branch != "" {
+		key, err := s.ResolveBranch(ctx, ref.MasterKey, branch)
+		if err != nil {
+			return PlanRef{}, err
+		}
+		ref.PlanKey, ref.Branch = key, branch
+	}
+	return ref, nil
+}
+
+func (s *Service) unknownTarget(name string) error {
+	all, _ := s.Cfg.Targets()
+	names := make([]string, 0, len(all))
+	for n := range all {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	e := errs.Usagef("unknown target %q", name).WithTry("bam target list; plan keys are uppercase, like PROJ-PLAN")
+	if len(names) == 0 {
+		return e.WithWhy("no targets are configured")
+	}
+	return e.WithWhy("targets: " + strings.Join(names, ", "))
+}
+
+// ResolveBranch returns the branch plan key of branch on plan master.
+func (s *Service) ResolveBranch(ctx context.Context, master, branch string) (string, error) {
+	branches, err := s.P.ListBranches(ctx, master)
+	if err != nil {
+		return "", err
+	}
+	names := make([]string, 0, len(branches))
+	for _, b := range branches {
+		if b.ShortName == branch || b.Name == branch {
+			return b.Key, nil
+		}
+		names = append(names, b.ShortName)
+	}
+	e := errs.Usagef("branch %q not found on %s", branch, master).
+		WithTry(fmt.Sprintf("bam plan branches %s (omit --branch for the default branch)", master))
+	if close := Closest(branch, names, 3); len(close) > 0 {
+		e = e.WithWhy("close matches: " + strings.Join(close, ", "))
+	}
+	return "", e
+}
+
+// BuildArg is how a command names a build.
+type BuildArg struct {
+	Arg    string // build key, plan key or target name
+	Last   bool
+	Branch string
+}
+
+// ResolveBuild returns a build key: the key itself, the latest build of a
+// plan or target, or the last build bam triggered from this repository.
+func (s *Service) ResolveBuild(ctx context.Context, a BuildArg) (string, error) {
+	switch {
+	case a.Last:
+		rec, ok, err := s.State.Last(s.Cfg.RepoRoot)
+		if err != nil {
+			return "", err
+		}
+		if !ok {
+			return "", errs.Usagef("no build triggered from this repository yet").WithTry("bam run <target>")
+		}
+		if rec.Origin != "" && rec.Origin != s.Origin {
+			return "", errs.Configf("the last build %s ran on %s, not on server %q", rec.BuildKey, rec.Origin, s.Server.Alias).
+				WithTry("pass --server with the alias of " + rec.Origin)
+		}
+		return rec.BuildKey, nil
+	case IsBuildKey(a.Arg):
+		return a.Arg, nil
+	case a.Arg == "":
+		return "", errs.Usagef("which build?").WithTry("pass a build key, a plan key, a target, or --last")
+	}
+	ref, err := s.ResolvePlan(ctx, a.Arg, a.Branch)
+	if err != nil {
+		return "", err
+	}
+	builds, err := s.P.ListBuilds(ctx, ref.PlanKey, provider.ListOptions{Limit: 1})
+	if err != nil {
+		return "", err
+	}
+	if len(builds) == 0 {
+		return "", errs.Bamboof("no builds of %s yet", ref.PlanKey).WithTry("bam run " + a.Arg)
+	}
+	return builds[0].Key, nil
+}
+
+// ResolveFrom turns --from into a build key: a number of the resolved plan
+// branch, a full key, or "last" (the most recent manual build, else the most
+// recent build).
+func (s *Service) ResolveFrom(ctx context.Context, ref PlanRef, from string) (string, error) {
+	switch {
+	case from == "":
+		return "", nil
+	case digitsRe.MatchString(from):
+		return ref.PlanKey + "-" + from, nil
+	case IsBuildKey(from):
+		return from, nil
+	case from != "last":
+		return "", errs.Usagef("--from takes a build number, a build key or last, not %q", from)
+	}
+	builds, err := s.P.ListBuilds(ctx, ref.PlanKey, provider.ListOptions{Limit: 20})
+	if err != nil {
+		return "", err
+	}
+	if len(builds) == 0 {
+		return "", errs.Usagef("no builds of %s to reuse variables from", ref.PlanKey)
+	}
+	for _, b := range builds {
+		r := strings.ToLower(b.Reason)
+		if strings.Contains(r, "manual") || strings.Contains(r, "custom") {
+			return b.Key, nil
+		}
+	}
+	return builds[0].Key, nil
+}
