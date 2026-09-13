@@ -143,7 +143,10 @@ func (r *runtime) connectLast(ctx context.Context) (*app.Service, Backend, error
 		return nil, nil, err
 	}
 	rec, ok, err := (&app.StateStore{Path: r.env.Paths.State}).Last(cfg.RepoRoot)
-	if err != nil || !ok || r.flags.server != "" {
+	if err != nil {
+		return nil, nil, err
+	}
+	if !ok || r.flags.server != "" {
 		return r.connect(ctx, "")
 	}
 	for _, s := range cfg.Servers() {

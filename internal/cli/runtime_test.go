@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/r0jjames/bam-cli/internal/app"
 	"github.com/r0jjames/bam-cli/internal/errs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -64,6 +65,41 @@ func TestConnectForTargetUsesTargetServer(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "home", svc.Server.Alias)
 	assert.Equal(t, "home-tok", h.connectOpts[0].Token)
+}
+
+func TestConnectLastSelectsTheOriginsServer(t *testing.T) {
+	h := newHarness(t)
+	require.NoError(t, os.MkdirAll(filepath.Dir(h.env.Paths.MachineConfig), 0o700))
+	require.NoError(t, os.WriteFile(h.env.Paths.MachineConfig, []byte(
+		"version: 1\nservers:\n  home:\n    url: http://bamboo.lab.example:8085\n"), 0o644))
+	h.kr.m["bam|http://bamboo.lab.example:8085"] = "home-tok"
+	require.NoError(t, (&app.StateStore{Path: h.env.Paths.State}).SetLast(h.root, app.LastRecord{
+		BuildKey: "PROJ-PROV12-8", Origin: "http://bamboo.lab.example:8085", PlanKey: "PROJ-PROV12",
+	}))
+	svc, _, err := newRuntime(h).connectLast(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "home", svc.Server.Alias)
+	assert.Equal(t, "home-tok", h.connectOpts[0].Token)
+}
+
+func TestConnectLastWithNoMatchingServerIsConfigError(t *testing.T) {
+	h := newHarness(t)
+	require.NoError(t, (&app.StateStore{Path: h.env.Paths.State}).SetLast(h.root, app.LastRecord{
+		BuildKey: "LAB-SMOKE-3", Origin: "http://bamboo.lab.example:8085", PlanKey: "LAB-SMOKE",
+	}))
+	_, _, err := newRuntime(h).connectLast(context.Background())
+	require.Error(t, err)
+	assert.Equal(t, errs.KindConfig, errs.KindOf(err))
+	var e *errs.Error
+	require.ErrorAs(t, err, &e)
+	assert.Contains(t, e.Try, "bam server add")
+}
+
+func TestConnectLastWithoutRecordFallsBackToDefaultServer(t *testing.T) {
+	h := newHarness(t)
+	svc, _, err := newRuntime(h).connectLast(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "work", svc.Server.Alias)
 }
 
 func TestColorFlagValidated(t *testing.T) {
