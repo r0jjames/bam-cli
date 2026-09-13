@@ -1,0 +1,13 @@
+{"results": {"size": 3, "start-index": 0, "max-result": 10, "result": [
+  {"key": "PROJ-BUILD-482", "buildResultKey": "PROJ-BUILD-482", "buildNumber": 482, "state": "Successful", "lifeCycleState": "Finished",
+   "buildStartedTime": "2026-09-12T11:40:00.000Z", "buildCompletedTime": "2026-09-12T11:42:11.000Z", "buildDuration": 131000,
+   "buildReason": "Manual run by <a href=\"https://bamboo.example.com/browse/user/jdoe\">J Doe</a>",
+   "plan": {"key": "PROJ-BUILD", "shortName": "Build and test"}},
+  {"key": "PROJ-BUILD-481", "buildResultKey": "PROJ-BUILD-481", "buildNumber": 481, "state": "Failed", "lifeCycleState": "Finished",
+   "buildStartedTime": "2026-09-12T10:00:00.000Z", "buildCompletedTime": "2026-09-12T10:03:40.000Z", "buildDuration": 220000,
+   "buildReason": "Changes by a1b2c3d &lt;jdoe@example.com&gt;",
+   "plan": {"key": "PROJ-BUILD", "shortName": "Build and test"}},
+  {"key": "PROJ-BUILD-480", "buildResultKey": "PROJ-BUILD-480", "buildNumber": 480, "state": "Unknown", "lifeCycleState": "Finished",
+   "buildStartedTime": "2026-09-12T09:00:00.000Z", "buildCompletedTime": "2026-09-12T09:00:30.000Z", "buildDuration": 30000,
+   "buildReason": "Scheduled", "plan": {"key": "PROJ-BUILD", "shortName": "Build and test"}}
+]}}
