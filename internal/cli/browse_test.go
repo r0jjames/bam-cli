@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/r0jjames/bam-cli/internal/errs"
 	"github.com/r0jjames/bam-cli/internal/provider"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -52,6 +53,25 @@ func TestPlanShowForTarget(t *testing.T) {
 	assert.Contains(t, out, "develop (1)")
 	assert.Contains(t, out, "cluster_type=k8s")
 	assert.Contains(t, out, "PROJ-PROV12-8")
+}
+
+func TestPlanShowJSONReportsVariablesError(t *testing.T) {
+	h := newHarness(t)
+	h.fake.VariablesErr = errs.Bamboof("boom")
+	h.fake.BuildVarsErr = errs.Bamboof("boom")
+	assert.Equal(t, 0, h.run("plan", "show", "PROJ-BUILD", "--json"))
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(h.stdout.Bytes(), &doc))
+	assert.Contains(t, doc["variables_error"], "boom")
+	assert.Equal(t, []any{}, doc["variables"])
+
+	h.fake.VariablesErr = nil
+	h.fake.BuildVarsErr = nil
+	assert.Equal(t, 0, h.run("plan", "show", "provision-lab", "--json"))
+	var okDoc map[string]any
+	require.NoError(t, json.Unmarshal(h.stdout.Bytes(), &okDoc))
+	_, hasErr := okDoc["variables_error"]
+	assert.False(t, hasErr, "no variables_error key on success")
 }
 
 func TestPlanVarsShowsLastUsed(t *testing.T) {

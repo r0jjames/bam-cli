@@ -201,10 +201,14 @@ func newPlanShowCmd(r *runtime) *cobra.Command {
 				for _, b := range branches {
 					branchDocs = append(branchDocs, view.BranchJSON(b))
 				}
-				return view.WriteJSON(r.env.Stdout, map[string]any{
+				doc := map[string]any{
 					"plan": view.PlanJSON(plan), "branches": branchDocs,
 					"variables": view.VarRowsJSON(d.Vars), "builds": view.BuildsJSON(d.Builds),
-				})
+				}
+				if d.VarsErr != "" {
+					doc["variables_error"] = d.VarsErr
+				}
+				return view.WriteJSON(r.env.Stdout, doc)
 			}
 			o, err := r.out()
 			if err != nil {
