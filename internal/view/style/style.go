@@ -86,6 +86,18 @@ func Strip(s string) string { return escRe.ReplaceAllString(s, "") }
 // Width is the number of visible characters.
 func Width(s string) int { return utf8.RuneCountInString(Strip(s)) }
 
+// Colored paints arbitrary text in a state's color.
+func Colored(m Mode, s provider.State, text string) string { return Paint(m, colors[s], text) }
+
+// Title is the label with a capital first letter: "Not built".
+func Title(s provider.State) string {
+	l := Label(s)
+	if l == "" {
+		return l
+	}
+	return strings.ToUpper(l[:1]) + l[1:]
+}
+
 // ColorEnabled applies --color, then NO_COLOR, then TTY detection.
 func ColorEnabled(flag, noColor string, tty bool) (bool, error) {
 	switch flag {
