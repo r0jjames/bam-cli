@@ -191,3 +191,14 @@ func (h *harness) run(args ...string) int {
 	env.StdinTTY = h.tty
 	return Execute(context.Background(), args, env)
 }
+
+// runCtx is run with a caller-supplied context, e.g. an already cancelled one.
+func (h *harness) runCtx(ctx context.Context, args ...string) int {
+	h.stdout.Reset()
+	h.stderr.Reset()
+	env := h.env
+	env.Stdin = strings.NewReader(h.stdin)
+	env.StdoutTTY = h.tty
+	env.StdinTTY = h.tty
+	return Execute(ctx, args, env)
+}
