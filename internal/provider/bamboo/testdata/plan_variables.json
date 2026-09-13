@@ -1,0 +1,1 @@
+[{"name": "cluster_type", "value": "k8s"}, {"name": "compute_nodes", "value": "2"}, {"name": "db_password", "value": "********"}]

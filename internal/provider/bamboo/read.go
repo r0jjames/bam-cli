@@ -172,5 +172,9 @@ func (c *Client) GetBuild(ctx context.Context, key string) (provider.Build, erro
 	if err := c.getJSON(ctx, api+"/result/"+url.PathEscape(key), url.Values{"expand": {buildExpand}}, &r); err != nil {
 		return provider.Build{}, c.notFoundAs(err, "build", key, "")
 	}
-	return c.mapBuild(r), nil
+	b := c.mapBuild(r)
+	if b.State == provider.StateFailed {
+		b.FailedTests = c.failedTests(ctx, key)
+	}
+	return b, nil
 }

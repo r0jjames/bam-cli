@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/r0jjames/bam-cli/internal/errs"
@@ -41,7 +42,9 @@ type Client struct {
 	sleep    func(ctx context.Context, d time.Duration) error
 	saveCaps func(Capabilities)
 
-	caps Capabilities
+	mu             sync.Mutex
+	caps           Capabilities
+	versionChecked bool
 }
 
 // New returns a Client for the server at o.BaseURL.

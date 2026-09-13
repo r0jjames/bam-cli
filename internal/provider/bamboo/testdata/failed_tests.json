@@ -1,0 +1,4 @@
+{"key": "PROJ-BUILD12-44", "testResults": {"all": 40, "successful": 38, "failed": 2, "failedTests": {"size": 2, "testResult": [
+  {"testCaseName": "TestLogin", "className": "app.AuthTest", "methodName": "TestLogin"},
+  {"testCaseName": "TestRefresh", "className": "app.AuthTest", "methodName": "TestRefresh"}
+]}}}
