@@ -1,0 +1,33 @@
+## bam run
+
+Trigger a plan or target with variables
+
+```
+bam run <plan|target> [flags]
+```
+
+### Options
+
+```
+      --branch string      plan branch to run
+      --dry-run            resolve and validate variables, trigger nothing
+      --from string        reuse variables of a build: number, key or last
+  -h, --help               help for run
+      --timeout duration   stop watching after this long (the build keeps running)
+      --var stringArray    variable name=value (repeatable)
+      --watch              follow the build until it finishes
+```
+
+### Options inherited from parent commands
+
+```
+      --color string    color output: auto, always or never
+      --debug           log HTTP requests to stderr
+      --json            print JSON
+      --server string   server alias to use
+```
+
+### SEE ALSO
+
+* [bam](bam.md)	 - A terminal remote control for Atlassian Bamboo
+

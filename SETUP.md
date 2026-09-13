@@ -9,7 +9,7 @@ Windows is not covered here.
 | Tool | Why | Required |
 | --- | --- | --- |
 | Git | source control | yes |
-| Go (latest stable, 1.22 or newer) | build and test | yes |
+| Go (latest stable, 1.26 or newer) | build and test | yes |
 | GNU make (3.81 or newer) | `make build`, `make test`, `make lint` … | yes |
 | golangci-lint v2 | the lint gate (`make lint`) | yes |
 | curl | downloads in this guide | yes |
@@ -57,7 +57,7 @@ source ~/.zshrc
 ### 4. Check
 
 ```bash
-go version                 # go1.22 or newer
+go version                 # go1.26 or newer
 golangci-lint version      # must say "version 2."
 gopls version
 ```
@@ -127,7 +127,7 @@ For the GitHub CLI, follow https://github.com/cli/cli/blob/trunk/docs/install_li
 ### 5. Check
 
 ```bash
-go version                 # go1.22 or newer
+go version                 # go1.26 or newer
 golangci-lint version      # must say "version 2."
 make --version | head -1
 gopls version
@@ -207,6 +207,8 @@ Prepare before task 9:
    ```
 
    The recorder replaces your host and user names with placeholders, and `make check-fixtures` rejects anything it missed. Still read every recorded file before committing.
+
+   `make record` also appends your real host and user names to a private denylist at `~/.config/bam/fixture-denylist.txt` (override the location with `BAM_FIXTURE_DENYLIST`), outside the repository. `make check-fixtures` fails if any of those terms show up anywhere in `testdata/`.
 
 ## Troubleshooting
 

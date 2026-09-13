@@ -79,6 +79,13 @@ func newRoot(r *runtime) *cobra.Command {
 // commandSets register command groups; later tasks append to it from init().
 var commandSets []func(root *cobra.Command, r *runtime)
 
+// DocsRoot returns the command tree for generating the command reference.
+func DocsRoot() *cobra.Command {
+	root := newRoot(&runtime{env: SystemEnv()})
+	root.DisableAutoGenTag = true
+	return root
+}
+
 func newVersionCmd(r *runtime) *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",

@@ -1,0 +1,29 @@
+## bam build
+
+Builds: list, show, run, watch, logs, cancel
+
+### Options
+
+```
+  -h, --help   help for build
+```
+
+### Options inherited from parent commands
+
+```
+      --color string    color output: auto, always or never
+      --debug           log HTTP requests to stderr
+      --json            print JSON
+      --server string   server alias to use
+```
+
+### SEE ALSO
+
+* [bam](bam.md)	 - A terminal remote control for Atlassian Bamboo
+* [bam build cancel](bam_build_cancel.md)	 - Stop a queued or running build
+* [bam build list](bam_build_list.md)	 - List recent builds of a plan
+* [bam build logs](bam_build_logs.md)	 - Print job logs; --failed for failed jobs only
+* [bam build run](bam_build_run.md)	 - Trigger a plan or target with variables
+* [bam build show](bam_build_show.md)	 - Show a build: state, stages, jobs, failure summary
+* [bam build watch](bam_build_watch.md)	 - Follow a build until it finishes; exit 1 if it fails
+
