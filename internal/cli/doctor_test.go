@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/r0jjames/bam-cli/internal/errs"
@@ -74,4 +75,18 @@ func TestDoctorJSON(t *testing.T) {
 	assert.Equal(t, 0, h.run("doctor", "--json"))
 	assert.Contains(t, h.stdout.String(), `"name": "auth"`)
 	assert.Contains(t, h.stdout.String(), `"status": "unsupported"`)
+}
+
+func TestDoctorInvalidServerURL(t *testing.T) {
+	h := newHarness(t)
+	h.vars["BAM_URL"] = "not-a-url"
+	assert.Equal(t, 3, h.run("doctor"))
+	out := h.stdout.String()
+	// Exactly one line should contain " server"
+	serverLines := strings.Count(out, "server  ")
+	assert.Equal(t, 1, serverLines, "expected exactly one 'server' check in output")
+	// That line should start with ✗ server
+	assert.Regexp(t, `✗ server`, out)
+	// Should not contain ✓ server
+	assert.NotContains(t, out, "✓ server")
 }
