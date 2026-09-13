@@ -33,7 +33,8 @@ func Execute(ctx context.Context, args []string, env Env) int {
 	})
 	err := root.ExecuteContext(ctx)
 	var res *resultError
-	if err != nil && !errors.As(err, &res) && !errors.Is(err, context.Canceled) {
+	var silent silentError
+	if err != nil && !errors.As(err, &res) && !errors.As(err, &silent) && !errors.Is(err, context.Canceled) {
 		view.PrintError(env.Stderr, err, r.flags.debug)
 	}
 	return exitCode(err)

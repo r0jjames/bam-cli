@@ -165,12 +165,17 @@ func (r *runtime) wrap(fn func(cmd *cobra.Command, args []string) error) func(*c
 		}
 		var e *errs.Error
 		var res *resultError
-		if errors.As(err, &e) || errors.As(err, &res) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		if errors.As(err, &e) || errors.As(err, &res) || errors.As(err, new(silentError)) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return err
 		}
 		return errs.New(errs.KindInternal, err.Error()).Wrap(err)
 	}
 }
+
+// silentError carries an exit code for an error the command already printed.
+type silentError struct{ error }
+
+func (s silentError) Unwrap() error { return s.error }
 
 func exitCode(err error) int {
 	if err == nil {
