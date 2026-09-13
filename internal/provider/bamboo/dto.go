@@ -1,7 +1,8 @@
 package bamboo
 
-// Bamboo JSON shapes. Field names were checked against recordings from a
-// Bamboo Data Center 9.x server (testdata/recorded).
+// Bamboo JSON shapes. Field names follow Atlassian's REST documentation and
+// are provisional until TestRecordedShapesDecode runs against recordings from
+// a Bamboo Data Center 9.x server (testdata/recorded).
 
 type userDTO struct {
 	Name     string `json:"name"`
