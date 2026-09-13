@@ -1,0 +1,148 @@
+package bamboo
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/r0jjames/bam-cli/internal/errs"
+	"github.com/r0jjames/bam-cli/internal/provider"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestTriggerSendsVariablesInFormBody(t *testing.T) {
+	c, rec := newTestServer(t, map[string]*route{"POST /rest/api/latest/queue/PROJ-BUILD": {fixture: "queue.json"}})
+	b, err := c.Trigger(ctx, provider.TriggerRequest{
+		PlanKey:   "PROJ-BUILD",
+		Variables: map[string]string{"env": "staging", "db_password": "hunter2"},
+		Secret:    map[string]bool{"db_password": true},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, provider.Build{Key: "PROJ-BUILD-45", URL: c.URL("PROJ-BUILD-45"), PlanKey: "PROJ-BUILD", Number: 45,
+		State: provider.StateQueued, Reason: "Manual build"}, b)
+
+	r := rec.all()[0]
+	assert.Equal(t, "true", r.URL.Query().Get("executeAllStages"))
+	assert.Empty(t, r.URL.Query().Get("bamboo.variable.env"), "variables stay out of the URL")
+	assert.Contains(t, rec.form[0], "bamboo.variable.env=staging")
+	assert.Equal(t, "application/x-www-form-urlencoded", r.Header.Get("Content-Type"))
+}
+
+func TestTriggerRejectedNamesThePlan(t *testing.T) {
+	c, _ := newTestServer(t, map[string]*route{"POST /rest/api/latest/queue/PROJ-BUILD": {status: 400, body: `{"message":"Plan PROJ-BUILD is disabled"}`}})
+	_, err := c.Trigger(ctx, provider.TriggerRequest{PlanKey: "PROJ-BUILD"})
+	require.Error(t, err)
+	var e *errs.Error
+	require.ErrorAs(t, err, &e)
+	assert.Equal(t, "could not start build of PROJ-BUILD", e.What)
+	assert.Equal(t, "Plan PROJ-BUILD is disabled", e.Why)
+}
+
+func TestStopBuild(t *testing.T) {
+	c, rec := newTestServer(t, map[string]*route{"DELETE /rest/api/latest/queue/PROJ-BUILD-45": {status: 204}})
+	saved := knownCaps(c, Capabilities{})
+	require.NoError(t, c.StopBuild(ctx, "PROJ-BUILD-45"))
+	assert.Equal(t, "DELETE", rec.all()[0].Method)
+	assert.Equal(t, "yes", (*saved)[len(*saved)-1].Stop)
+}
+
+func TestStopBuildUnsupported(t *testing.T) {
+	c, _ := newTestServer(t, map[string]*route{"DELETE /rest/api/latest/queue/PROJ-BUILD-45": {status: 405}})
+	saved := knownCaps(c, Capabilities{})
+	err := c.StopBuild(ctx, "PROJ-BUILD-45")
+	assert.True(t, errors.Is(err, errs.ErrUnsupported))
+	assert.Equal(t, "no", (*saved)[len(*saved)-1].Stop)
+}
+
+func TestFetchLogFromEntries(t *testing.T) {
+	c, _ := newTestServer(t, map[string]*route{
+		"GET /rest/api/latest/result/PROJ-BUILD12-INT-44?expand=logEntries[0:500]": {fixture: "log_entries.json"},
+	})
+	saved := knownCaps(c, Capabilities{})
+	chunk, err := c.FetchLog(ctx, "PROJ-BUILD12-INT-44", provider.LogOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Starting integration tests", "FAIL: TestLogin <timeout>", "Failing task since return code of [go test] was 1"}, chunk.Lines)
+	assert.Equal(t, 3, chunk.Next)
+	assert.Equal(t, "entries", (*saved)[len(*saved)-1].Log)
+}
+
+func TestFetchLogFallsBackToDownload(t *testing.T) {
+	raw := "simple\t12-Sep-2026 11:00:00\tStarting integration tests\r\n" +
+		"error\t12-Sep-2026 11:00:05\tFAIL: TestLogin <timeout>\n" +
+		"simple\t12-Sep-2026 11:00:06\tFailing task\n"
+	c, rec := newTestServer(t, map[string]*route{
+		"GET /rest/api/latest/result/PROJ-BUILD12-INT-44":                   {status: 400, body: `{"message":"bad expand"}`},
+		"GET /download/PROJ-BUILD12-INT/build_logs/PROJ-BUILD12-INT-44.log": {body: raw},
+	})
+	saved := knownCaps(c, Capabilities{})
+	chunk, err := c.FetchLog(ctx, "PROJ-BUILD12-INT-44", provider.LogOptions{Offset: 1})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"FAIL: TestLogin <timeout>", "Failing task"}, chunk.Lines)
+	assert.Equal(t, 3, chunk.Next)
+	assert.Equal(t, "download", (*saved)[len(*saved)-1].Log)
+
+	_, err = c.FetchLog(ctx, "PROJ-BUILD12-INT-44", provider.LogOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, countPath(rec, "/rest/api/latest/result/PROJ-BUILD12-INT-44"), "entries path not retried once download is learned")
+	assert.Empty(t, rec.all()[1].Header.Get("Accept"), "raw download does not ask for JSON")
+}
+
+func TestFetchLogUnknownJob(t *testing.T) {
+	c, _ := newTestServer(t, map[string]*route{})
+	knownCaps(c, Capabilities{})
+	_, err := c.FetchLog(ctx, "PROJ-BUILD12-NOPE-44", provider.LogOptions{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "job PROJ-BUILD12-NOPE-44 not found")
+}
+
+// TestRecordedLogEntriesDecode runs a recording of the log entries endpoint
+// through FetchLog. It skips when nothing is recorded.
+func TestRecordedLogEntriesDecode(t *testing.T) {
+	const f = "recorded/log_entries.json"
+	if _, err := os.Stat(filepath.Join("testdata", f)); err != nil {
+		t.Skipf("%s not recorded", f)
+	}
+	c, _ := newTestServer(t, map[string]*route{
+		"GET /rest/api/latest/result/REC-PLAN-JOB1-1?expand=logEntries[0:500]": {fixture: f},
+	})
+	knownCaps(c, Capabilities{})
+	chunk, err := c.FetchLog(ctx, "REC-PLAN-JOB1-1", provider.LogOptions{})
+	require.NoError(t, err)
+	assert.NotEmpty(t, chunk.Lines)
+}
+
+// TestRecordedLogDownloadDecode runs a recording of the raw log download
+// through FetchLog. It skips when nothing is recorded.
+func TestRecordedLogDownloadDecode(t *testing.T) {
+	const f = "recorded/log_download.log"
+	if _, err := os.Stat(filepath.Join("testdata", f)); err != nil {
+		t.Skipf("%s not recorded", f)
+	}
+	raw, err := os.ReadFile(filepath.Join("testdata", f))
+	require.NoError(t, err)
+	c, _ := newTestServer(t, map[string]*route{
+		"GET /rest/api/latest/result/REC-PLAN-JOB1-1":                {status: 400, body: `{"message":"bad expand"}`},
+		"GET /download/REC-PLAN-JOB1/build_logs/REC-PLAN-JOB1-1.log": {body: string(raw)},
+	})
+	knownCaps(c, Capabilities{})
+	chunk, err := c.FetchLog(ctx, "REC-PLAN-JOB1-1", provider.LogOptions{})
+	require.NoError(t, err)
+	assert.NotEmpty(t, chunk.Lines)
+}
+
+// TestRecordedStoppedState checks that a recorded stopped build maps to
+// provider.StateStopped. It skips when nothing is recorded.
+func TestRecordedStoppedState(t *testing.T) {
+	const f = "recorded/result_stopped.json"
+	if _, err := os.Stat(filepath.Join("testdata", f)); err != nil {
+		t.Skipf("%s not recorded", f)
+	}
+	c, _ := newTestServer(t, map[string]*route{
+		"GET /rest/api/latest/result/REC-PLAN-1?expand=" + buildExpand: {fixture: f},
+	})
+	b, err := c.GetBuild(ctx, "REC-PLAN-1")
+	require.NoError(t, err)
+	assert.Equal(t, provider.StateStopped, b.State)
+}

@@ -1,0 +1,2 @@
+{"planKey": "PROJ-BUILD", "buildNumber": 45, "buildResultKey": "PROJ-BUILD-45", "triggerReason": "Manual build",
+ "link": {"href": "https://bamboo.example.com/rest/api/latest/result/PROJ-BUILD-45", "rel": "self"}}

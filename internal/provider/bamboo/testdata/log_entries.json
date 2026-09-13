@@ -1,0 +1,5 @@
+{"key": "PROJ-BUILD12-INT-44", "logEntries": {"size": 3, "start-index": 0, "max-result": 3, "logEntry": [
+  {"log": "Starting integration tests", "unstyledLog": "Starting integration tests", "formattedDate": "12-Sep-2026 11:00:00"},
+  {"log": "FAIL: TestLogin &lt;timeout&gt;", "unstyledLog": "FAIL: TestLogin <timeout>", "formattedDate": "12-Sep-2026 11:00:05"},
+  {"log": "Failing task since return code of [go test] was 1", "unstyledLog": "Failing task since return code of [go test] was 1", "formattedDate": "12-Sep-2026 11:00:06"}
+]}}
