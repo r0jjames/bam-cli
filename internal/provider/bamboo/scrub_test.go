@@ -70,6 +70,30 @@ func TestScrubberTerms(t *testing.T) {
 	assert.Equal(t, len(terms), len(termMap), "terms should have no duplicates, got: %v", terms)
 }
 
+func TestFixtureHostViolationsAnyScheme(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ok.json"), []byte(`{"u":"https://bamboo.example.com/x"}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ws.json"), []byte(`{"u":"wss://ci.corp.internal/socket"}`), 0o644))
+
+	v, err := FixtureHostViolations(dir)
+	require.NoError(t, err)
+	require.Len(t, v, 1)
+	assert.Contains(t, v[0], "ws.json")
+	assert.Contains(t, v[0], "ci.corp.internal")
+}
+
+func TestFixtureHostViolationsIPv6Bracket(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ok.json"), []byte(`{"u":"http://[::1]:8085/x"}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "bad.json"), []byte(`{"u":"http://[2001:db8::1]:8085/x"}`), 0o644))
+
+	v, err := FixtureHostViolations(dir)
+	require.NoError(t, err)
+	require.Len(t, v, 1)
+	assert.Contains(t, v[0], "bad.json")
+	assert.Contains(t, v[0], "[2001:db8::1]")
+}
+
 func TestFixtureHostViolationsIPAddress(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "has_ip.json"), []byte(`{"host":"10.1.2.3"}`), 0o644))

@@ -29,6 +29,135 @@ type recorder struct {
 	scrub            bamboo.Scrubber
 }
 
+// variableValueFiles are the recorded files whose variable values (not
+// names) must be replaced with synthetic placeholders before they can be
+// committed: they can hold values from a personal Bamboo server.
+var variableValueFiles = map[string]bool{
+	"plan_variables.json":   true,
+	"plan_variable.json":    true,
+	"result_variables.json": true,
+}
+
+// scrubVariableValues decodes body as arbitrary JSON and, for every object
+// that looks like a Bamboo variable entry (it has a "name" or "key" field
+// alongside "value"), replaces a non-masked "value" with a synthetic
+// "value-N". Bamboo's own mask ("********") is left as is. N counts across
+// the whole document in encounter order.
+func scrubVariableValues(body []byte) ([]byte, error) {
+	var v any
+	if err := json.Unmarshal(body, &v); err != nil {
+		return nil, err
+	}
+	n := 0
+	v = rewriteVariableValues(v, &n)
+	return json.MarshalIndent(v, "", "  ")
+}
+
+func rewriteVariableValues(v any, n *int) any {
+	switch t := v.(type) {
+	case []any:
+		for i, item := range t {
+			t[i] = rewriteVariableValues(item, n)
+		}
+		return t
+	case map[string]any:
+		_, hasName := t["name"]
+		_, hasKey := t["key"]
+		if val, ok := t["value"].(string); ok && (hasName || hasKey) && val != bamboo.MaskedValue {
+			*n++
+			t["value"] = fmt.Sprintf("value-%d", *n)
+		}
+		for k, val := range t {
+			t[k] = rewriteVariableValues(val, n)
+		}
+		return t
+	default:
+		return v
+	}
+}
+
+// maxScrubbedLogLines is how many log entries/lines a recording keeps; the
+// rest are dropped so a long build log never carries private data past what
+// review can reasonably catch.
+const maxScrubbedLogLines = 5
+
+// scrubLogEntries truncates a recorded "logEntries" envelope (as returned by
+// GET .../result/{key}?expand=logEntries[...]) to at most the first
+// maxScrubbedLogLines entries and replaces each entry's log text with a
+// synthetic "log line N".
+func scrubLogEntries(body []byte) ([]byte, error) {
+	var root map[string]any
+	if err := json.Unmarshal(body, &root); err != nil {
+		return nil, err
+	}
+	wrapper, ok := root["logEntries"].(map[string]any)
+	if !ok {
+		return json.MarshalIndent(root, "", "  ")
+	}
+	var listKey string
+	var list []any
+	for k, val := range wrapper {
+		if arr, ok := val.([]any); ok {
+			listKey, list = k, arr
+			break
+		}
+	}
+	if listKey == "" {
+		return json.MarshalIndent(root, "", "  ")
+	}
+	if len(list) > maxScrubbedLogLines {
+		list = list[:maxScrubbedLogLines]
+	}
+	for i, item := range list {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		text := fmt.Sprintf("log line %d", i+1)
+		if _, ok := entry["log"]; ok {
+			entry["log"] = text
+		}
+		if _, ok := entry["unstyledLog"]; ok {
+			entry["unstyledLog"] = text
+		}
+	}
+	wrapper[listKey] = list
+	if _, ok := wrapper["size"]; ok {
+		wrapper["size"] = len(list)
+	}
+	root["logEntries"] = wrapper
+	return json.MarshalIndent(root, "", "  ")
+}
+
+// scrubLogDownload truncates a raw log download (lines shaped
+// "type<TAB>date<TAB>message") to at most the first maxScrubbedLogLines
+// lines, keeping the type/date prefix but replacing the message with a
+// synthetic "log line N".
+func scrubLogDownload(body []byte) []byte {
+	lines := strings.Split(strings.TrimRight(string(body), "\r\n"), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		lines = nil
+	}
+	if len(lines) > maxScrubbedLogLines {
+		lines = lines[:maxScrubbedLogLines]
+	}
+	for i, l := range lines {
+		l = strings.TrimRight(l, "\r")
+		text := fmt.Sprintf("log line %d", i+1)
+		parts := strings.SplitN(l, "\t", 3)
+		if len(parts) == 3 {
+			lines[i] = parts[0] + "\t" + parts[1] + "\t" + text
+		} else {
+			lines[i] = text
+		}
+	}
+	out := strings.Join(lines, "\n")
+	if out != "" {
+		out += "\n"
+	}
+	return []byte(out)
+}
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "record:", err)
@@ -152,6 +281,18 @@ func (r *recorder) record(file, method, path string, q url.Values) error {
 		if json.Unmarshal(body, &pretty) == nil {
 			body, _ = json.MarshalIndent(pretty, "", "  ")
 		}
+	}
+	switch {
+	case variableValueFiles[file]:
+		if scrubbed, err := scrubVariableValues(body); err == nil {
+			body = scrubbed
+		}
+	case file == "log_entries.json":
+		if scrubbed, err := scrubLogEntries(body); err == nil {
+			body = scrubbed
+		}
+	case file == "log_download.log":
+		body = scrubLogDownload(body)
 	}
 	return os.WriteFile(filepath.Join(r.out, file), r.scrub.Scrub(body), 0o644)
 }

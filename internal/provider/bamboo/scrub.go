@@ -13,11 +13,15 @@ import (
 )
 
 var (
-	urlHostRe   = regexp.MustCompile(`(https?://)([^/"'\s<>]+)`)
-	hostOnlyRe  = regexp.MustCompile(`https?://([^/"'\s<>:]+)`)
-	emailRe     = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)
-	ipv4Re      = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
-	placeholder = "bamboo.example.com"
+	urlHostRe = regexp.MustCompile(`(https?://)([^/"'\s<>]+)`)
+	// hostOnlyRe matches the host after ANY scheme://, not only http(s), and
+	// stops before a bracketed IPv6 literal so that is handled separately by
+	// ipv6BracketRe below.
+	hostOnlyRe    = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://([^/"'\s<>:\[\]]+)`)
+	ipv6BracketRe = regexp.MustCompile(`\[[0-9A-Fa-f:]+\]`)
+	emailRe       = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)
+	ipv4Re        = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
+	placeholder   = "bamboo.example.com"
 )
 
 // AllowedFixtureHosts are the only hosts that may appear in testdata.
@@ -103,10 +107,18 @@ func FixtureHostViolations(root string) ([]string, error) {
 		}
 		content := string(data)
 
-		// Check for disallowed URL hosts
+		// Check for disallowed URL hosts, after any scheme, not only http(s).
 		for _, m := range hostOnlyRe.FindAllStringSubmatch(content, -1) {
 			if !AllowedFixtureHosts[strings.ToLower(m[1])] {
 				out = append(out, path+": "+m[1])
+			}
+		}
+
+		// Check for IPv6 literals in brackets, wherever they appear, except
+		// the loopback address.
+		for _, m := range ipv6BracketRe.FindAllString(content, -1) {
+			if m != "[::1]" {
+				out = append(out, path+": "+m)
 			}
 		}
 
