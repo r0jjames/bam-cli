@@ -97,6 +97,9 @@ func TestBuildList(t *testing.T) {
 	assert.Equal(t, 0, h.run("build", "list", "provision-lab", "--state", "success"))
 	assert.Empty(t, h.stdout.String())
 	assert.Contains(t, h.stderr.String(), "no success builds for PROJ-PROV12 on branch develop")
+
+	assert.Equal(t, 2, h.run("build", "list", "PROJ-BUILD", "--limit", "0"))
+	assert.Equal(t, 2, h.run("build", "list", "PROJ-BUILD", "--limit", "-1"))
 }
 
 func TestBuildShow(t *testing.T) {

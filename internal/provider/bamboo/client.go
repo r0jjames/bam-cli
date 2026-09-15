@@ -199,9 +199,18 @@ func (c *Client) once(ctx context.Context, r request) (int, []byte, http.Header,
 	return resp.StatusCode, data, resp.Header, err
 }
 
+// maxRetryAfter caps how long a single retry waits on a server-supplied
+// Retry-After, so a misbehaving or malicious response cannot stall a command
+// for an unbounded time.
+const maxRetryAfter = 60 * time.Second
+
 func (c *Client) backoff(attempt int, retryAfter string) time.Duration {
 	if s, err := strconv.Atoi(retryAfter); err == nil && s >= 0 {
-		return time.Duration(s) * time.Second
+		d := time.Duration(s) * time.Second
+		if d > maxRetryAfter {
+			d = maxRetryAfter
+		}
+		return d
 	}
 	base := 500 * time.Millisecond << (attempt - 1)
 	return base + time.Duration(rand.Int64N(int64(250*time.Millisecond)))

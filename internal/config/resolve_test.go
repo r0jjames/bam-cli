@@ -161,9 +161,10 @@ func TestMergedTargetValidation(t *testing.T) {
 		target Target
 		want   string
 	}{
-		"no plan":            {Target{Branch: "develop"}, "has no plan"},
-		"default not option": {Target{Plan: "PROJ-A", Defaults: StringMap{"a": "5"}, Options: StringListMap{"a": {"1", "2"}}}, `"5" is not one of 1, 2`},
-		"unknown server":     {Target{Plan: "PROJ-A", Server: "nope"}, `unknown server "nope"`},
+		"no plan":                   {Target{Branch: "develop"}, "has no plan"},
+		"default not option":        {Target{Plan: "PROJ-A", Defaults: StringMap{"a": "5"}, Options: StringListMap{"a": {"1", "2"}}}, `"5" is not one of 1, 2`},
+		"masked default not option": {Target{Plan: "PROJ-A", Defaults: StringMap{"db_password": "hunter2"}, Options: StringListMap{"db_password": {"a", "b"}}}, `db_password="********" is not one of a, b`},
+		"unknown server":            {Target{Plan: "PROJ-A", Server: "nope"}, `unknown server "nope"`},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

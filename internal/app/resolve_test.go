@@ -129,3 +129,15 @@ func TestBuildForgetsExpiredLastBuild(t *testing.T) {
 	_, ok, _ := s.State.Last(s.Cfg.RepoRoot)
 	assert.False(t, ok)
 }
+
+func TestBuildKeepsLastBuildRecordFromAnotherOrigin(t *testing.T) {
+	s := newService(t, fakeBamboo())
+	require.NoError(t, s.State.SetLast(s.Cfg.RepoRoot, LastRecord{BuildKey: "PROJ-BUILD-1", Origin: "https://other.example.com"}))
+	_, err := s.Build(bg, "PROJ-BUILD-1")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, errs.ErrNotFound))
+	assert.NotContains(t, err.Error(), "no longer exists", "the record belongs to a different server, so bam must not claim to have forgotten it")
+	rec, ok, _ := s.State.Last(s.Cfg.RepoRoot)
+	require.True(t, ok, "the record from the other origin must survive")
+	assert.Equal(t, "https://other.example.com", rec.Origin)
+}

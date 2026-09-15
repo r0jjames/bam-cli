@@ -243,7 +243,11 @@ func validateTarget(t ResolvedTarget, servers map[string]ResolvedServer) error {
 			continue
 		}
 		if !slices.Contains(t.Options[name], val) {
-			return errs.Configf("target %q: default %s=%q is not one of %s", t.Name, name, val, strings.Join(t.Options[name], ", ")).
+			display := val
+			if IsMaskedName(name) {
+				display = "********"
+			}
+			return errs.Configf("target %q: default %s=%q is not one of %s", t.Name, name, display, strings.Join(t.Options[name], ", ")).
 				WithWhy("defined in " + where)
 		}
 	}

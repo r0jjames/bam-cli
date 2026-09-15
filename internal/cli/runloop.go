@@ -239,6 +239,9 @@ func newLogsCmd(r *runtime) *cobra.Command {
 				return err
 			}
 			if failed && len(logs) == 0 {
+				if r.flags.json {
+					return view.WriteJSON(r.env.Stdout, []jobLogDoc{})
+				}
 				r.note("no failed jobs in "+key, "")
 				return nil
 			}
@@ -319,6 +322,9 @@ func newCancelCmd(r *runtime) *cobra.Command {
 				return err
 			}
 			if done {
+				if r.flags.json {
+					return view.WriteJSON(r.env.Stdout, map[string]any{"key": key, "url": svc.P.URL(key), "stopped": false, "state": string(b.State)})
+				}
 				r.note(fmt.Sprintf("%s already finished (%s)", key, b.State), "")
 				return nil
 			}

@@ -122,6 +122,9 @@ func TestLogs(t *testing.T) {
 	assert.Equal(t, 0, h.run("logs", "PROJ-BUILD-482", "--failed"))
 	assert.Contains(t, h.stderr.String(), "no failed jobs in PROJ-BUILD-482")
 
+	assert.Equal(t, 0, h.run("logs", "PROJ-BUILD-482", "--failed", "--json"))
+	assert.Equal(t, "[]\n", h.stdout.String(), "--json always writes exactly one document, even when empty")
+
 	assert.Equal(t, 2, h.run("logs", "--last"))
 	assert.Equal(t, 0, h.run("logs", "PROJ-PROV12-8", "--follow"))
 	assert.Contains(t, h.stdout.String(), "Error: quota exceeded")
@@ -140,6 +143,14 @@ func TestCancel(t *testing.T) {
 	assert.Equal(t, 0, h.run("build", "cancel", "PROJ-BUILD-482"))
 	assert.Contains(t, h.stderr.String(), "PROJ-BUILD-482 already finished (success)")
 	assert.Len(t, h.fake.Stopped, 1)
+
+	assert.Equal(t, 0, h.run("build", "cancel", "PROJ-BUILD-482", "--json"))
+	assert.Empty(t, h.stderr.String(), "the human-only note is not printed in --json mode")
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(h.stdout.Bytes(), &doc))
+	assert.Equal(t, "PROJ-BUILD-482", doc["key"])
+	assert.Equal(t, false, doc["stopped"])
+	assert.Equal(t, "success", doc["state"])
 }
 
 func TestOpenAndURL(t *testing.T) {

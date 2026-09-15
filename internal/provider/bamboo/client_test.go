@@ -185,6 +185,12 @@ func TestDebugLogRedactsSecretQueryValues(t *testing.T) {
 	assert.Contains(t, buf.String(), "status=200")
 }
 
+func TestBackoffCapsRetryAfterAt60s(t *testing.T) {
+	c, _ := newTestServer(t, map[string]*route{})
+	assert.Equal(t, 60*time.Second, c.backoff(1, "3600"), "a large Retry-After is capped at 60s")
+	assert.Equal(t, 5*time.Second, c.backoff(1, "5"), "a small Retry-After is kept as is")
+}
+
 func TestPageAllFollowsStartIndex(t *testing.T) {
 	c, rec := newTestServer(t, map[string]*route{
 		"GET /rest/api/latest/project": {body: `{"projects":{"size":3,"start-index":0,"max-result":2,"project":[{"key":"PROJ"},{"key":"OPS"}]}}`,
