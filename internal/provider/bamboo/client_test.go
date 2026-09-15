@@ -5,7 +5,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"sync"
 	"testing"
 	"time"
 
@@ -107,6 +110,56 @@ func TestCanceledContextIsReturnedAsIs(t *testing.T) {
 	cancel()
 	_, err := c.do(ctx, request{method: "GET", path: "/x"})
 	assert.True(t, errors.Is(err, context.Canceled))
+}
+
+func TestRedirectToAnotherOriginIsRefused(t *testing.T) {
+	var mu sync.Mutex
+	var otherHits int
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		otherHits++
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(other.Close)
+
+	c, _ := newTestServer(t, map[string]*route{
+		"GET /x": {status: http.StatusFound, header: map[string]string{"Location": other.URL + "/y"}},
+	})
+	_, err := c.do(context.Background(), request{method: "GET", path: "/x"})
+	require.Error(t, err)
+	assert.Equal(t, errs.KindBamboo, errs.KindOf(err))
+	assert.Contains(t, err.Error(), "does not follow redirects to another origin")
+	var e *errs.Error
+	require.ErrorAs(t, err, &e)
+	assert.Contains(t, e.Try, "final URL")
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Zero(t, otherHits, "the redirect target must never receive a request")
+}
+
+func TestSameOriginRedirectIsFollowed(t *testing.T) {
+	routes := map[string]*route{
+		"GET /y": {body: `{"ok":true}`},
+	}
+	c, rec := newTestServer(t, routes)
+	routes["GET /x"] = &route{status: http.StatusFound, header: map[string]string{"Location": c.base.String() + "/y"}}
+
+	_, err := c.do(context.Background(), request{method: "GET", path: "/x"})
+	require.NoError(t, err)
+	paths := map[string]int{}
+	for _, r := range rec.all() {
+		paths[r.URL.Path]++
+	}
+	assert.Equal(t, 1, paths["/x"])
+	assert.Equal(t, 1, paths["/y"])
+}
+
+func TestInjectedHTTPClientIsNotMutated(t *testing.T) {
+	injected := &http.Client{}
+	_, err := New(Options{BaseURL: "http://127.0.0.1:1", Token: "t", HTTP: injected})
+	require.NoError(t, err)
+	assert.Nil(t, injected.CheckRedirect, "New must clone an injected client, never mutate the caller's")
 }
 
 func TestUnreachableServerIsBambooError(t *testing.T) {

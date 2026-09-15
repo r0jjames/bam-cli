@@ -56,7 +56,13 @@ func New(o Options) (*Client, error) {
 	c := &Client{base: base, token: o.Token, http: o.HTTP, log: o.Logger, now: o.Now, sleep: o.Sleep, saveCaps: o.SaveCaps, caps: o.Caps}
 	if c.http == nil {
 		c.http = &http.Client{Timeout: 30 * time.Second}
+	} else {
+		// Clone an injected client before touching CheckRedirect: it may be
+		// shared by the caller (or by other tests), so New must never mutate it.
+		cloned := *c.http
+		c.http = &cloned
 	}
+	c.http.CheckRedirect = checkRedirectSameOrigin
 	if c.log == nil {
 		c.log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
@@ -84,6 +90,34 @@ func New(o Options) (*Client, error) {
 // URL returns the browse URL of any Bamboo key.
 func (c *Client) URL(key string) string { return c.base.String() + "/browse/" + key }
 
+// crossOriginRedirectError reports a redirect to a different scheme://host:port.
+// Go's http.Client keeps the Authorization header on same-host redirects, so
+// following a cross-origin one would leak the bearer token to that host.
+type crossOriginRedirectError struct{ from, to string }
+
+func (e *crossOriginRedirectError) Error() string {
+	return fmt.Sprintf("redirected from %s to %s; bam does not follow redirects to another origin", e.from, e.to)
+}
+
+func requestOrigin(u *url.URL) string { return u.Scheme + "://" + u.Host }
+
+// checkRedirectSameOrigin is installed as http.Client.CheckRedirect. It
+// allows same-origin redirects and refuses any redirect that crosses
+// scheme, host or port.
+func checkRedirectSameOrigin(req *http.Request, via []*http.Request) error {
+	if len(via) == 0 {
+		return nil
+	}
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	from, to := requestOrigin(via[0].URL), requestOrigin(req.URL)
+	if from != to {
+		return &crossOriginRedirectError{from: from, to: to}
+	}
+	return nil
+}
+
 type request struct {
 	method string
 	path   string
@@ -102,6 +136,11 @@ func (c *Client) do(ctx context.Context, r request) ([]byte, error) {
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
+			}
+			var redir *crossOriginRedirectError
+			if errors.As(err, &redir) {
+				return nil, errs.Bamboof("%s", redir.Error()).
+					WithTry("use the final URL in your server config").Wrap(err)
 			}
 			return nil, errs.Bamboof("cannot reach %s", c.base.Host).
 				WithWhy("check the URL, your network and any VPN").Wrap(err)
