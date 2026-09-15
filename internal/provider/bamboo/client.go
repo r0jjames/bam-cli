@@ -110,7 +110,11 @@ func (c *Client) do(ctx context.Context, r request) ([]byte, error) {
 			return body, nil
 		}
 		lastStatus, lastBody = status, body
-		if status != http.StatusTooManyRequests && status < 500 {
+		// 429 is retried for every method (it honours Retry-After). A 5xx is
+		// retried only for GET/HEAD: retrying a POST/PUT/DELETE on a server
+		// error can queue a duplicate build or fire a trigger twice.
+		getOrHead := r.method == http.MethodGet || r.method == http.MethodHead
+		if status != http.StatusTooManyRequests && (status < 500 || !getOrHead) {
 			break
 		}
 		if attempt < maxAttempts {

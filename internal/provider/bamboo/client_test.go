@@ -80,6 +80,27 @@ func TestRetriesOn5xxAnd429Only(t *testing.T) {
 	assert.Equal(t, 3, count["/down"], "three attempts in total")
 }
 
+func TestNonGetIsRetriedOnlyOn429Not5xx(t *testing.T) {
+	c, rec := newTestServer(t, map[string]*route{
+		"POST /trigger": {status: 502},
+		"POST /queue":   {status: 429, header: map[string]string{"Retry-After": "0"}, times: 1, then: &route{body: `{}`}},
+	})
+	ctx := context.Background()
+
+	_, err := c.do(ctx, request{method: "POST", path: "/trigger"})
+	require.Error(t, err)
+
+	_, err = c.do(ctx, request{method: "POST", path: "/queue"})
+	require.NoError(t, err)
+
+	count := map[string]int{}
+	for _, r := range rec.all() {
+		count[r.URL.Path]++
+	}
+	assert.Equal(t, 1, count["/trigger"], "a POST must never be retried on 5xx: it could queue a duplicate build")
+	assert.Equal(t, 2, count["/queue"], "a POST is still retried on 429")
+}
+
 func TestCanceledContextIsReturnedAsIs(t *testing.T) {
 	c, _ := newTestServer(t, map[string]*route{"GET /x": {body: `{}`}})
 	ctx, cancel := context.WithCancel(context.Background())
