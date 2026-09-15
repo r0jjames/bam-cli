@@ -188,26 +188,30 @@ func exitCode(err error) int {
 	if errors.As(err, &res) {
 		return 1
 	}
+	// *errs.Error is checked before the context sentinels: an http.Client
+	// timeout comes back as a *errs.Error of KindBamboo whose cause chain
+	// happens to satisfy errors.Is(err, context.DeadlineExceeded), and that
+	// must still exit 5, not 6 (6 is reserved for --timeout/KindTimeout).
+	var e *errs.Error
+	if errors.As(err, &e) {
+		switch e.Kind {
+		case errs.KindUsage:
+			return 2
+		case errs.KindConfig:
+			return 3
+		case errs.KindAuth:
+			return 4
+		case errs.KindTimeout:
+			return 6
+		default:
+			return 5
+		}
+	}
 	if errors.Is(err, context.Canceled) {
 		return 130
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return 6
 	}
-	var e *errs.Error
-	if !errors.As(err, &e) {
-		return 2 // cobra's own command, flag and argument errors
-	}
-	switch e.Kind {
-	case errs.KindUsage:
-		return 2
-	case errs.KindConfig:
-		return 3
-	case errs.KindAuth:
-		return 4
-	case errs.KindTimeout:
-		return 6
-	default:
-		return 5
-	}
+	return 2 // cobra's own command, flag and argument errors
 }

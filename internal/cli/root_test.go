@@ -51,6 +51,7 @@ func TestExitCodes(t *testing.T) {
 		{fmt.Errorf("wrapped: %w", context.Canceled), 130},
 		{context.DeadlineExceeded, 6},
 		{errors.New("accepts 1 arg(s), received 0"), 2},
+		{errs.Bamboof("cannot reach x").Wrap(context.DeadlineExceeded), 5},
 	}
 	for _, tc := range cases {
 		assert.Equal(t, tc.want, exitCode(tc.err), "%v", tc.err)

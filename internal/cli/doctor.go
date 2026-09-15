@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -41,7 +42,8 @@ func newDoctorCmd(r *runtime) *cobra.Command {
 			}
 			fail := func(name string, err error) {
 				detail := err.Error()
-				if e, ok := err.(*errs.Error); ok && e.Try != "" {
+				var e *errs.Error
+				if errors.As(err, &e) && e.Try != "" {
 					detail += " (try: " + e.Try + ")"
 				}
 				add(name, "error", detail, err)

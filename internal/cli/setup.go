@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -224,7 +225,8 @@ func login(cmd *cobra.Command, r *runtime, alias string, withToken bool) error {
 	}
 	user, err := backend.CurrentUser(cmd.Context())
 	if err != nil {
-		if e, ok := err.(*errs.Error); ok && e.Kind == errs.KindAuth {
+		var e *errs.Error
+		if errors.As(err, &e) && e.Kind == errs.KindAuth {
 			e.What = fmt.Sprintf("token rejected by %s (%s)", alias, e.What)
 			e.Try = "create a new token at " + tokenPageURL(s.URL)
 		}
@@ -323,7 +325,8 @@ func newWhoamiCmd(r *runtime) *cobra.Command {
 				}
 				if err != nil {
 					x.Error = err.Error()
-					if e, ok := err.(*errs.Error); ok && e.Try != "" {
+					var e *errs.Error
+					if errors.As(err, &e) && e.Try != "" {
 						x.Error += " (try: " + e.Try + ")"
 					}
 					if first == nil {
