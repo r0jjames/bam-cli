@@ -70,7 +70,13 @@ func checkProjectCredentialKeys(data []byte, path string) error {
 		}
 		for j := 0; j+1 < len(body.Content); j += 2 {
 			key := body.Content[j].Value
-			if credentialKeys[strings.ToLower(key)] {
+			lower := strings.ToLower(key)
+			if lower == "auth_env" {
+				return errs.Configf("%s: servers.%s.auth_env is not allowed in a committed file", path, alias).
+					WithWhy("auth_env names a secret environment variable; only the machine config may set it").
+					WithTry("move auth_env to ~/.config/bam/config.yaml")
+			}
+			if credentialKeys[lower] {
 				return errs.Configf("credential found in %s at servers.%s.%s", path, alias, key).
 					WithWhy("tokens never go in a committed file").
 					WithTry(fmt.Sprintf("remove the line, revoke that token in Bamboo, then run: bam login %s", alias))

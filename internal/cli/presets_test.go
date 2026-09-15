@@ -85,6 +85,21 @@ func TestInit(t *testing.T) {
 	assert.NotEmpty(t, h.connectOpts)
 }
 
+func TestInitWithDifferentURLDropsMachineAuthEnv(t *testing.T) {
+	h := newHarness(t)
+	require.NoError(t, os.MkdirAll(filepath.Dir(h.env.Paths.MachineConfig), 0o755))
+	require.NoError(t, os.WriteFile(h.env.Paths.MachineConfig,
+		[]byte("version: 1\nservers:\n  work:\n    url: https://bamboo.example.com\n    auth_env: BAM_WORK_TOKEN\n"), 0o644))
+	h.vars["BAM_WORK_TOKEN"] = "work-secret"
+	h.kr.m["bam|https://other.example.com"] = "other-token"
+
+	assert.Equal(t, 0, h.run("init", "--server", "work", "--url", "https://other.example.com",
+		"--project", "PROJ", "--plan", "PROJ-BUILD", "--force"), h.stderr.String())
+	require.NotEmpty(t, h.connectOpts)
+	assert.Equal(t, "other-token", h.connectOpts[len(h.connectOpts)-1].Token,
+		"must not use BAM_WORK_TOKEN, which was learned for a different origin")
+}
+
 func TestDefaultTargetName(t *testing.T) {
 	assert.Equal(t, "prov", defaultTargetName("PROJ-PROV"))
 	assert.Equal(t, "build2", defaultTargetName("PROJ-BUILD2"))

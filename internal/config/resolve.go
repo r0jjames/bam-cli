@@ -33,7 +33,13 @@ func (c *Config) Servers() map[string]ResolvedServer {
 			if s.URL != "" {
 				r.URL = s.URL
 			}
-			if s.AuthEnv != "" {
+			// A layer's auth_env is applied only when that same layer's
+			// entry also sets url. Otherwise a bare "servers.X: {auth_env}"
+			// (e.g. a machine entry with no url of its own) could end up
+			// paired with a url written by a different layer -- such as a
+			// project file -- and send that env var's secret to a host its
+			// owner never approved (controller ruling F-R1).
+			if s.AuthEnv != "" && s.URL != "" {
 				r.AuthEnv = s.AuthEnv
 			}
 			if len(s.Projects) > 0 {

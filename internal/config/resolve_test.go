@@ -96,6 +96,23 @@ func TestServerFieldsMergeWithMachineWinning(t *testing.T) {
 	assert.Equal(t, []string{"project", "machine"}, s.DefinedIn)
 }
 
+func TestMachineAuthEnvWithoutURLIsNotAppliedToProjectURL(t *testing.T) {
+	c := baseConfig()
+	// Machine sets auth_env for "work" but not url; the project sets url.
+	c.Machine.Servers["work"] = Server{AuthEnv: "BAM_WORK_TOKEN"}
+	s := c.Servers()["work"]
+	assert.Equal(t, "https://bamboo.example.com", s.URL, "project url survives")
+	assert.Equal(t, "", s.AuthEnv, "machine auth_env without its own url is never applied")
+}
+
+func TestMachineAuthEnvWithURLIsKept(t *testing.T) {
+	c := baseConfig()
+	// baseConfig's machine "work" already sets both url and auth_env.
+	s := c.Servers()["work"]
+	assert.Equal(t, "BAM_WORK_TOKEN", s.AuthEnv)
+	assert.Equal(t, "https://bamboo-eu.example.com", s.URL)
+}
+
 func TestProjectKeysOrder(t *testing.T) {
 	c := baseConfig()
 	work := c.Servers()["work"]

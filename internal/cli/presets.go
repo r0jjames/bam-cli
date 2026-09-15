@@ -177,7 +177,19 @@ func newInitCmd(r *runtime) *cobra.Command {
 			}
 			var drafts []config.TargetDraft
 			if len(plans) > 0 {
-				svc, _, err := r.connectServer(config.ResolvedServer{Alias: alias, URL: url, AuthEnv: known.AuthEnv})
+				// known.AuthEnv was learned for known.URL; only carry it over
+				// when --url still resolves to that same origin, so a --url
+				// override never pairs a stored env token with a host it
+				// was not created for.
+				authEnv := known.AuthEnv
+				if authEnv != "" {
+					knownOrigin, kerr := credential.Origin(known.URL)
+					newOrigin, nerr := credential.Origin(url)
+					if kerr != nil || nerr != nil || knownOrigin != newOrigin {
+						authEnv = ""
+					}
+				}
+				svc, _, err := r.connectServer(config.ResolvedServer{Alias: alias, URL: url, AuthEnv: authEnv})
 				if err != nil {
 					return err
 				}
