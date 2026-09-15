@@ -24,6 +24,7 @@ bam [flags]
 ### SEE ALSO
 
 * [bam build](bam_build.md)	 - Builds: list, show, run, watch, logs, cancel
+* [bam completion](bam_completion.md)	 - Generate the autocompletion script for the specified shell
 * [bam doctor](bam_doctor.md)	 - Check config, credentials and what this Bamboo server supports
 * [bam init](bam_init.md)	 - Write .bam.yaml for this repository, with generated presets
 * [bam login](bam_login.md)	 - Store a verified personal access token for a server

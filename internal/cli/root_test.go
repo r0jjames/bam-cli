@@ -8,6 +8,7 @@ import (
 
 	"github.com/r0jjames/bam-cli/internal/errs"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestVersionPrintsVersion(t *testing.T) {
@@ -33,6 +34,13 @@ func TestBareBamOnTerminalPrintsHelpAndNote(t *testing.T) {
 	assert.Equal(t, 0, h.run())
 	assert.Contains(t, h.stdout.String(), "Usage:")
 	assert.NotContains(t, h.stdout.String(), "interactive mode")
+}
+
+func TestDocsRootIncludesCompletion(t *testing.T) {
+	root := DocsRoot()
+	c, _, err := root.Find([]string{"completion"})
+	require.NoError(t, err)
+	assert.Equal(t, "completion", c.Name())
 }
 
 func TestExitCodes(t *testing.T) {

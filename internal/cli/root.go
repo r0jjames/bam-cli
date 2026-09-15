@@ -83,6 +83,7 @@ var commandSets []func(root *cobra.Command, r *runtime)
 func DocsRoot() *cobra.Command {
 	root := newRoot(&runtime{env: SystemEnv()})
 	root.DisableAutoGenTag = true
+	root.InitDefaultCompletionCmd()
 	return root
 }
 
