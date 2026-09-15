@@ -12,14 +12,14 @@ import (
 
 func TestScrubReplacesHostsUsersAndEmails(t *testing.T) {
 	in := `{"link":{"href":"http://ci.home.internal:8085/rest/api/latest/plan/LAB-PROV"},` +
-		`"repo":"https://git.home.internal/x.git","reason":"Manual run by <a href=\"http://ci.home.internal:8085/browse/user/rjc\">Real Name</a>",` +
-		`"email":"real.person@home.internal","raw":"agent on ci.home.internal:8085","name":"rjc"}`
-	s := Scrubber{Host: "ci.home.internal:8085", Users: []string{"Real Name", "rjc"}}
+		`"repo":"https://git.home.internal/x.git","reason":"Manual run by <a href=\"http://ci.home.internal:8085/browse/user/rsmith\">Real Name</a>",` +
+		`"email":"real.person@home.internal","raw":"agent on ci.home.internal:8085","name":"rsmith"}`
+	s := Scrubber{Host: "ci.home.internal:8085", Users: []string{"Real Name", "rsmith"}}
 	out := string(s.Scrub([]byte(in)))
 
 	assert.NotContains(t, out, "home.internal")
 	assert.NotContains(t, out, "Real Name")
-	assert.NotContains(t, out, `"rjc"`)
+	assert.NotContains(t, out, `"rsmith"`)
 	assert.Contains(t, out, "http://bamboo.example.com/rest/api/latest/plan/LAB-PROV")
 	assert.Contains(t, out, "jdoe@example.com")
 	assert.Contains(t, out, `"name":"jdoe"`)
@@ -55,12 +55,12 @@ func TestScrubBareHostsAndDifferentCase(t *testing.T) {
 }
 
 func TestScrubberTerms(t *testing.T) {
-	s := Scrubber{Host: "ci.home.internal:8085", Users: []string{"Real Name", "rjc", "", "Real Name"}}
+	s := Scrubber{Host: "ci.home.internal:8085", Users: []string{"Real Name", "rsmith", "", "Real Name"}}
 	terms := s.Terms()
 	assert.Contains(t, terms, "ci.home.internal:8085")
 	assert.Contains(t, terms, "ci.home.internal")
 	assert.Contains(t, terms, "Real Name")
-	assert.Contains(t, terms, "rjc")
+	assert.Contains(t, terms, "rsmith")
 	assert.NotContains(t, terms, "")
 	// Check no duplicates: convert to map and verify size matches
 	termMap := make(map[string]bool)
@@ -109,13 +109,13 @@ func TestFixtureHostViolationsIPAddress(t *testing.T) {
 
 func TestFixtureTermViolations(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "test.json"), []byte(`{"user":"RJC","data":"some data"}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "test.json"), []byte(`{"user":"RSMITH","data":"some data"}`), 0o644))
 
-	v, err := FixtureTermViolations(dir, []string{"rjc"})
+	v, err := FixtureTermViolations(dir, []string{"rsmith"})
 	require.NoError(t, err)
 	require.Len(t, v, 1)
 	assert.Contains(t, v[0], "test.json")
-	assert.Contains(t, v[0], "rjc")
+	assert.Contains(t, v[0], "rsmith")
 }
 
 func TestLoadDenylist(t *testing.T) {
@@ -133,12 +133,12 @@ jdoe
 ci.home.internal
 
 # Another comment
-rjc`
+rsmith`
 	require.NoError(t, os.WriteFile(denylistPath, []byte(content), 0o644))
 
 	v, err = LoadDenylist(denylistPath)
 	require.NoError(t, err)
-	assert.ElementsMatch(t, v, []string{"jdoe", "ci.home.internal", "rjc"})
+	assert.ElementsMatch(t, v, []string{"jdoe", "ci.home.internal", "rsmith"})
 }
 
 func TestDenylistPath(t *testing.T) {
@@ -160,9 +160,9 @@ func TestDenylistPath(t *testing.T) {
 
 func TestFixtureTermViolationsCaseInsensitive(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "test.json"), []byte(`{"host":"CI.HOME.INTERNAL","name":"RJC"}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "test.json"), []byte(`{"host":"CI.HOME.INTERNAL","name":"RSMITH"}`), 0o644))
 
-	v, err := FixtureTermViolations(dir, []string{"ci.home.internal", "rjc"})
+	v, err := FixtureTermViolations(dir, []string{"ci.home.internal", "rsmith"})
 	require.NoError(t, err)
 	assert.Equal(t, 2, len(v))
 }
