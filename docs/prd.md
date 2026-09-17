@@ -1,4 +1,4 @@
-# Bam CLI — Product Requirements
+# Bam CLI - Product Requirements
 
 **Status:** Approved for MVP (v0.1) | **Date:** 2026-09-12
 **Design spec:** [`docs/superpowers/specs/2026-09-12-bam-cli-mvp-design.md`](superpowers/specs/2026-09-12-bam-cli-mvp-design.md)

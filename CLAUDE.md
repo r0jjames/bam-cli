@@ -8,10 +8,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Source of truth, read before changing behaviour:
 
-- `docs/prd.md` — scope, what is out of scope, roadmap (v0.1 CLI → v0.2 lazygit-style TUI → v0.3 estimator → run sets)
-- `docs/superpowers/specs/2026-09-12-bam-cli-mvp-design.md` — the v0.1 design: commands, config, exit codes, JSON contract, architecture
-- `docs/superpowers/plans/2026-09-12-bam-v0.1-part{1..4}-*.md` — the task-by-task implementation plan (29 tasks), executed in order
-- `SETUP.md` — toolchain install for macOS and Linux
+- `docs/prd.md` - scope, what is out of scope, roadmap (v0.1 CLI → v0.2 lazygit-style TUI → v0.3 estimator → run sets)
+- `docs/superpowers/specs/2026-09-12-bam-cli-mvp-design.md` - the v0.1 design: commands, config, exit codes, JSON contract, architecture
+- `docs/superpowers/plans/2026-09-12-bam-v0.1-part{1..4}-*.md` - the task-by-task implementation plan (29 tasks), executed in order
+- `SETUP.md` - toolchain install for macOS and Linux
 
 If code and spec disagree, the spec wins unless the change to the spec is deliberate and made in the same branch.
 

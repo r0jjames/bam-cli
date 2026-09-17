@@ -1,4 +1,4 @@
-# Bam CLI — MVP Design (v0.1)
+# Bam CLI - MVP Design (v0.1)
 
 **Status:** Approved design, awaiting implementation plan | **Date:** 2026-09-12
 **Product requirements:** [`docs/prd.md`](../../prd.md)
@@ -70,19 +70,19 @@ Shortcuts are cobra aliases of the `build` subcommands: same flags, same output,
 
 Each command accepts one entity type, so parsing never guesses the hierarchy level.
 
-- **`<plan>`** — a target name or a plan key.
+- **`<plan>`** - a target name or a plan key.
   - Target names are validated as `^[a-z][a-z0-9_-]*$`. Plan keys are uppercase. The two can never collide.
   - An exact target name resolves to that target's plan, server and branch.
   - Otherwise the argument must match `^[A-Z][A-Z0-9]*-[A-Z][A-Z0-9]*$`.
   - Anything else is a usage error that lists the configured target names.
-- **`<build>`** — one of three forms:
+- **`<build>`** - one of three forms:
   - A build key: `PROJ-PLAN-123`, or a branch build key such as `PROJ-PLAN12-5`.
   - A `<plan>`: the latest build of that plan, on `--branch` if given, else on the target's branch, else on the default branch.
   - `--last`: the last build that bam triggered from the current repository (section 3.8).
-- **`--branch B`** — matched against the plan's branch names, then short names. The match resolves to the branch plan key. No match is a usage error that lists the closest names.
-- **`--job KEY`** — a job key within the build, either the short form `JOB1` or the full `PROJ-PLAN-JOB1`.
-- **`--from N|last`** — `N` is a build number of the resolved plan branch, or a full build key. `last` is the most recent manual build of the resolved plan branch, falling back to the most recent build. The command always prints which build it used.
-- **`open` / `url`** — accept any key (project, plan, branch plan, build, job result), a target name, or `--last`. Every Bamboo entity browses at `{server}/browse/{key}`.
+- **`--branch B`** - matched against the plan's branch names, then short names. The match resolves to the branch plan key. No match is a usage error that lists the closest names.
+- **`--job KEY`** - a job key within the build, either the short form `JOB1` or the full `PROJ-PLAN-JOB1`.
+- **`--from N|last`** - `N` is a build number of the resolved plan branch, or a full build key. `last` is the most recent manual build of the resolved plan branch, falling back to the most recent build. The command always prints which build it used.
+- **`open` / `url`** - accept any key (project, plan, branch plan, build, job result), a target name, or `--last`. Every Bamboo entity browses at `{server}/browse/{key}`.
 
 ### 2.3 Variable resolution for `build run`
 
@@ -239,7 +239,7 @@ A `defaults` value that is exactly `${NAME}`, with `NAME` matching `^[A-Za-z_][A
 
 Sources for variable names, in order:
 
-1. The plan variable endpoint (section 9.1) — declared names and their current values.
+1. The plan variable endpoint (section 9.1) - declared names and their current values.
 2. The `--from` build's variables (default `last`), if source 1 is unsupported.
 3. Neither: the target is written with `plan` only and a comment explaining why.
 
@@ -280,12 +280,12 @@ Lookup order for a server:
 
 ### 4.4 Commands
 
-- `bam login <alias>` — prompts for the token with echo off (`golang.org/x/term`), or reads it from stdin with `--with-token`. Verifies it with `GET /rest/api/latest/currentUser` before storing, then prints the user name.
-- `bam logout <alias>` — deletes the stored token for that alias's origin from the keychain and the file.
-- `bam whoami` — one line per configured server: alias, origin, user name or the error class. Exits 0 when every server answers, else with the code of the first failure. `--server` limits it to one server.
-- `bam server add` — writes the alias to the machine file; on a TTY, continues into `login`.
-- `bam server list` — alias, URL, which layer defines it, and whether a token is present. No network call.
-- `bam server rm` — removes the alias from the machine file only. An alias defined by the project file cannot be removed this way; the error says where it is defined.
+- `bam login <alias>` - prompts for the token with echo off (`golang.org/x/term`), or reads it from stdin with `--with-token`. Verifies it with `GET /rest/api/latest/currentUser` before storing, then prints the user name.
+- `bam logout <alias>` - deletes the stored token for that alias's origin from the keychain and the file.
+- `bam whoami` - one line per configured server: alias, origin, user name or the error class. Exits 0 when every server answers, else with the code of the first failure. `--server` limits it to one server.
+- `bam server add` - writes the alias to the machine file; on a TTY, continues into `login`.
+- `bam server list` - alias, URL, which layer defines it, and whether a token is present. No network call.
+- `bam server rm` - removes the alias from the machine file only. An alias defined by the project file cannot be removed this way; the error says where it is defined.
 
 Every network command resolves the credential before its first request. A missing or rejected credential is an authentication error (exit 4) naming the alias and the command that fixes it.
 
@@ -401,7 +401,7 @@ For a failed build, a **Failure** block lists the failed jobs with their `bam lo
 
 ### 6.1 Error format
 
-Errors go to stderr as up to three parts — what failed, why, what to try:
+Errors go to stderr as up to three parts - what failed, why, what to try:
 
 ```
 error: could not start build of PROJ-BUILD
@@ -598,7 +598,7 @@ Development is test-driven.
 
 ## 11. Documentation
 
-- `README.md`: what bam is, install, and a quickstart — `server add`, `login`, `init`, `run --watch`, `logs --failed`, `open`.
+- `README.md`: what bam is, install, and a quickstart - `server add`, `login`, `init`, `run --watch`, `logs --failed`, `open`.
 - `docs/configuration.md`: the three layers, resolution rules, presets and generation.
 - `docs/authentication.md`: creating a personal access token, keychain behaviour per platform, CI environment variables.
 - `docs/ci.md`: using bam in a Bamboo script step, exit codes.

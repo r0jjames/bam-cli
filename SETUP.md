@@ -163,9 +163,9 @@ cd bam-cli
 
 The product design lives in `docs/`:
 
-- `docs/prd.md` — what bam is for
-- `docs/superpowers/specs/2026-09-12-bam-cli-mvp-design.md` — the v0.1 design
-- `docs/superpowers/plans/` — the implementation plan in four parts
+- `docs/prd.md` - what bam is for
+- `docs/superpowers/specs/2026-09-12-bam-cli-mvp-design.md` - the v0.1 design
+- `docs/superpowers/plans/` - the implementation plan in four parts
 
 ## Build and test
 
