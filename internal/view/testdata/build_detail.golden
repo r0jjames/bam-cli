@@ -1,0 +1,23 @@
+PROJ-BUILD12-44  ✗ failed  https://bamboo.example.com/browse/PROJ-BUILD12-44
+Plan        PROJ-BUILD12  (branch develop)
+Reason      Custom build by jdoe
+Started     3h ago
+Completed   2h ago
+Duration    3m40s
+Queued      12s
+Agent       linux-3
+Flags       CUSTOM BUILD
+Labels      nightly
+Revisions   app a1b2c3d
+
+Stages
+  ✓ Checkout         12s
+      ✓ Checkout     12s
+  ✗ Test             31s
+      ✓ Unit         28s
+      ✗ Integration  31s
+  – Package
+
+Failure
+  ✗ Integration  bam logs PROJ-BUILD12-44 --job INT
+  failed tests: app.AuthTest.TestLogin, app.AuthTest.TestRefresh

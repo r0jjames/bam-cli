@@ -1,0 +1,169 @@
+{
+  "description": "",
+  "expand": "plans",
+  "id": 720898,
+  "key": "LAB",
+  "link": {
+    "href": "http://bamboo.example.com/rest/api/latest/project/LAB",
+    "rel": "self"
+  },
+  "name": "lab",
+  "plans": {
+    "expand": "plan",
+    "max-result": 3,
+    "plan": [
+      {
+        "actions": {
+          "max-result": 9,
+          "size": 9,
+          "start-index": 0
+        },
+        "averageBuildTimeInSeconds": 0,
+        "branches": {
+          "max-result": 0,
+          "size": 0,
+          "start-index": 0
+        },
+        "buildName": "Deprovision Cluster",
+        "description": "Destroy named cluster + sweep leftovers",
+        "enabled": true,
+        "expand": "actions,stages,branches",
+        "id": 786435,
+        "isActive": false,
+        "isBuilding": false,
+        "isFavourite": false,
+        "key": "LAB-DEPROV",
+        "link": {
+          "href": "http://bamboo.example.com/rest/api/latest/plan/LAB-DEPROV",
+          "rel": "self"
+        },
+        "name": "lab - Deprovision Cluster",
+        "planKey": {
+          "key": "LAB-DEPROV"
+        },
+        "project": {
+          "description": "",
+          "id": 720898,
+          "key": "LAB",
+          "link": {
+            "href": "http://bamboo.example.com/rest/api/latest/project/LAB",
+            "rel": "self"
+          },
+          "name": "lab"
+        },
+        "projectKey": "LAB",
+        "projectName": "lab",
+        "shortKey": "DEPROV",
+        "shortName": "Deprovision Cluster",
+        "stages": {
+          "max-result": 2,
+          "size": 2,
+          "start-index": 0
+        },
+        "type": "chain"
+      },
+      {
+        "actions": {
+          "max-result": 9,
+          "size": 9,
+          "start-index": 0
+        },
+        "averageBuildTimeInSeconds": 16,
+        "branches": {
+          "max-result": 0,
+          "size": 0,
+          "start-index": 0
+        },
+        "buildName": "Provision Cluster",
+        "description": "Terraform+Ansible: provision named multipass cluster",
+        "enabled": true,
+        "expand": "actions,stages,branches",
+        "id": 786438,
+        "isActive": false,
+        "isBuilding": false,
+        "isFavourite": false,
+        "key": "LAB-PROV",
+        "link": {
+          "href": "http://bamboo.example.com/rest/api/latest/plan/LAB-PROV",
+          "rel": "self"
+        },
+        "name": "lab - Provision Cluster",
+        "planKey": {
+          "key": "LAB-PROV"
+        },
+        "project": {
+          "description": "",
+          "id": 720898,
+          "key": "LAB",
+          "link": {
+            "href": "http://bamboo.example.com/rest/api/latest/project/LAB",
+            "rel": "self"
+          },
+          "name": "lab"
+        },
+        "projectKey": "LAB",
+        "projectName": "lab",
+        "shortKey": "PROV",
+        "shortName": "Provision Cluster",
+        "stages": {
+          "max-result": 2,
+          "size": 2,
+          "start-index": 0
+        },
+        "type": "chain"
+      },
+      {
+        "actions": {
+          "max-result": 9,
+          "size": 9,
+          "start-index": 0
+        },
+        "averageBuildTimeInSeconds": 9,
+        "branches": {
+          "max-result": 0,
+          "size": 0,
+          "start-index": 0
+        },
+        "buildName": "Publish Specs",
+        "description": "Republish every Bamboo Specs plan from main",
+        "enabled": true,
+        "expand": "actions,stages,branches",
+        "id": 786441,
+        "isActive": false,
+        "isBuilding": false,
+        "isFavourite": false,
+        "key": "LAB-SPECS",
+        "link": {
+          "href": "http://bamboo.example.com/rest/api/latest/plan/LAB-SPECS",
+          "rel": "self"
+        },
+        "name": "lab - Publish Specs",
+        "planKey": {
+          "key": "LAB-SPECS"
+        },
+        "project": {
+          "description": "",
+          "id": 720898,
+          "key": "LAB",
+          "link": {
+            "href": "http://bamboo.example.com/rest/api/latest/project/LAB",
+            "rel": "self"
+          },
+          "name": "lab"
+        },
+        "projectKey": "LAB",
+        "projectName": "lab",
+        "shortKey": "SPECS",
+        "shortName": "Publish Specs",
+        "stages": {
+          "max-result": 1,
+          "size": 1,
+          "start-index": 0
+        },
+        "type": "chain"
+      }
+    ],
+    "size": 3,
+    "start-index": 0
+  }
+}

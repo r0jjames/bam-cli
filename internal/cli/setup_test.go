@@ -1,0 +1,88 @@
+package cli
+
+import (
+	"os"
+	"testing"
+
+	"github.com/r0jjames/bam-cli/internal/errs"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestServerAddListRm(t *testing.T) {
+	h := newHarness(t)
+	assert.Equal(t, 0, h.run("server", "add", "home", "--url", "http://bamboo.lab.example:8085", "--project", "LAB"))
+	assert.Contains(t, h.stdout.String(), "added server home")
+	data, err := os.ReadFile(h.env.Paths.MachineConfig)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "url: http://bamboo.lab.example:8085")
+
+	assert.Equal(t, 2, h.run("server", "add", "home", "--url", "http://bamboo.lab.example:8085"), "exists without --force")
+	assert.Equal(t, 3, h.run("server", "add", "bad", "--url", "bamboo.lab.example"), "invalid URL is a config error")
+	assert.Equal(t, 2, h.run("server", "add", "env", "--url", "https://x.example.com"), "env is reserved")
+
+	assert.Equal(t, 0, h.run("server", "list"))
+	assert.Contains(t, h.stdout.String(), "home")
+	assert.Contains(t, h.stdout.String(), "work")
+	assert.Regexp(t, `work\s+https://bamboo.example.com\s+project\s+yes`, h.stdout.String())
+	assert.Regexp(t, `home\s+http://bamboo.lab.example:8085\s+machine\s+no`, h.stdout.String())
+
+	assert.Equal(t, 0, h.run("server", "rm", "home"))
+	assert.Equal(t, 2, h.run("server", "rm", "work"))
+	assert.Contains(t, h.stderr.String(), ".bam.yaml")
+}
+
+func TestLoginWithTokenFromStdin(t *testing.T) {
+	h := newHarness(t)
+	h.stdin = "newtok\n"
+	assert.Equal(t, 0, h.run("login", "work", "--with-token"))
+	assert.Contains(t, h.stdout.String(), "logged in to work as jdoe (J Doe)")
+	assert.Equal(t, "newtok", h.connectOpts[len(h.connectOpts)-1].Token, "the new token is verified before storing")
+	assert.Equal(t, "newtok", h.kr.m["bam|"+workOrigin])
+}
+
+func TestLoginRejectedStoresNothing(t *testing.T) {
+	h := newHarness(t)
+	h.fake.UserErr = errs.Authf("401 from bamboo.example.com")
+	h.stdin = "bad\n"
+	assert.Equal(t, 4, h.run("login", "work", "--with-token"))
+	assert.Equal(t, "tok", h.kr.m["bam|"+workOrigin], "old token untouched")
+}
+
+func TestLoginPromptsOnlyOnTerminal(t *testing.T) {
+	h := newHarness(t)
+	assert.Equal(t, 2, h.run("login", "work"))
+	assert.Contains(t, h.stderr.String(), "--with-token")
+
+	h.tty = true
+	h.secret = "s3cret"
+	assert.Equal(t, 0, h.run("login", "work"))
+	assert.Contains(t, h.stderr.String(), "https://bamboo.example.com/profile/userAccessTokens.action")
+	assert.Equal(t, "s3cret", h.kr.m["bam|"+workOrigin])
+	assert.NotContains(t, h.stdout.String()+h.stderr.String(), "s3cret")
+}
+
+func TestLogout(t *testing.T) {
+	h := newHarness(t)
+	assert.Equal(t, 0, h.run("logout", "work"))
+	assert.Contains(t, h.stdout.String(), "logged out of work")
+	_, ok := h.kr.m["bam|"+workOrigin]
+	assert.False(t, ok)
+	assert.Equal(t, 0, h.run("logout", "work"))
+	assert.Contains(t, h.stdout.String(), "no stored token for work")
+}
+
+func TestWhoami(t *testing.T) {
+	h := newHarness(t)
+	assert.Equal(t, 0, h.run("whoami"))
+	assert.Regexp(t, `work\s+https://bamboo.example.com\s+jdoe \(J Doe\)`, h.stdout.String())
+
+	assert.Equal(t, 0, h.run("server", "add", "home", "--url", "http://bamboo.lab.example:8085"))
+	assert.Equal(t, 4, h.run("whoami"), "home has no token")
+	assert.Contains(t, h.stdout.String(), "jdoe (J Doe)")
+	assert.Contains(t, h.stdout.String(), "bam login home")
+	assert.Empty(t, h.stderr.String(), "errors are already in the table")
+
+	assert.Equal(t, 0, h.run("whoami", "--server", "work", "--json"))
+	assert.JSONEq(t, `[{"alias":"work","url":"https://bamboo.example.com","user":"jdoe","full_name":"J Doe","error":""}]`, h.stdout.String())
+}

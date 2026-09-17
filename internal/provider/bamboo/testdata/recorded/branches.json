@@ -1,0 +1,14 @@
+{
+  "branches": {
+    "branch": [],
+    "expand": "branch",
+    "max-result": 0,
+    "size": 0,
+    "start-index": 0
+  },
+  "expand": "branches",
+  "link": {
+    "href": "http://bamboo.example.com/rest/api/latest/plan/LAB-PROV/branch",
+    "rel": "self"
+  }
+}

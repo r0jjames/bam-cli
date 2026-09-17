@@ -23,8 +23,8 @@ make test             # go test ./...
 make lint             # golangci-lint run (v2 config in .golangci.yml)
 make check-fixtures   # fixture host guard (TestFixtureGuard)
 make docs             # regenerate docs/cli/ from cobra; CI fails if it is stale
-make record           # record scrubbed fixtures from a personal Bamboo (BAM_RECORD_* env)
-make e2e              # //go:build e2e suite against a real Bamboo (BAM_E2E_* env)
+make record ARGS='-target provision'   # record scrubbed fixtures from a personal Bamboo
+make e2e ARGS='-target smoke'          # //go:build e2e suite against a real Bamboo
 
 go test ./internal/app/ -run TestWatchEventsAndBackoff -v   # one test
 go test -race ./...                                         # before finishing a task
@@ -48,6 +48,7 @@ Layered packages under `internal/`; each imports only what the table allows. Thi
 | `provider/bamboo` | the only package that speaks Bamboo REST; transport, retry, DTO mapping, lazy capability cache, doctor probe | `provider`, `errs` |
 | `app` | use cases (`Service`): resolve plan/build/branch, resolve variables, run, watch (polling), logs, cancel, generate presets | `provider`, `config`, `credential`, `errs` |
 | `view`, `view/style` | terminal tables, JSON/NDJSON docs, watch renderers, errors; `style` is the single definition of state colors and glyphs | `provider`, `app`, `errs` |
+| `toolcfg` | server alias + token lookup for the dev tools (recorder, e2e), so they read bam's config instead of env vars | `config`, `credential`, `errs` |
 | `cli` | cobra commands, `runtime` (lazy config, server selection, token lookup, `Connect`), exit-code mapping | everything; only place that calls `bamboo.New` |
 
 Cross-cutting behaviour that spans several files:

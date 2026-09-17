@@ -1,0 +1,365 @@
+package cli
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"regexp"
+	"sort"
+	"strings"
+
+	"github.com/r0jjames/bam-cli/internal/config"
+	"github.com/r0jjames/bam-cli/internal/credential"
+	"github.com/r0jjames/bam-cli/internal/errs"
+	"github.com/r0jjames/bam-cli/internal/provider/bamboo"
+	"github.com/r0jjames/bam-cli/internal/view"
+	"github.com/spf13/cobra"
+)
+
+var aliasRe = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
+
+func init() { commandSets = append(commandSets, addSetup) }
+
+func addSetup(root *cobra.Command, r *runtime) {
+	server := &cobra.Command{Use: "server", Short: "Manage Bamboo server aliases", GroupID: groupSetup}
+	server.AddCommand(newServerAddCmd(r), newServerListCmd(r), newServerRmCmd(r))
+	for _, c := range []*cobra.Command{server, newLoginCmd(r), newLogoutCmd(r), newWhoamiCmd(r)} {
+		c.GroupID = groupSetup
+		root.AddCommand(c)
+	}
+}
+
+// tokenPageURL is where a Bamboo user creates a personal access token.
+func tokenPageURL(serverURL string) string {
+	return strings.TrimRight(serverURL, "/") + "/profile/userAccessTokens.action"
+}
+
+func newServerAddCmd(r *runtime) *cobra.Command {
+	var url string
+	var projects []string
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "add <alias> --url URL",
+		Short: "Add a server alias to the machine config, then log in",
+		Args:  cobra.ExactArgs(1),
+		RunE: r.wrap(func(cmd *cobra.Command, args []string) error {
+			alias := args[0]
+			if !aliasRe.MatchString(alias) || alias == config.EnvServerAlias {
+				return errs.Usagef("invalid server alias %q", alias).
+					WithWhy("aliases are lowercase letters, digits, - and _; \"env\" is reserved for BAM_URL")
+			}
+			if url == "" {
+				return errs.Usagef("--url is required").WithTry("bam server add " + alias + " --url https://bamboo.example.com")
+			}
+			if _, err := credential.Origin(url); err != nil {
+				return err
+			}
+			cfg, err := r.config()
+			if err != nil {
+				return err
+			}
+			if _, exists := cfg.Machine.Servers[alias]; exists && !force {
+				return errs.Usagef("server %q already exists in %s", alias, r.env.Paths.MachineConfig).WithTry("pass --force to replace it")
+			}
+			if err := config.SetMachineServer(r.env.Paths.MachineConfig, alias, config.Server{URL: url, Projects: projects}); err != nil {
+				return err
+			}
+			r.cfg = nil // reload with the new alias
+			fmt.Fprintf(r.env.Stdout, "added server %s (%s) to %s\n", alias, url, r.env.Paths.MachineConfig)
+			if r.env.StdinTTY && r.env.StdoutTTY {
+				return login(cmd, r, alias, false)
+			}
+			fmt.Fprintf(r.env.Stderr, "next: bam login %s\n", alias)
+			return nil
+		}),
+	}
+	cmd.Flags().StringVar(&url, "url", "", "server URL, e.g. https://bamboo.example.com")
+	cmd.Flags().StringSliceVar(&projects, "project", nil, "project key to scope navigation (repeatable)")
+	cmd.Flags().BoolVar(&force, "force", false, "replace an existing alias")
+	return cmd
+}
+
+func newServerListCmd(r *runtime) *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List server aliases and whether a token is stored",
+		Args:  cobra.NoArgs,
+		RunE: r.wrap(func(cmd *cobra.Command, _ []string) error {
+			cfg, err := r.config()
+			if err != nil {
+				return err
+			}
+			servers := cfg.Servers()
+			names := make([]string, 0, len(servers))
+			for n := range servers {
+				names = append(names, n)
+			}
+			sort.Strings(names)
+			type row struct {
+				Alias     string   `json:"alias"`
+				URL       string   `json:"url"`
+				DefinedIn []string `json:"defined_in"`
+				Token     bool     `json:"token"`
+			}
+			var rows []row
+			for _, n := range names {
+				s := servers[n]
+				has := s.Token != ""
+				if o, err := credential.Origin(s.URL); err == nil && !has {
+					has = r.store().Has(o, s.AuthEnv)
+				}
+				rows = append(rows, row{Alias: n, URL: s.URL, DefinedIn: s.DefinedIn, Token: has})
+			}
+			if r.flags.json {
+				if rows == nil {
+					rows = []row{}
+				}
+				return view.WriteJSON(r.env.Stdout, rows)
+			}
+			if len(rows) == 0 {
+				fmt.Fprintln(r.env.Stderr, "no servers configured\n  try: bam server add <alias> --url URL")
+				return nil
+			}
+			o, err := r.out()
+			if err != nil {
+				return err
+			}
+			t := view.Table{Headers: []string{"ALIAS", "URL", "DEFINED IN", "TOKEN"}}
+			for _, x := range rows {
+				t.Rows = append(t.Rows, []string{x.Alias, x.URL, strings.Join(x.DefinedIn, ", "), yesNo(x.Token)})
+			}
+			return t.Render(o)
+		}),
+	}
+}
+
+func yesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
+}
+
+func newServerRmCmd(r *runtime) *cobra.Command {
+	return &cobra.Command{
+		Use:   "rm <alias>",
+		Short: "Remove a server alias from the machine config",
+		Args:  cobra.ExactArgs(1),
+		RunE: r.wrap(func(cmd *cobra.Command, args []string) error {
+			cfg, err := r.config()
+			if err != nil {
+				return err
+			}
+			alias := args[0]
+			if _, inMachine := cfg.Machine.Servers[alias]; !inMachine {
+				if cfg.Project != nil {
+					if _, inProject := cfg.Project.Servers[alias]; inProject {
+						return errs.Usagef("server %q is defined in %s", alias, cfg.ProjectPath).
+							WithWhy("bam server rm edits only the machine config").
+							WithTry("edit " + cfg.ProjectPath)
+					}
+				}
+			}
+			if err := config.RemoveMachineServer(r.env.Paths.MachineConfig, alias); err != nil {
+				return err
+			}
+			fmt.Fprintf(r.env.Stdout, "removed server %s from %s\n", alias, r.env.Paths.MachineConfig)
+			return nil
+		}),
+	}
+}
+
+func newLoginCmd(r *runtime) *cobra.Command {
+	var withToken bool
+	cmd := &cobra.Command{
+		Use:   "login <alias>",
+		Short: "Store a verified personal access token for a server",
+		Args:  cobra.ExactArgs(1),
+		RunE: r.wrap(func(cmd *cobra.Command, args []string) error {
+			return login(cmd, r, args[0], withToken)
+		}),
+	}
+	cmd.Flags().BoolVar(&withToken, "with-token", false, "read the token from stdin instead of prompting")
+	return cmd
+}
+
+func login(cmd *cobra.Command, r *runtime, alias string, withToken bool) error {
+	cfg, err := r.config()
+	if err != nil {
+		return err
+	}
+	s, ok := cfg.Servers()[alias]
+	if !ok || s.URL == "" {
+		return errs.Configf("no server alias %q", alias).WithTry(fmt.Sprintf("bam server add %s --url URL", alias))
+	}
+	origin, err := credential.Origin(s.URL)
+	if err != nil {
+		return err
+	}
+	var token string
+	switch {
+	case withToken:
+		data, err := io.ReadAll(r.env.Stdin)
+		if err != nil {
+			return err
+		}
+		token = strings.TrimSpace(string(data))
+	case !r.env.StdinTTY:
+		return errs.Usagef("no terminal to prompt for a token").
+			WithTry(fmt.Sprintf("printf %%s \"$TOKEN\" | bam login %s --with-token", alias))
+	default:
+		fmt.Fprintf(r.env.Stderr, "Create a personal access token at %s\nToken: ", tokenPageURL(s.URL))
+		token, err = r.env.ReadSecret()
+		fmt.Fprintln(r.env.Stderr)
+		if err != nil {
+			return err
+		}
+		token = strings.TrimSpace(token)
+	}
+	if token == "" {
+		return errs.Usagef("empty token")
+	}
+	backend, err := r.env.Connect(bamboo.Options{BaseURL: s.URL, Token: token, Logger: r.logger()})
+	if err != nil {
+		return err
+	}
+	user, err := backend.CurrentUser(cmd.Context())
+	if err != nil {
+		var e *errs.Error
+		if errors.As(err, &e) && e.Kind == errs.KindAuth {
+			e.What = fmt.Sprintf("token rejected by %s (%s)", alias, e.What)
+			e.Try = "create a new token at " + tokenPageURL(s.URL)
+		}
+		return err
+	}
+	src, err := r.store().Save(origin, token)
+	if err != nil {
+		return err
+	}
+	where := "the keychain"
+	if src == credential.SourceFile {
+		where = r.env.Paths.Credentials + " (no keychain available)"
+	}
+	fmt.Fprintf(r.env.Stdout, "logged in to %s as %s (%s); token stored in %s\n", alias, user.Name, user.FullName, where)
+	if s.AuthEnv != "" && r.env.Getenv(s.AuthEnv) != "" {
+		fmt.Fprintf(r.env.Stderr, "note: %s is set and takes precedence over the stored token\n", s.AuthEnv)
+	}
+	return nil
+}
+
+func newLogoutCmd(r *runtime) *cobra.Command {
+	return &cobra.Command{
+		Use:   "logout <alias>",
+		Short: "Delete the stored token for a server",
+		Args:  cobra.ExactArgs(1),
+		RunE: r.wrap(func(cmd *cobra.Command, args []string) error {
+			cfg, err := r.config()
+			if err != nil {
+				return err
+			}
+			alias := args[0]
+			s, ok := cfg.Servers()[alias]
+			if !ok {
+				return errs.Configf("no server alias %q", alias).WithTry("bam server list")
+			}
+			origin, err := credential.Origin(s.URL)
+			if err != nil {
+				return err
+			}
+			deleted, err := r.store().Delete(origin)
+			if err != nil {
+				return err
+			}
+			if deleted {
+				fmt.Fprintf(r.env.Stdout, "logged out of %s\n", alias)
+			} else {
+				fmt.Fprintf(r.env.Stdout, "no stored token for %s\n", alias)
+			}
+			if s.AuthEnv != "" {
+				fmt.Fprintf(r.env.Stderr, "note: a token in $%s is not affected\n", s.AuthEnv)
+			}
+			return nil
+		}),
+	}
+}
+
+func newWhoamiCmd(r *runtime) *cobra.Command {
+	return &cobra.Command{
+		Use:   "whoami",
+		Short: "Show the authenticated user on each configured server",
+		Args:  cobra.NoArgs,
+		RunE: r.wrap(func(cmd *cobra.Command, _ []string) error {
+			cfg, err := r.config()
+			if err != nil {
+				return err
+			}
+			servers := cfg.Servers()
+			var names []string
+			if r.flags.server != "" {
+				if _, ok := servers[r.flags.server]; !ok {
+					return errs.Configf("no server alias %q", r.flags.server).WithTry("bam server list")
+				}
+				names = []string{r.flags.server}
+			} else {
+				for n := range servers {
+					names = append(names, n)
+				}
+				sort.Strings(names)
+			}
+			type row struct {
+				Alias    string `json:"alias"`
+				URL      string `json:"url"`
+				User     string `json:"user"`
+				FullName string `json:"full_name"`
+				Error    string `json:"error"`
+			}
+			var rows []row
+			var first error
+			for _, n := range names {
+				s := servers[n]
+				x := row{Alias: n, URL: s.URL}
+				_, backend, err := r.connectServer(s)
+				if err == nil {
+					u, uerr := backend.CurrentUser(cmd.Context())
+					x.User, x.FullName, err = u.Name, u.FullName, uerr
+				}
+				if err != nil {
+					x.Error = err.Error()
+					var e *errs.Error
+					if errors.As(err, &e) && e.Try != "" {
+						x.Error += " (try: " + e.Try + ")"
+					}
+					if first == nil {
+						first = err
+					}
+				}
+				rows = append(rows, x)
+			}
+			if r.flags.json {
+				if err := view.WriteJSON(r.env.Stdout, rows); err != nil {
+					return err
+				}
+			} else {
+				o, err := r.out()
+				if err != nil {
+					return err
+				}
+				t := view.Table{Headers: []string{"ALIAS", "URL", "USER"}, Flex: []int{2}}
+				for _, x := range rows {
+					who := fmt.Sprintf("%s (%s)", x.User, x.FullName)
+					if x.Error != "" {
+						who = "error: " + x.Error
+					}
+					t.Rows = append(t.Rows, []string{x.Alias, x.URL, who})
+				}
+				if err := t.Render(o); err != nil {
+					return err
+				}
+			}
+			if first != nil {
+				return silentError{first}
+			}
+			return nil
+		}),
+	}
+}

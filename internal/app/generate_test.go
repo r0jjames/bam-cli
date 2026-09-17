@@ -1,0 +1,56 @@
+package app
+
+import (
+	"testing"
+
+	"github.com/r0jjames/bam-cli/internal/config"
+	"github.com/r0jjames/bam-cli/internal/errs"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestGenerateTargetFromDeclaredVariables(t *testing.T) {
+	s := newService(t, fakeBamboo())
+	d, err := s.GenerateTarget(bg, GenerateOptions{Name: "provision-lab", PlanKey: "PROJ-PROV", Branch: "develop"})
+	require.NoError(t, err)
+	assert.Equal(t, config.TargetDraft{
+		Name: "provision-lab", Plan: "PROJ-PROV", Branch: "develop",
+		Vars: []config.DraftVar{
+			{Name: "cluster_type", Value: "k8s", Comment: "plan default"},
+			{Name: "compute_nodes", Value: "1", Comment: "plan default"},
+			{Name: "cluster_name", Value: "", Comment: `no plan default; last used "beta" in PROJ-PROV12-8`},
+			{Name: "db_password", Value: "${DB_PASSWORD}", Comment: "masked by Bamboo; set env var DB_PASSWORD"},
+		},
+		Required: []string{"cluster_name"},
+	}, d)
+}
+
+func TestGenerateTargetWithoutDeclaredList(t *testing.T) {
+	p := fakeBamboo()
+	p.VariablesErr = errs.Bamboof("no").Wrap(errs.ErrUnsupported)
+	s := newService(t, p)
+	d, err := s.GenerateTarget(bg, GenerateOptions{Name: "prov", PlanKey: "PROJ-PROV", Branch: "develop"})
+	require.NoError(t, err)
+	assert.Contains(t, d.Note, "names come from PROJ-PROV12-8")
+	assert.Len(t, d.Vars, 5)
+	assert.Equal(t, config.DraftVar{Name: "cluster_name", Value: "beta", Comment: "from PROJ-PROV12-8"}, d.Vars[0])
+}
+
+func TestGenerateTargetWithNothingReadable(t *testing.T) {
+	p := fakeBamboo()
+	p.VariablesErr = errs.Bamboof("no").Wrap(errs.ErrUnsupported)
+	p.BuildVarsErr = errs.Bamboof("no").Wrap(errs.ErrUnsupported)
+	s := newService(t, p)
+	d, err := s.GenerateTarget(bg, GenerateOptions{Name: "prov", PlanKey: "PROJ-PROV"})
+	require.NoError(t, err)
+	assert.Empty(t, d.Vars)
+	assert.Equal(t, "plan variables are not readable on this server; add them under defaults", d.Note)
+}
+
+func TestGenerateTargetRejectsBadInput(t *testing.T) {
+	s := newService(t, fakeBamboo())
+	_, err := s.GenerateTarget(bg, GenerateOptions{Name: "Prov", PlanKey: "PROJ-PROV"})
+	assert.Equal(t, errs.KindUsage, errs.KindOf(err))
+	_, err = s.GenerateTarget(bg, GenerateOptions{Name: "prov", PlanKey: "PROJ-NOPE"})
+	assert.Equal(t, errs.KindBamboo, errs.KindOf(err))
+}

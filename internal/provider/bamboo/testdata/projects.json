@@ -1,0 +1,4 @@
+{"expand": "projects", "projects": {"size": 2, "start-index": 0, "max-result": 100, "project": [
+  {"key": "PROJ", "name": "Example Project", "description": ""},
+  {"key": "OPS", "name": "Operations", "description": ""}
+]}}

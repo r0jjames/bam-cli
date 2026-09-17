@@ -1,0 +1,5 @@
+PROJ  Example Project
+  PLAN        NAME            LAST  STATE      COMPLETED  REASON
+  PROJ-BUILD  Build and test  #482  ✓ success  12m ago    Manual run by jdoe
+  PROJ-PROV   Provision lab   #97   ✗ failed   2h ago     Scheduled
+  PROJ-OLD    Legacy          –     – never    –          Never built

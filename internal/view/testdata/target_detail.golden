@@ -1,0 +1,15 @@
+provision-lab
+Plan        PROJ-PROV
+Branch      develop
+Server      (default)
+Watch       yes
+Timeout     45m0s
+Required    cluster_name
+Defined in  /home/jdoe/src/repo/.bam.yaml
+
+Defaults
+  cluster_type  k8s
+  db_password   ${LAB_DB_PASSWORD} (unset)
+
+Options
+  cluster_type  k8s, dcos
