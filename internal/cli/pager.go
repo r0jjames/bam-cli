@@ -10,7 +10,9 @@ import (
 // runPager pipes r through cmd, or copies it to stdout when cmd is empty or "cat".
 func runPager(cmd string, r io.Reader) error {
 	fields := strings.Fields(cmd)
-	if len(fields) == 0 || fields[0] == "cat" {
+	// Only bare "cat" is short-circuited: "cat -n" and friends carry
+	// arguments that must reach the real command.
+	if len(fields) == 0 || (len(fields) == 1 && fields[0] == "cat") {
 		_, err := io.Copy(os.Stdout, r)
 		return err
 	}
