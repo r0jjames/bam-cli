@@ -37,7 +37,7 @@ type Scrubber struct {
 	Host  string   // host[:port] of the recorded server
 	Users []string // user names and full names to replace with jdoe
 	// Names maps a real project key, project name or repository name to
-	// the placeholder it is recorded as (for example FORGE -> LAB). The
+	// the placeholder it is recorded as (for example ACME -> LAB). The
 	// repository is public, so recordings carry placeholder keys only.
 	Names map[string]string
 }
@@ -49,7 +49,7 @@ func (s Scrubber) Scrub(data []byte) []byte {
 	out = urlHostRe.ReplaceAllString(out, "${1}"+placeholder)
 
 	// Project, plan and repository names first, longest match first, so
-	// "forge-lab" is replaced before the "FORGE" inside it.
+	// "acme-ci" is replaced before the "ACME" inside it.
 	for _, name := range sortedByLength(mapKeys(s.Names)) {
 		re := regexp.MustCompile("(?i)" + regexp.QuoteMeta(name))
 		out = re.ReplaceAllString(out, s.Names[name])
