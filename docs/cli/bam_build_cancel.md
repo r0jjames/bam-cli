@@ -2,6 +2,14 @@
 
 Stop a queued or running build
 
+### Synopsis
+
+Stop a queued or running build.
+
+Bamboo stops a build by removing its unfinished jobs from the queue, so a
+stage that has not started yet can still be queued afterwards. Check the
+result with bam build show.
+
 ```
 bam build cancel [<build>|<plan>|<target>] [flags]
 ```

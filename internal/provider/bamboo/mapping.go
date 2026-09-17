@@ -81,7 +81,14 @@ func stateOf(r resultDTO) provider.State {
 	if s == "" {
 		s = r.BuildState
 	}
-	return mapState(r.LifeCycleState, s)
+	st := mapState(r.LifeCycleState, s)
+	// Bamboo reports a build that was stopped as NotBuilt with state
+	// Unknown -- the same shape as a job that never ran. A start time and
+	// notRunYet=false say this one did run, so it was stopped.
+	if st == provider.StateNotBuilt && !r.NotRunYet && r.BuildStartedTime != "" {
+		return provider.StateStopped
+	}
+	return st
 }
 
 func (c *Client) mapBuild(r resultDTO) provider.Build {

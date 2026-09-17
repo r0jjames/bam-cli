@@ -557,7 +557,7 @@ All calls send `Accept: application/json`; Bamboo defaults to XML without it.
 | Job log | `GET /rest/api/latest/result/{jobResultKey}?expand=logEntries` |
 | Job log fallback | `GET /download/{jobKey}/build_logs/{jobResultKey}.log` |
 | Trigger | `POST /rest/api/latest/queue/{planKey}?executeAllStages=true` with `bamboo.variable.<name>=<value>` parameters |
-| Stop | `DELETE /rest/api/latest/queue/{buildKey}` |
+| Stop | `DELETE /rest/api/latest/queue/{buildKey}`, and on 404 the same call for each unfinished **job** result key of the build (Data Center answers a plan-level key with "not of type ImmutableJob") |
 | Browse URL | `{server}/browse/{key}` |
 
 A plan branch is triggered through its own branch plan key. Trigger variables are sent as form-encoded body parameters, so values do not appear in URLs; if fixture recording shows the server ignores body parameters, the adapter sends them as query parameters and the debug log still redacts them.
@@ -577,6 +577,8 @@ Capabilities are discovered lazily and cached per server origin with the Bamboo 
 - log path (`logEntries` or download)
 - failed-test detail
 - build stop
+
+A stopped build comes back as `lifeCycleState: NotBuilt` with `state: Unknown`; it maps to `stopped` when it has a start time and `notRunYet` is false, and to `not built` otherwise.
 
 On each optional call the adapter uses the cached result if present; otherwise it tries the primary path, falls back on an "unsupported" response, and records the outcome. The cache entry is discarded when `ServerInfo` reports a different version, or after seven days. `bam doctor` exercises every capability except build stop against the first plan of the first configured project and its latest build, and rewrites the cache. Build stop is recorded the first time `cancel` runs.
 

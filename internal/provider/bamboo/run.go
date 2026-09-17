@@ -73,7 +73,7 @@ func (c *Client) StopBuild(ctx context.Context, key string) error {
 	if caps.Stop == "no" {
 		return unsupported
 	}
-	_, err := c.do(ctx, request{method: http.MethodDelete, path: api + "/queue/" + url.PathEscape(key)})
+	err := c.dequeue(ctx, key)
 	switch {
 	case err == nil:
 		if caps.Stop == "" {
@@ -83,9 +83,59 @@ func (c *Client) StopBuild(ctx context.Context, key string) error {
 	case statusOf(err) == http.StatusMethodNotAllowed || statusOf(err) == http.StatusNotImplemented:
 		c.learn(ctx, func(cp *Capabilities) { cp.Stop = "no" })
 		return unsupported
+	case statusOf(err) == http.StatusNotFound:
+		// Bamboo Data Center takes a JOB result key here, not the
+		// plan-level build key: "Plan PROJ-BUILD is not of type
+		// ...ImmutableJob". Stop every job of the build instead.
+		stopped, jobErr := c.stopJobs(ctx, key)
+		if jobErr != nil {
+			return jobErr
+		}
+		if stopped {
+			if caps.Stop == "" {
+				c.learn(ctx, func(cp *Capabilities) { cp.Stop = "yes" })
+			}
+			return nil
+		}
+		return c.notFoundAs(err, "queued or running build", key, "bam build show "+key)
 	default:
 		return c.notFoundAs(err, "queued or running build", key, "bam build show "+key)
 	}
+}
+
+func (c *Client) dequeue(ctx context.Context, key string) error {
+	_, err := c.do(ctx, request{method: http.MethodDelete, path: api + "/queue/" + url.PathEscape(key)})
+	return err
+}
+
+// stopJobs removes every unfinished job of a build from the queue. It
+// reports whether at least one job was stopped.
+func (c *Client) stopJobs(ctx context.Context, key string) (bool, error) {
+	var r resultDTO
+	if err := c.getJSON(ctx, api+"/result/"+url.PathEscape(key), url.Values{"expand": {buildExpand}}, &r); err != nil {
+		if errors.Is(err, errs.ErrNotFound) {
+			return false, nil // let the caller report the original 404
+		}
+		return false, c.notFoundAs(err, "build", key, "")
+	}
+	stopped := false
+	for _, stage := range r.Stages.Stage {
+		for _, job := range stage.Results.Result {
+			switch stateOf(job) {
+			case provider.StateQueued, provider.StateRunning:
+			default:
+				continue
+			}
+			if err := c.dequeue(ctx, resultKey(job)); err != nil {
+				if statusOf(err) == http.StatusNotFound {
+					continue // the job finished in the meantime
+				}
+				return stopped, c.notFoundAs(err, "job", resultKey(job), "")
+			}
+			stopped = true
+		}
+	}
+	return stopped, nil
 }
 
 // FetchLog returns log lines of a job result from o.Offset on.

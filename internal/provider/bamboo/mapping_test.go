@@ -41,3 +41,18 @@ func TestParseTime(t *testing.T) {
 	assert.True(t, want.Equal(parseTime("2026-09-12T09:00:00Z")))
 	assert.True(t, parseTime("").IsZero())
 }
+
+// A build stopped through the queue endpoint comes back as NotBuilt with
+// state Unknown, but it did start, so it is "stopped", not "not built".
+func TestStoppedBuildMapsToStopped(t *testing.T) {
+	r := resultDTO{Key: "PROJ-BUILD-45", LifeCycleState: "NotBuilt", State: "Unknown",
+		BuildStartedTime: "2026-09-17T06:17:46.478Z", NotRunYet: false}
+
+	assert.Equal(t, provider.StateStopped, stateOf(r))
+}
+
+func TestNeverStartedBuildStaysNotBuilt(t *testing.T) {
+	r := resultDTO{Key: "PROJ-BUILD-JOB2-45", LifeCycleState: "NotBuilt", State: "Unknown", NotRunYet: true}
+
+	assert.Equal(t, provider.StateNotBuilt, stateOf(r))
+}

@@ -46,6 +46,7 @@ type resultDTO struct {
 	State                  string        `json:"state"`
 	BuildState             string        `json:"buildState"`
 	LifeCycleState         string        `json:"lifeCycleState"`
+	NotRunYet              bool          `json:"notRunYet"`
 	BuildStartedTime       string        `json:"buildStartedTime"`
 	BuildCompletedTime     string        `json:"buildCompletedTime"`
 	BuildDuration          int64         `json:"buildDuration"`

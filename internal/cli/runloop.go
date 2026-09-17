@@ -308,8 +308,12 @@ func newCancelCmd(r *runtime) *cobra.Command {
 	var last bool
 	var branch string
 	cmd := &cobra.Command{
-		Use:               "cancel [<build>|<plan>|<target>]",
-		Short:             "Stop a queued or running build",
+		Use:   "cancel [<build>|<plan>|<target>]",
+		Short: "Stop a queued or running build",
+		Long: "Stop a queued or running build.\n\n" +
+			"Bamboo stops a build by removing its unfinished jobs from the queue, so a\n" +
+			"stage that has not started yet can still be queued afterwards. Check the\n" +
+			"result with bam build show.",
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: r.completeTargets,
 		RunE: r.wrap(func(cmd *cobra.Command, args []string) error {

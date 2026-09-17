@@ -146,3 +146,48 @@ func TestRecordedStoppedState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, provider.StateStopped, b.State)
 }
+
+// Bamboo Data Center rejects a plan-level build key on the queue endpoint
+// ("Plan PROJ-BUILD is not of type ImmutableJob"), so a stop falls back to
+// the job result keys of that build.
+func TestStopBuildFallsBackToJobKeys(t *testing.T) {
+	detail := `{"key":"PROJ-BUILD-45","lifeCycleState":"InProgress","state":"Unknown","stages":{"stage":[
+		{"name":"Build","lifeCycleState":"Finished","state":"Successful","results":{"result":[
+			{"buildResultKey":"PROJ-BUILD-JOB0-45","lifeCycleState":"Finished","state":"Successful"}]}},
+		{"name":"Test","lifeCycleState":"InProgress","state":"Unknown","results":{"result":[
+			{"buildResultKey":"PROJ-BUILD-JOB1-45","lifeCycleState":"InProgress","state":"Unknown"}]}}]}}`
+	c, rec := newTestServer(t, map[string]*route{
+		"DELETE /rest/api/latest/queue/PROJ-BUILD-45":                     {status: 404, body: `{"message":"Plan PROJ-BUILD is not of type com.atlassian.bamboo.plan.cache.ImmutableJob"}`},
+		"GET /rest/api/latest/result/PROJ-BUILD-45?expand=" + buildExpand: {body: detail},
+		"DELETE /rest/api/latest/queue/PROJ-BUILD-JOB1-45":                {status: 204},
+	})
+	saved := knownCaps(c, Capabilities{})
+
+	require.NoError(t, c.StopBuild(ctx, "PROJ-BUILD-45"))
+
+	var deleted []string
+	for _, r := range rec.all() {
+		if r.Method == "DELETE" {
+			deleted = append(deleted, r.URL.Path)
+		}
+	}
+	assert.Equal(t, []string{"/rest/api/latest/queue/PROJ-BUILD-45", "/rest/api/latest/queue/PROJ-BUILD-JOB1-45"}, deleted,
+		"a finished job is left alone")
+	assert.Equal(t, "yes", (*saved)[len(*saved)-1].Stop)
+}
+
+func TestStopBuildWithNoStoppableJobReportsNotFound(t *testing.T) {
+	detail := `{"key":"PROJ-BUILD-45","lifeCycleState":"Finished","state":"Successful","stages":{"stage":[
+		{"name":"Build","lifeCycleState":"Finished","state":"Successful","results":{"result":[
+			{"buildResultKey":"PROJ-BUILD-JOB0-45","lifeCycleState":"Finished","state":"Successful"}]}}]}}`
+	c, _ := newTestServer(t, map[string]*route{
+		"DELETE /rest/api/latest/queue/PROJ-BUILD-45":                     {status: 404, body: `{"message":"not of type com.atlassian.bamboo.plan.cache.ImmutableJob"}`},
+		"GET /rest/api/latest/result/PROJ-BUILD-45?expand=" + buildExpand: {body: detail},
+	})
+	knownCaps(c, Capabilities{})
+
+	err := c.StopBuild(ctx, "PROJ-BUILD-45")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "queued or running build PROJ-BUILD-45")
+}
