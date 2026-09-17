@@ -223,16 +223,77 @@ func TestPageAllStopsAtLimit(t *testing.T) {
 }
 
 func TestErrorTextAndDebugBodyRedactSecretValues(t *testing.T) {
+	cases := []struct {
+		name   string
+		value  string
+		body   string
+		user   string
+		debug  string
+		reason string
+	}{
+		{
+			name:   "raw",
+			value:  "hunter2",
+			body:   `{"message":"rejected value hunter2 for bamboo.variable.db_password"}`,
+			user:   "hunter2",
+			debug:  "hunter2",
+			reason: "Bamboo's raw echo of a secret value must not reach the user",
+		},
+		{
+			name:   "html escaped",
+			value:  "hunter&2",
+			body:   `{"message":"rejected value hunter&amp;2 for bamboo.variable.db_password"}`,
+			user:   "hunter&amp;2",
+			debug:  "hunter&amp;2",
+			reason: "Bamboo's HTML-escaped echo of a secret value must not reach the user",
+		},
+		{
+			name:   "json escaped",
+			value:  `a"b<c`,
+			body:   `{"message":"rejected value a\"b\u003cc for bamboo.variable.db_password"}`,
+			user:   `a"b<c`,
+			debug:  `a\"b\u003cc`,
+			reason: "Bamboo's JSON-escaped echo of a secret value must not reach debug output",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			c, _ := newTestServer(t, map[string]*route{
+				"POST /q": {status: 400, body: tc.body},
+			})
+			c.log = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+			form := url.Values{"bamboo.variable.db_password": {tc.value}, "bamboo.variable.env": {"staging"}}
+			_, err := c.do(context.Background(), request{method: "POST", path: "/q", form: form,
+				secret: map[string]bool{"bamboo.variable.db_password": true}})
+			require.Error(t, err)
+			assert.NotContains(t, err.Error(), tc.user, tc.reason)
+			assert.Contains(t, err.Error(), MaskedValue)
+			assert.NotContains(t, buf.String(), tc.debug, "--debug must not log an echoed secret value")
+		})
+	}
+}
+
+func TestErrorTextAndDebugBodyRedactOverlappingSecretValues(t *testing.T) {
 	var buf bytes.Buffer
 	c, _ := newTestServer(t, map[string]*route{
-		"POST /q": {status: 400, body: `{"message":"rejected value hunter2 for bamboo.variable.db_password"}`},
+		"POST /q": {status: 400, body: `{"message":"rejected values password and pass for trigger"}`},
 	})
 	c.log = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	form := url.Values{"bamboo.variable.db_password": {"hunter2"}, "bamboo.variable.env": {"staging"}}
+	form := url.Values{
+		"bamboo.variable.first":  {"pass"},
+		"bamboo.variable.second": {"password"},
+	}
 	_, err := c.do(context.Background(), request{method: "POST", path: "/q", form: form,
-		secret: map[string]bool{"bamboo.variable.db_password": true}})
+		secret: map[string]bool{
+			"bamboo.variable.first":  true,
+			"bamboo.variable.second": true,
+		}})
 	require.Error(t, err)
-	assert.NotContains(t, err.Error(), "hunter2", "Bamboo's echo of a secret value must not reach the user")
-	assert.Contains(t, err.Error(), MaskedValue)
-	assert.NotContains(t, buf.String(), "hunter2", "--debug must not log an echoed secret value")
+	assert.NotContains(t, err.Error(), "password")
+	assert.NotContains(t, err.Error(), "pass")
+	assert.NotContains(t, err.Error(), "********word")
+	assert.NotContains(t, buf.String(), "password")
+	assert.NotContains(t, buf.String(), "pass")
+	assert.NotContains(t, buf.String(), "********word")
 }

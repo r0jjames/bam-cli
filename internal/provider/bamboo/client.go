@@ -11,6 +11,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -303,18 +304,43 @@ func (r request) scrubSecrets(s string) string {
 	if len(r.secret) == 0 || s == "" {
 		return s
 	}
+	replacements := map[string]struct{}{}
 	for k := range r.secret {
 		for _, v := range append(append([]string(nil), r.form[k]...), r.query[k]...) {
 			if v == "" {
 				continue
 			}
-			s = strings.ReplaceAll(s, v, MaskedValue)
+			replacements[v] = struct{}{}
 			if e := html.EscapeString(v); e != v {
-				s = strings.ReplaceAll(s, e, MaskedValue)
+				replacements[e] = struct{}{}
+			}
+			if j, ok := jsonEscaped(v); ok && j != v {
+				replacements[j] = struct{}{}
 			}
 		}
 	}
+	values := make([]string, 0, len(replacements))
+	for v := range replacements {
+		values = append(values, v)
+	}
+	sort.Slice(values, func(i, j int) bool {
+		if len(values[i]) != len(values[j]) {
+			return len(values[i]) > len(values[j])
+		}
+		return values[i] < values[j]
+	})
+	for _, v := range values {
+		s = strings.ReplaceAll(s, v, MaskedValue)
+	}
 	return s
+}
+
+func jsonEscaped(s string) (string, bool) {
+	b, err := json.Marshal(s)
+	if err != nil || len(b) < 2 {
+		return "", false
+	}
+	return string(b[1 : len(b)-1]), true
 }
 
 func redactURL(u url.URL, secret map[string]bool) string {
