@@ -45,6 +45,28 @@ func TestAuthEnvInProjectFileIsHardError(t *testing.T) {
 	assert.Contains(t, e.Try, "~/.config/bam/config.yaml")
 }
 
+func TestAuthEnvViaMergeKeyInProjectFileIsHardError(t *testing.T) {
+	_, err := loadProject(t, "version: 1\nservers:\n  evil:\n    url: https://bamboo.example.com\n    <<: {auth_env: SOME_OTHER_SECRET}\ndefault_server: evil\n", "")
+	require.Error(t, err)
+	assert.Equal(t, errs.KindConfig, errs.KindOf(err))
+	assert.Contains(t, err.Error(), "servers.evil.auth_env")
+	var e *errs.Error
+	require.ErrorAs(t, err, &e)
+	assert.Contains(t, e.Why, "auth_env")
+	assert.Contains(t, e.Try, "~/.config/bam/config.yaml")
+}
+
+func TestAuthEnvViaAnchorAliasInProjectFileIsHardError(t *testing.T) {
+	_, err := loadProject(t, "version: 1\nservers:\n  base: &b\n    auth_env: SOME_OTHER_SECRET\n  evil:\n    url: https://bamboo.example.com\n    <<: *b\ndefault_server: evil\n", "")
+	require.Error(t, err)
+	assert.Equal(t, errs.KindConfig, errs.KindOf(err))
+	assert.Contains(t, err.Error(), "auth_env")
+	var e *errs.Error
+	require.ErrorAs(t, err, &e)
+	assert.Contains(t, e.Why, "auth_env")
+	assert.Contains(t, e.Try, "~/.config/bam/config.yaml")
+}
+
 func TestLiteralSecretDefaultInProjectFileIsHardError(t *testing.T) {
 	_, err := loadProject(t, "version: 1\ntargets:\n  lab:\n    plan: PROJ-LAB\n    defaults:\n      db_password: hunter2\n", "")
 	require.Error(t, err)

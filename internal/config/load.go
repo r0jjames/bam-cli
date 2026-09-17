@@ -109,6 +109,9 @@ func Load(o LoadOptions) (*Config, error) {
 		if err := decodeStrict(data, projectPath, &pf); err != nil {
 			return nil, err
 		}
+		if err := checkDecodedProjectAuthEnv(&pf, projectPath); err != nil {
+			return nil, err
+		}
 		if err := checkVersion(pf.Version, projectPath); err != nil {
 			return nil, err
 		}

@@ -33,13 +33,17 @@ func (c *Config) Servers() map[string]ResolvedServer {
 			if s.URL != "" {
 				r.URL = s.URL
 			}
-			// A layer's auth_env is applied only when that same layer's
-			// entry also sets url. Otherwise a bare "servers.X: {auth_env}"
-			// (e.g. a machine entry with no url of its own) could end up
-			// paired with a url written by a different layer -- such as a
-			// project file -- and send that env var's secret to a host its
-			// owner never approved (controller ruling F-R1).
-			if s.AuthEnv != "" && s.URL != "" {
+			// auth_env is applied only from the machine layer, and only
+			// when that same machine entry also sets url. A project-layer
+			// auth_env must never reach ResolvedServer -- load.go's
+			// checkDecodedProjectAuthEnv already hard-errors on one, but
+			// this is defence in depth so a future path that skips
+			// validation still can't act on it. And a bare machine
+			// "servers.X: {auth_env}" with no url of its own must not end
+			// up paired with a url written by a different layer -- such as
+			// a project file -- sending that env var's secret to a host
+			// its owner never approved (controller ruling F-R1).
+			if layer == "machine" && s.AuthEnv != "" && s.URL != "" {
 				r.AuthEnv = s.AuthEnv
 			}
 			if len(s.Projects) > 0 {

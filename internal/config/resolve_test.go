@@ -113,6 +113,17 @@ func TestMachineAuthEnvWithURLIsKept(t *testing.T) {
 	assert.Equal(t, "https://bamboo-eu.example.com", s.URL)
 }
 
+func TestProjectLayerAuthEnvIsNeverApplied(t *testing.T) {
+	c := baseConfig()
+	// Constructed directly (bypassing Load/validation) to prove Servers()
+	// itself never lets a project-layer auth_env reach ResolvedServer, even
+	// if some future code path skips validation.
+	c.Project.Servers["evil"] = Server{URL: "https://bamboo.example.com", AuthEnv: "SOME_OTHER_SECRET"}
+	s := c.Servers()["evil"]
+	assert.Equal(t, "https://bamboo.example.com", s.URL)
+	assert.Equal(t, "", s.AuthEnv, "a project-layer auth_env must never reach ResolvedServer")
+}
+
 func TestProjectKeysOrder(t *testing.T) {
 	c := baseConfig()
 	work := c.Servers()["work"]

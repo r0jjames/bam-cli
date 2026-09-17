@@ -72,15 +72,38 @@ func checkProjectCredentialKeys(data []byte, path string) error {
 			key := body.Content[j].Value
 			lower := strings.ToLower(key)
 			if lower == "auth_env" {
-				return errs.Configf("%s: servers.%s.auth_env is not allowed in a committed file", path, alias).
-					WithWhy("auth_env names a secret environment variable; only the machine config may set it").
-					WithTry("move auth_env to ~/.config/bam/config.yaml")
+				return authEnvNotAllowedError(path, alias)
 			}
 			if credentialKeys[lower] {
 				return errs.Configf("credential found in %s at servers.%s.%s", path, alias, key).
 					WithWhy("tokens never go in a committed file").
 					WithTry(fmt.Sprintf("remove the line, revoke that token in Bamboo, then run: bam login %s", alias))
 			}
+		}
+	}
+	return nil
+}
+
+// authEnvNotAllowedError is the error returned whenever a committed project
+// file sets servers.<alias>.auth_env, whether the raw-YAML scan spotted it
+// literally or the decoded struct caught it after a merge key, anchor or
+// alias hid it from that scan.
+func authEnvNotAllowedError(path, alias string) error {
+	return errs.Configf("%s: servers.%s.auth_env is not allowed in a committed file", path, alias).
+		WithWhy("auth_env names a secret environment variable; only the machine config may set it").
+		WithTry("move auth_env to ~/.config/bam/config.yaml")
+}
+
+// checkDecodedProjectAuthEnv rejects servers.<alias>.auth_env on the decoded
+// ProjectFile struct. Unlike checkProjectCredentialKeys (which scans the raw
+// YAML node tree and can be evaded by a merge key or an anchor/alias that
+// hides the auth_env pair from that walk), decoding through yaml.v3 already
+// resolves merge keys, anchors and aliases, so a populated AuthEnv field here
+// is real regardless of how the YAML expressed it.
+func checkDecodedProjectAuthEnv(pf *ProjectFile, path string) error {
+	for _, alias := range sortedKeys(pf.Servers) {
+		if pf.Servers[alias].AuthEnv != "" {
+			return authEnvNotAllowedError(path, alias)
 		}
 	}
 	return nil
