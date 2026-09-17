@@ -6,6 +6,7 @@ import (
 
 	"github.com/r0jjames/bam-cli/internal/provider"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMapState(t *testing.T) {
@@ -55,4 +56,29 @@ func TestNeverStartedBuildStaysNotBuilt(t *testing.T) {
 	r := resultDTO{Key: "PROJ-BUILD-JOB2-45", LifeCycleState: "NotBuilt", State: "Unknown", NotRunYet: true}
 
 	assert.Equal(t, provider.StateNotBuilt, stateOf(r))
+}
+
+// A job of a stage that never ran also carries a start time in Bamboo and
+// has no notRunYet field, so the stopped heuristic must not reach jobs.
+func TestNotBuiltJobStaysNotBuilt(t *testing.T) {
+	j := resultDTO{BuildResultKey: "PROJ-BUILD-JOB2-45", LifeCycleState: "NotBuilt", State: "Unknown",
+		BuildStartedTime: "2026-09-17T06:20:25.703Z"}
+
+	assert.Equal(t, provider.StateNotBuilt, jobState(j))
+}
+
+func TestStoppedBuildKeepsItsJobsNotBuilt(t *testing.T) {
+	r := resultDTO{Key: "PROJ-BUILD-45", LifeCycleState: "NotBuilt", State: "Unknown",
+		BuildStartedTime: "2026-09-17T06:20:24.315Z"}
+	r.Stages.Stage = []stageDTO{{Name: "Test", LifeCycleState: "NotBuilt", State: "Unknown"}}
+	r.Stages.Stage[0].Results.Result = []resultDTO{{BuildResultKey: "PROJ-BUILD-JOB1-45",
+		LifeCycleState: "NotBuilt", State: "Unknown", BuildStartedTime: "2026-09-17T06:20:25.703Z"}}
+
+	c, _ := newTestServer(t, map[string]*route{})
+	b := c.mapBuild(r)
+
+	assert.Equal(t, provider.StateStopped, b.State, "the build was stopped")
+	require.Len(t, b.Stages, 1)
+	require.Len(t, b.Stages[0].Jobs, 1)
+	assert.Equal(t, provider.StateNotBuilt, b.Stages[0].Jobs[0].State)
 }

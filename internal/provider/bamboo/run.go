@@ -121,7 +121,7 @@ func (c *Client) stopJobs(ctx context.Context, key string) (bool, error) {
 	stopped := false
 	for _, stage := range r.Stages.Stage {
 		for _, job := range stage.Results.Result {
-			switch stateOf(job) {
+			switch jobState(job) {
 			case provider.StateQueued, provider.StateRunning:
 			default:
 				continue

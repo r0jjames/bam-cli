@@ -181,25 +181,51 @@ func TestScrubReplacesNamesWithPlaceholders(t *testing.T) {
 	s := Scrubber{
 		Host:  "bamboo.lab.example:8085",
 		Users: []string{"rsmith"},
-		Names: map[string]string{"acme-ci": "lab-ci", "ACME": "LAB"},
+		Names: map[string]string{"proj-ci": "lab-ci", "PROJ": "LAB"},
 	}
 
-	out := string(s.Scrub([]byte(`{"key":"ACME-PROV-2","planName":"acme-ci build","repositoryName":"acme-ci","project":"acme"}`)))
+	out := string(s.Scrub([]byte(`{"key":"PROJ-PROV-2","planName":"proj-ci build","repositoryName":"proj-ci","projectName":"proj"}`)))
 
 	assert.Contains(t, out, `"key":"LAB-PROV-2"`)
 	assert.Contains(t, out, `"planName":"lab-ci build"`, "the longer name is replaced before the shorter one")
 	assert.Contains(t, out, `"repositoryName":"lab-ci"`)
-	assert.Contains(t, out, `"project":"LAB"`, "a differently cased mention is replaced too")
-	assert.NotContains(t, strings.ToLower(out), "acme")
+	assert.Contains(t, out, `"projectName":"LAB"`, "a differently cased mention is replaced too")
+	assert.Contains(t, out, `"projectName"`, "the field name itself is left alone")
+
 }
 
 func TestDenylistTermsIncludeReplacedNames(t *testing.T) {
-	s := Scrubber{Host: "bamboo.lab.example:8085", Users: []string{"rsmith"}, Names: map[string]string{"acme-ci": "lab-ci"}}
+	s := Scrubber{Host: "bamboo.lab.example:8085", Users: []string{"rsmith"}, Names: map[string]string{"proj-ci": "lab-ci"}}
 
 	terms := s.DenylistTerms()
 
-	assert.Contains(t, terms, "acme-ci")
+	assert.Contains(t, terms, "proj-ci")
 	assert.Contains(t, terms, "bamboo.lab.example:8085")
 	assert.Contains(t, terms, "rsmith")
-	assert.NotContains(t, s.Terms(), "acme-ci", "Scrub must not rewrite a project name to jdoe")
+	assert.NotContains(t, s.Terms(), "proj-ci", "Scrub must not rewrite a project name to jdoe")
+}
+
+// The host must be redacted before project names are, or a name that is a
+// substring of the host mangles a bare host mention past both guards.
+func TestScrubRedactsHostBeforeNames(t *testing.T) {
+	s := Scrubber{Host: "bamboo.lab.example:8085", Names: map[string]string{"lab": "proj"}}
+
+	out := string(s.Scrub([]byte(`{"agent":"runner on bamboo.lab.example:8085","project":"lab"}`)))
+
+	assert.NotContains(t, out, "bamboo.lab.example")
+	assert.Contains(t, out, `"project":"proj"`)
+}
+
+func TestScrubTreatsPlaceholderLiterally(t *testing.T) {
+	s := Scrubber{Names: map[string]string{"OLD": "N$1EW"}}
+
+	out := string(s.Scrub([]byte(`{"key":"OLD-1"}`)))
+
+	assert.Equal(t, `{"key":"N$1EW-1"}`, out, "a $ in the placeholder is not a capture-group reference")
+}
+
+func TestShortNamesAreReported(t *testing.T) {
+	s := Scrubber{Names: map[string]string{"IT": "LAB", "proj-ci": "lab-ci"}}
+
+	assert.Equal(t, []string{"IT"}, s.RiskyNames(), "a short name matches unrelated words")
 }

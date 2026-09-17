@@ -73,6 +73,9 @@ func newRoot(r *runtime) *cobra.Command {
 	for _, add := range commandSets {
 		add(root, r)
 	}
+	// Cobra adds these lazily in ExecuteC, too late for the walk below.
+	root.InitDefaultCompletionCmd()
+	root.InitDefaultHelpCmd()
 	for _, c := range root.Commands() {
 		requireSubcommand(c)
 	}

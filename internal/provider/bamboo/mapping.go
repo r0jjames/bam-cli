@@ -91,6 +91,19 @@ func stateOf(r resultDTO) provider.State {
 	return st
 }
 
+// jobState maps a job result. Bamboo omits notRunYet on nested job results
+// and stamps a start time even on a job of a stage that never ran, so the
+// build-level "stopped" heuristic must not be applied here: a NotBuilt job
+// stays "not built", whether its build failed, was stopped, or skipped the
+// stage.
+func jobState(r resultDTO) provider.State {
+	s := r.State
+	if s == "" {
+		s = r.BuildState
+	}
+	return mapState(r.LifeCycleState, s)
+}
+
 func (c *Client) mapBuild(r resultDTO) provider.Build {
 	key := resultKey(r)
 	reason := r.ReasonSummary
@@ -129,7 +142,7 @@ func (c *Client) mapBuild(r resultDTO) provider.Build {
 			job := provider.Job{
 				Key:      resultKey(j),
 				Name:     j.Plan.ShortName,
-				State:    stateOf(j),
+				State:    jobState(j),
 				Duration: durationOf(j),
 				URL:      c.URL(resultKey(j)),
 			}

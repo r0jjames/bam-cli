@@ -8,6 +8,10 @@ Generate the autocompletion script for bam for the specified shell.
 See each sub-command's help for details on how to use the generated script.
 
 
+```
+bam completion [flags]
+```
+
 ### Options
 
 ```

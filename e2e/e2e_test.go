@@ -32,22 +32,22 @@ func TestSmoke(t *testing.T) {
 	if *planKey == "" && *targetName == "" {
 		t.Skip("pass -plan KEY or -target NAME, e.g. make e2e ARGS='-target smoke'")
 	}
-	cfg, err := toolcfg.Load(toolcfg.SystemOptions())
+	opts, err := toolcfg.SystemOptions()
+	if err != nil {
+		t.Fatalf("resolve paths: %v", err)
+	}
+	cfg, err := toolcfg.Load(opts)
 	if err != nil {
 		t.Fatalf("read bam config: %v", err)
 	}
-	plan, alias := *planKey, *serverAlias
+	plan, targetServer := *planKey, ""
 	if plan == "" {
-		var targetServer string
 		plan, targetServer, err = cfg.PlanFor(*targetName)
 		if err != nil {
 			t.Fatalf("target %s: %v", *targetName, err)
 		}
-		if alias == "" {
-			alias = targetServer
-		}
 	}
-	server, err := cfg.Server(alias)
+	server, err := cfg.ServerFor(*serverAlias, targetServer)
 	if err != nil {
 		t.Fatalf("server: %v", err)
 	}

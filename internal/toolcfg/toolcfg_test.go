@@ -1,8 +1,11 @@
 package toolcfg
 
 import (
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/r0jjames/bam-cli/internal/errs"
@@ -125,4 +128,47 @@ func TestPlanForUnknownTargetListsTargets(t *testing.T) {
 	require.ErrorAs(t, err, &e)
 	assert.Equal(t, errs.KindConfig, e.Kind)
 	assert.Contains(t, e.Why, "smoke")
+}
+
+func TestServerForRanksTargetServerBelowAlias(t *testing.T) {
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, "config.yaml"),
+		"version: 1\nservers:\n  lab:\n    url: http://bamboo.lab.example:8085\n  other:\n    url: http://other.example.com\n")
+	ring := memKeyring{
+		"bam\x00http://bamboo.lab.example:8085": "tok-lab",
+		"bam\x00http://other.example.com":       "tok-other",
+	}
+	l, err := Load(opts(t, dir, ring))
+	require.NoError(t, err)
+
+	s, err := l.ServerFor("lab", "other")
+	require.NoError(t, err)
+	assert.Equal(t, "lab", s.Alias, "an explicit alias wins over the target's server")
+
+	s, err = l.ServerFor("", "other")
+	require.NoError(t, err)
+	assert.Equal(t, "other", s.Alias)
+}
+
+// toolcfg is a dev-tool helper; it must not pull in the CLI, the view or
+// the Bamboo adapter, so the layering table stays true.
+func TestToolcfgStaysBelowTheAdapter(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	require.NoError(t, err)
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(f)
+		require.NoError(t, err)
+		parsed, err := parser.ParseFile(token.NewFileSet(), f, src, parser.ImportsOnly)
+		require.NoError(t, err)
+		for _, imp := range parsed.Imports {
+			path := strings.Trim(imp.Path.Value, `"`)
+			assert.NotContains(t, path, "cobra", f)
+			assert.NotContains(t, path, "provider/bamboo", f)
+			assert.NotContains(t, path, "internal/cli", f)
+			assert.NotContains(t, path, "internal/view", f)
+		}
+	}
 }

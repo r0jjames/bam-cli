@@ -37,7 +37,7 @@ type Scrubber struct {
 	Host  string   // host[:port] of the recorded server
 	Users []string // user names and full names to replace with jdoe
 	// Names maps a real project key, project name or repository name to
-	// the placeholder it is recorded as (for example ACME -> LAB). The
+	// the placeholder it is recorded as (for example PROJ -> LAB). The
 	// repository is public, so recordings carry placeholder keys only.
 	Names map[string]string
 }
@@ -48,26 +48,46 @@ func (s Scrubber) Scrub(data []byte) []byte {
 	out := string(data)
 	out = urlHostRe.ReplaceAllString(out, "${1}"+placeholder)
 
-	// Project, plan and repository names first, longest match first, so
-	// "acme-ci" is replaced before the "ACME" inside it.
-	for _, name := range sortedByLength(mapKeys(s.Names)) {
-		re := regexp.MustCompile("(?i)" + regexp.QuoteMeta(name))
-		out = re.ReplaceAllString(out, s.Names[name])
-	}
-
-	// Build list of terms to redact, in order (longest first for host, then users)
-	terms := s.Terms()
-	for _, term := range terms {
+	// Host and user names first: a project name that is a substring of the
+	// recorded host (name "lab" in "bamboo.lab.example") would otherwise
+	// break a bare host mention into something neither the host redaction
+	// below nor the fixture guards recognise.
+	for _, term := range s.Terms() {
 		if term == "" {
 			continue
 		}
-		// Case-insensitive replacement using regex
 		re := regexp.MustCompile("(?i)" + regexp.QuoteMeta(term))
-		out = re.ReplaceAllString(out, "jdoe")
+		out = re.ReplaceAllLiteralString(out, "jdoe")
+	}
+
+	// Then project, plan and repository names, longest match first, so
+	// "proj-ci" is replaced before the "PROJ" inside it.
+	for _, name := range sortedByLength(mapKeys(s.Names)) {
+		// Whole words only: a project key like PROJ must not rewrite the
+		// "proj" inside the field name "projectName".
+		re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(name) + `\b`)
+		out = re.ReplaceAllLiteralString(out, s.Names[name])
 	}
 
 	out = emailRe.ReplaceAllString(out, "jdoe@example.com")
 	return []byte(out)
+}
+
+// shortNameLen is the length below which a name matches too much: a
+// two-letter project key rewrites unrelated words ("IT" inside "Waiting").
+const shortNameLen = 4
+
+// RiskyNames lists the Names entries too short to replace safely, so the
+// recorder can warn before a recording is written.
+func (s Scrubber) RiskyNames() []string {
+	var out []string
+	for name := range s.Names {
+		if len(name) < shortNameLen {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Terms returns the distinct non-empty terms that Scrub redacts: Host, host without port, and each user name.
@@ -129,7 +149,14 @@ func sortedByLength(in []string) []string {
 			out = append(out, v)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return len(out[i]) > len(out[j]) })
+	// Longest first, then alphabetically: the order decides which name is
+	// replaced first, so it must not depend on Go's map iteration order.
+	sort.Slice(out, func(i, j int) bool {
+		if len(out[i]) != len(out[j]) {
+			return len(out[i]) > len(out[j])
+		}
+		return out[i] < out[j]
+	})
 	return out
 }
 

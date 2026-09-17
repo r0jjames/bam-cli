@@ -2,6 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -136,4 +139,67 @@ func splitLines(s string) []string {
 		out = append(out, s[start:])
 	}
 	return out
+}
+
+func testRecorder(t *testing.T, routes map[string]string) *recorder {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, ok := routes[r.URL.Path]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	return &recorder{base: srv.URL, token: "test-token", http: srv.Client(), out: t.TempDir()}
+}
+
+func TestPlaceholderNamesCoversEveryProjectAndRepository(t *testing.T) {
+	r := testRecorder(t, map[string]string{
+		"/rest/api/latest/project/OPS": `{"key":"OPS","name":"ops-lab"}`,
+		"/rest/api/latest/project": `{"projects":{"project":[{"key":"OPS","name":"ops-lab"},` +
+			`{"key":"WEB","name":"web-shop"},{"key":"DATA","name":"DATA"}]}}`,
+		"/rest/api/latest/result/OPS-PROV-3": `{"vcsRevisions":{"vcsRevision":[{"repositoryName":"ops-infra"},{"repositoryName":"ops-charts"}]}}`,
+	})
+
+	names, err := r.placeholderNames("OPS", "OPS-PROV-3", "LAB")
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]string{
+		"OPS":        "LAB",
+		"ops-lab":    "lab",
+		"WEB":        "LAB2",
+		"web-shop":   "lab2",
+		"DATA":       "LAB3",
+		"ops-infra":  "lab-repo-1",
+		"ops-charts": "lab-repo-2",
+	}, names, "every project on the server is renamed, not only the recorded one")
+}
+
+func TestWarnResidualReportsAnotherUser(t *testing.T) {
+	r := testRecorder(t, nil)
+	r.scrub = bamboo.Scrubber{Names: map[string]string{"IT": "LAB"}}
+	require.NoError(t, os.WriteFile(filepath.Join(r.out, "results.json"),
+		[]byte(`{"a":"/browse/user/jdoe","b":"/browse/user/rsmith"}`), 0o644))
+
+	out := captureStdout(t, func() { require.NoError(t, r.warnResidual()) })
+
+	assert.Contains(t, out, `user name "rsmith" is still in the recording`)
+	assert.NotContains(t, out, "jdoe")
+	assert.Contains(t, out, `"IT" is short enough`)
+}
+
+func captureStdout(t *testing.T, f func()) string {
+	t.Helper()
+	old := os.Stdout
+	rd, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	f()
+	require.NoError(t, w.Close())
+	os.Stdout = old
+	data, err := io.ReadAll(rd)
+	require.NoError(t, err)
+	return string(data)
 }

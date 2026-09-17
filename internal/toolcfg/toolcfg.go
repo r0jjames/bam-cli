@@ -29,9 +29,15 @@ type Options struct {
 }
 
 // SystemOptions are the paths bam itself uses for the running process.
-func SystemOptions() Options {
-	wd, _ := os.Getwd()
-	home, _ := os.UserHomeDir()
+func SystemOptions() (Options, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return Options{}, err
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return Options{}, err
+	}
 	machine := os.Getenv("BAM_CONFIG")
 	if machine == "" {
 		machine = filepath.Join(xdg.ConfigHome, "bam", "config.yaml")
@@ -43,7 +49,7 @@ func SystemOptions() Options {
 		Credentials: filepath.Join(xdg.ConfigHome, "bam", "credentials.yaml"),
 		Getenv:      os.Getenv,
 		Keyring:     credential.SystemKeyring{},
-	}
+	}, nil
 }
 
 // Server is one resolved server: where it is and how to authenticate.
@@ -80,7 +86,13 @@ func Load(o Options) (*Loaded, error) {
 // Server selects a server the way bam does (--server, then the defaults of
 // this repository and machine) and finds its token. alias may be empty.
 func (l *Loaded) Server(alias string) (Server, error) {
-	rs, err := l.Cfg.SelectServer(alias, "")
+	return l.ServerFor(alias, "")
+}
+
+// ServerFor is Server with the server a target names, which ranks below an
+// explicit alias, exactly as in bam's own selection order.
+func (l *Loaded) ServerFor(alias, targetServer string) (Server, error) {
+	rs, err := l.Cfg.SelectServer(alias, targetServer)
 	if err != nil {
 		return Server{}, err
 	}
@@ -107,9 +119,11 @@ func (l *Loaded) PlanFor(name string) (plan, server string, err error) {
 		return "", "", err
 	}
 	if !ok {
-		return "", "", errs.Configf("no target %q", name).
-			WithWhy("targets here: " + strings.Join(l.targetNames(), ", ")).
-			WithTry("bam target list")
+		e := errs.Configf("no target %q", name).WithTry("bam target list")
+		if names := l.targetNames(); len(names) > 0 {
+			e = e.WithWhy("targets here: " + strings.Join(names, ", "))
+		}
+		return "", "", e
 	}
 	return t.Plan, t.Server, nil
 }

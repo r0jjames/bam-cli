@@ -30,6 +30,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -190,25 +192,25 @@ func run() error {
 	)
 	flag.Parse()
 
-	cfg, err := toolcfg.Load(toolcfg.SystemOptions())
+	opts, err := toolcfg.SystemOptions()
 	if err != nil {
 		return err
 	}
-	plan := *planKey
+	cfg, err := toolcfg.Load(opts)
+	if err != nil {
+		return err
+	}
+	plan, targetServer := *planKey, ""
 	if plan == "" {
 		if *targetName == "" {
 			return errors.New("pass -plan KEY or -target NAME (the server and token come from your bam config)")
 		}
-		var targetServer string
 		plan, targetServer, err = cfg.PlanFor(*targetName)
 		if err != nil {
 			return err
 		}
-		if *serverAlias == "" {
-			*serverAlias = targetServer
-		}
 	}
-	server, err := cfg.Server(*serverAlias)
+	server, err := cfg.ServerFor(*serverAlias, targetServer)
 	if err != nil {
 		return err
 	}
@@ -291,6 +293,9 @@ func run() error {
 			return err
 		}
 	}
+	if err := r.warnResidual(); err != nil {
+		return err
+	}
 	fmt.Println("recorded into", r.out, "- review every file before committing")
 	return nil
 }
@@ -369,28 +374,96 @@ func writeScrubbed(dir, file string, body []byte, scrub bamboo.Scrubber) error {
 	return os.WriteFile(filepath.Join(dir, file), scrub.Scrub(body), 0o644)
 }
 
-// placeholderNames maps the real project key, the project name and every
-// repository name of the recorded build to placeholders, so a public
-// recording carries no name of the owner's own Bamboo or repositories.
+// placeholderNames maps every project key and name on the server, and
+// every repository name of the recorded build, to placeholders. The
+// recorded project becomes `as` (LAB by default); every other project
+// becomes LAB2, LAB3 and so on, because projects.json records the
+// server's whole project list.
 func (r *recorder) placeholderNames(project, build, as string) (map[string]string, error) {
-	names := map[string]string{project: as}
+	names := map[string]string{}
 	lower := strings.ToLower(as)
+	add := func(real, placeholder string) {
+		if real == "" || names[real] != "" {
+			return
+		}
+		names[real] = placeholder
+	}
 
-	body, status, err := r.call(http.MethodGet, "/rest/api/latest/project/"+project, nil)
+	add(project, as)
+	name, err := r.projectName(project)
+	if err != nil {
+		return nil, err
+	}
+	if !strings.EqualFold(name, project) {
+		add(name, lower)
+	}
+
+	others, err := r.otherProjects(project)
+	if err != nil {
+		return nil, err
+	}
+	for i, p := range others {
+		add(p.Key, fmt.Sprintf("%s%d", as, i+2))
+		if !strings.EqualFold(p.Name, p.Key) {
+			add(p.Name, fmt.Sprintf("%s%d", lower, i+2))
+		}
+	}
+
+	repos, err := r.repositoryNames(build)
+	if err != nil {
+		return nil, err
+	}
+	for i, repo := range repos {
+		add(repo, fmt.Sprintf("%s-repo-%d", lower, i+1))
+	}
+	return names, nil
+}
+
+func (r *recorder) projectName(key string) (string, error) {
+	body, status, err := r.call(http.MethodGet, "/rest/api/latest/project/"+key, nil)
 	if err != nil || status != 200 {
-		return nil, fmt.Errorf("project %s: status %d: %v", project, status, err)
+		return "", fmt.Errorf("project %s: status %d: %v", key, status, err)
 	}
 	var p struct {
 		Name string `json:"name"`
 	}
 	if err := json.Unmarshal(body, &p); err != nil {
+		return "", err
+	}
+	return p.Name, nil
+}
+
+type projectRef struct {
+	Key  string `json:"key"`
+	Name string `json:"name"`
+}
+
+// otherProjects lists every project on the server except the recorded one.
+func (r *recorder) otherProjects(recorded string) ([]projectRef, error) {
+	body, status, err := r.call(http.MethodGet, "/rest/api/latest/project", url.Values{"max-result": {"25"}})
+	if err != nil || status != 200 {
+		return nil, fmt.Errorf("projects: status %d: %v", status, err)
+	}
+	var res struct {
+		Projects struct {
+			Project []projectRef `json:"project"`
+		} `json:"projects"`
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
 		return nil, err
 	}
-	if p.Name != "" && !strings.EqualFold(p.Name, project) {
-		names[p.Name] = lower
+	var out []projectRef
+	for _, p := range res.Projects.Project {
+		if !strings.EqualFold(p.Key, recorded) {
+			out = append(out, p)
+		}
 	}
+	return out, nil
+}
 
-	body, status, err = r.call(http.MethodGet, "/rest/api/latest/result/"+build, url.Values{"expand": {"vcsRevisions"}})
+// repositoryNames returns the repositories a build was built from.
+func (r *recorder) repositoryNames(build string) ([]string, error) {
+	body, status, err := r.call(http.MethodGet, "/rest/api/latest/result/"+build, url.Values{"expand": {"vcsRevisions"}})
 	if err != nil || status != 200 {
 		return nil, fmt.Errorf("vcs revisions of %s: status %d: %v", build, status, err)
 	}
@@ -404,16 +477,58 @@ func (r *recorder) placeholderNames(project, build, as string) (map[string]strin
 	if err := json.Unmarshal(body, &res); err != nil {
 		return nil, err
 	}
-	for i, rev := range res.VCSRevisions.Revision {
-		if rev.RepositoryName == "" {
-			continue
+	var out []string
+	for _, rev := range res.VCSRevisions.Revision {
+		if rev.RepositoryName != "" {
+			out = append(out, rev.RepositoryName)
 		}
-		if _, seen := names[rev.RepositoryName]; seen {
-			continue
-		}
-		names[rev.RepositoryName] = fmt.Sprintf("%s-repo-%d", lower, i+1)
 	}
-	return names, nil
+	return out, nil
+}
+
+// userRe finds the user names Bamboo puts in build reasons, so the recorder
+// can report anyone the scrubber did not replace with jdoe.
+var userRe = regexp.MustCompile(`/browse/user/([A-Za-z0-9._-]+)`)
+
+// warnResidual reports names left in the recording that are not
+// placeholders: another user who triggered one of the recorded builds, or a
+// name too short to replace safely.
+func (r *recorder) warnResidual() error {
+	entries, err := os.ReadDir(r.out)
+	if err != nil {
+		return err
+	}
+	users := map[string]bool{}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(r.out, e.Name()))
+		if err != nil {
+			return err
+		}
+		for _, m := range userRe.FindAllStringSubmatch(string(data), -1) {
+			if m[1] != "jdoe" {
+				users[m[1]] = true
+			}
+		}
+	}
+	for _, name := range sortedNames(users) {
+		fmt.Printf("WARNING: user name %q is still in the recording; scrub it by hand\n", name)
+	}
+	for _, name := range r.scrub.RiskyNames() {
+		fmt.Printf("WARNING: %q is short enough to match unrelated words; check the recording\n", name)
+	}
+	return nil
+}
+
+func sortedNames(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (r *recorder) latestBuild(plan string) (string, error) {
@@ -492,7 +607,11 @@ func (r *recorder) recordFailed(buildKey string) error {
 			if j.State != "Failed" {
 				continue
 			}
-			jobKey := j.Key[:strings.LastIndex(j.Key, "-")]
+			cut := strings.LastIndex(j.Key, "-")
+			if cut <= 0 {
+				continue
+			}
+			jobKey := j.Key[:cut]
 			if err := r.record("log_entries.json", http.MethodGet, "/rest/api/latest/result/"+j.Key,
 				url.Values{"expand": {"logEntries[0:50]"}}); err != nil {
 				return err
@@ -552,7 +671,9 @@ func (r *recorder) recordTriggerAndStop(plan string) error {
 	if err != nil || status/100 != 2 {
 		return fmt.Errorf("trigger %s: status %d: %v", plan, status, err)
 	}
-	_ = os.WriteFile(filepath.Join(r.out, "queue.json"), r.scrub.Scrub(body), 0o644)
+	if err := writeScrubbed(r.out, "queue.json", body, r.scrub); err != nil {
+		return err
+	}
 	var q struct {
 		Key string `json:"buildResultKey"`
 	}
