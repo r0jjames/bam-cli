@@ -49,3 +49,35 @@ func TestProbeReportsUnsupportedAndErrors(t *testing.T) {
 	assert.Equal(t, ProbeSkipped, status["logs"])
 	assert.Equal(t, ProbeSkipped, status["failed tests"])
 }
+
+func TestProbeReportsBuildListingFailuresAsErrors(t *testing.T) {
+	c, _ := newTestServer(t, map[string]*route{
+		"GET /rest/api/latest/info":              {fixture: "info.json"},
+		"GET /rest/api/latest/plan/PROJ-BUILD":   {fixture: "plan.json"},
+		"GET /rest/api/latest/result/PROJ-BUILD": {status: 500, body: `{"message":"boom"}`},
+	})
+	results := c.Probe(ctx, "PROJ-BUILD")
+	status := map[string]ProbeStatus{}
+	for _, r := range results {
+		status[r.Name] = r.Status
+	}
+	assert.Equal(t, ProbeError, status["build variables"], "an outage is not a missing capability")
+	assert.Equal(t, ProbeError, status["logs"])
+	assert.Equal(t, ProbeError, status["failed tests"])
+}
+
+func TestProbeReportsAFailedBuildReadAsAnError(t *testing.T) {
+	c, _ := newTestServer(t, map[string]*route{
+		"GET /rest/api/latest/info":                                        {fixture: "info.json"},
+		"GET /rest/api/latest/plan/PROJ-BUILD/variables":                   {fixture: "plan_variables.json"},
+		"GET /rest/api/latest/result/PROJ-BUILD":                           {fixture: "results.json"},
+		"GET /rest/api/latest/result/PROJ-BUILD-482?expand=variables":      {fixture: "result_variables.json"},
+		"GET /rest/api/latest/result/PROJ-BUILD-482?expand=" + buildExpand: {status: 500, body: `{"message":"boom"}`},
+	})
+	results := c.Probe(ctx, "PROJ-BUILD")
+	for _, r := range results {
+		if r.Name == "logs" {
+			assert.Equal(t, ProbeError, r.Status, "a failed build read is not a build without jobs")
+		}
+	}
+}

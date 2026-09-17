@@ -57,40 +57,47 @@ func (c *Client) Probe(ctx context.Context, planKey string) []ProbeResult {
 		"names come from past builds and target defaults")
 
 	builds, err := c.ListBuilds(ctx, planKey, provider.ListOptions{Limit: 1})
-	if err != nil || len(builds) == 0 {
+	switch {
+	case err != nil:
+		// An outage or a permission error is a failed diagnosis, not a
+		// capability the server lacks; doctor must exit nonzero.
+		add("build variables", err, "", "")
+		add("logs", err, "", "")
+	case len(builds) == 0:
 		why := planKey + " has no builds"
-		if err != nil {
-			why = err.Error()
-		}
 		skip("build variables", why)
 		skip("logs", why)
-	} else {
+	default:
 		latest := builds[0].Key
 		_, err = c.BuildVariables(ctx, latest)
 		add("build variables", err, "read from "+latest, "--from works only for builds bam triggered")
 
 		b, err := c.GetBuild(ctx, latest)
 		var job string
-		if err == nil {
-			for _, s := range b.Stages {
-				if len(s.Jobs) > 0 {
-					job = s.Jobs[0].Key
-					break
-				}
+		for _, s := range b.Stages {
+			if len(s.Jobs) > 0 {
+				job = s.Jobs[0].Key
+				break
 			}
 		}
-		if job == "" {
+		switch {
+		case err != nil:
+			add("logs", err, "", "")
+		case job == "":
 			skip("logs", latest+" has no jobs")
-		} else {
+		default:
 			_, err = c.FetchLog(ctx, job, provider.LogOptions{})
 			add("logs", err, "via "+c.Capabilities().Log, "")
 		}
 	}
 
 	failed, err := c.ListBuilds(ctx, planKey, provider.ListOptions{Limit: 1, State: provider.StateFailed})
-	if err != nil || len(failed) == 0 {
+	switch {
+	case err != nil:
+		add("failed tests", err, "", "")
+	case len(failed) == 0:
 		skip("failed tests", "no failed build of "+planKey+" to read")
-	} else {
+	default:
 		c.failedTests(ctx, failed[0].Key)
 		switch c.Capabilities().FailedTests {
 		case "yes":
