@@ -104,7 +104,15 @@ func newDoctorCmd(r *runtime) *cobra.Command {
 				if key == "" {
 					projects := cfg.ProjectKeys(server)
 					if len(projects) > 0 {
-						if plans, err := backend.ListPlans(cmd.Context(), projects[0]); err == nil && len(plans) > 0 {
+						plans, err := backend.ListPlans(cmd.Context(), projects[0])
+						if err != nil {
+							// A listing that failed is a failed diagnosis:
+							// reporting it as "no plan to probe" would exit 0
+							// during an outage.
+							fail("capabilities", err)
+							return
+						}
+						if len(plans) > 0 {
 							key = plans[0].Key
 						}
 					}
