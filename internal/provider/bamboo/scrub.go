@@ -36,6 +36,10 @@ var AllowedFixtureHosts = map[string]bool{
 type Scrubber struct {
 	Host  string   // host[:port] of the recorded server
 	Users []string // user names and full names to replace with jdoe
+	// Names maps a real project key, project name or repository name to
+	// the placeholder it is recorded as (for example FORGE -> LAB). The
+	// repository is public, so recordings carry placeholder keys only.
+	Names map[string]string
 }
 
 // Scrub rewrites every URL host to bamboo.example.com, bare mentions of the
@@ -43,6 +47,13 @@ type Scrubber struct {
 func (s Scrubber) Scrub(data []byte) []byte {
 	out := string(data)
 	out = urlHostRe.ReplaceAllString(out, "${1}"+placeholder)
+
+	// Project, plan and repository names first, longest match first, so
+	// "forge-lab" is replaced before the "FORGE" inside it.
+	for _, name := range sortedByLength(mapKeys(s.Names)) {
+		re := regexp.MustCompile("(?i)" + regexp.QuoteMeta(name))
+		out = re.ReplaceAllString(out, s.Names[name])
+	}
 
 	// Build list of terms to redact, in order (longest first for host, then users)
 	terms := s.Terms()
@@ -91,6 +102,35 @@ func (s Scrubber) Terms() []string {
 	}
 	sort.Slice(result, func(i, j int) bool { return len(result[i]) > len(result[j]) })
 	return result
+}
+
+// DenylistTerms returns everything a recording must never contain: the
+// terms Scrub redacts plus the real names it replaces with placeholders.
+// The recorder writes them to the private denylist so check-fixtures can
+// fail on anything a future recording leaks.
+func (s Scrubber) DenylistTerms() []string {
+	return sortedByLength(append(s.Terms(), mapKeys(s.Names)...))
+}
+
+func mapKeys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+func sortedByLength(in []string) []string {
+	out := make([]string, 0, len(in))
+	seen := map[string]bool{}
+	for _, v := range in {
+		if v != "" && !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return len(out[i]) > len(out[j]) })
+	return out
 }
 
 // FixtureHostViolations lists "file: host" for every URL host under root that

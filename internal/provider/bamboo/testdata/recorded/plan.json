@@ -1,0 +1,54 @@
+{
+  "actions": {
+    "max-result": 9,
+    "size": 9,
+    "start-index": 0
+  },
+  "averageBuildTimeInSeconds": 16,
+  "branches": {
+    "max-result": 0,
+    "size": 0,
+    "start-index": 0
+  },
+  "buildName": "Provision Cluster",
+  "description": "Terraform+Ansible: provision named multipass cluster",
+  "enabled": true,
+  "expand": "actions,stages,branches,variableContext",
+  "id": 786438,
+  "isActive": false,
+  "isBuilding": false,
+  "isFavourite": false,
+  "key": "LAB-PROV",
+  "link": {
+    "href": "http://bamboo.example.com/rest/api/latest/plan/LAB-PROV",
+    "rel": "self"
+  },
+  "name": "lab - Provision Cluster",
+  "planKey": {
+    "key": "LAB-PROV"
+  },
+  "project": {
+    "description": "",
+    "id": 720898,
+    "key": "LAB",
+    "link": {
+      "href": "http://bamboo.example.com/rest/api/latest/project/LAB",
+      "rel": "self"
+    },
+    "name": "lab"
+  },
+  "projectKey": "LAB",
+  "projectName": "lab",
+  "shortKey": "PROV",
+  "shortName": "Provision Cluster",
+  "stages": {
+    "max-result": 2,
+    "size": 2,
+    "start-index": 0
+  },
+  "type": "chain",
+  "variableContext": {
+    "max-results": 2,
+    "size": 2
+  }
+}

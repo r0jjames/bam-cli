@@ -1,0 +1,410 @@
+{
+  "artifacts": {
+    "max-result": 0,
+    "size": 0,
+    "start-index": 0
+  },
+  "buildCompletedDate": "2026-09-17T06:17:36.936Z",
+  "buildCompletedTime": "2026-09-17T06:17:36.936Z",
+  "buildDuration": 15354,
+  "buildDurationDescription": "15 seconds",
+  "buildDurationInSeconds": 15,
+  "buildNumber": 4,
+  "buildReason": "Manual run by \u003ca href=\"http://bamboo.example.com/browse/user/jdoe\"\u003ejdoe\u003c/a\u003e",
+  "buildRelativeTime": "2 minutes ago",
+  "buildResultKey": "LAB-PROV-4",
+  "buildStartedTime": "2026-09-17T06:17:21.028Z",
+  "buildState": "Failed",
+  "buildTestSummary": "No tests found",
+  "changes": {
+    "max-result": 0,
+    "size": 0,
+    "start-index": 0
+  },
+  "comments": {
+    "max-result": 0,
+    "size": 0,
+    "start-index": 0
+  },
+  "continuable": false,
+  "expand": "changes,metadata,plan,vcsRevisions,artifacts,comments,labels,jiraIssues,variables,stages",
+  "failedTestCount": 0,
+  "finished": true,
+  "id": 1114126,
+  "jiraIssues": {
+    "max-result": 0,
+    "size": 0,
+    "start-index": 0
+  },
+  "key": "LAB-PROV-4",
+  "labels": {
+    "max-result": 0,
+    "size": 0,
+    "start-index": 0
+  },
+  "lifeCycleState": "Finished",
+  "link": {
+    "href": "http://bamboo.example.com/rest/api/latest/result/LAB-PROV-4",
+    "rel": "self"
+  },
+  "metadata": {
+    "max-result": 2,
+    "size": 2,
+    "start-index": 0
+  },
+  "notRunYet": false,
+  "number": 4,
+  "onceOff": false,
+  "plan": {
+    "enabled": true,
+    "id": 786438,
+    "key": "LAB-PROV",
+    "link": {
+      "href": "http://bamboo.example.com/rest/api/latest/plan/LAB-PROV",
+      "rel": "self"
+    },
+    "name": "lab - Provision Cluster",
+    "planKey": {
+      "key": "LAB-PROV"
+    },
+    "shortKey": "PROV",
+    "shortName": "Provision Cluster",
+    "type": "chain"
+  },
+  "planName": "Provision Cluster",
+  "planResultKey": {
+    "entityKey": {
+      "key": "LAB-PROV"
+    },
+    "key": "LAB-PROV-4",
+    "resultNumber": 4
+  },
+  "prettyBuildCompletedTime": "Thu, 17 Sep, 06:17 AM",
+  "prettyBuildStartedTime": "Thu, 17 Sep, 06:17 AM",
+  "projectName": "lab",
+  "quarantinedTestCount": 0,
+  "reasonSummary": "Manual run by \u003ca href=\"http://bamboo.example.com/browse/user/jdoe\"\u003ejdoe\u003c/a\u003e",
+  "restartable": true,
+  "skippedTestCount": 0,
+  "specsResult": false,
+  "stages": {
+    "expand": "stage",
+    "max-result": 2,
+    "size": 2,
+    "stage": [
+      {
+        "collapsedByDefault": true,
+        "description": "",
+        "displayClass": "Successful",
+        "displayMessage": "1 job passed",
+        "expand": "results",
+        "id": 1146889,
+        "lifeCycleState": "Finished",
+        "manual": false,
+        "name": "Validate",
+        "restartable": false,
+        "results": {
+          "expand": "result",
+          "max-result": 1,
+          "result": [
+            {
+              "artifacts": {
+                "max-result": 1,
+                "size": 1,
+                "start-index": 0
+              },
+              "buildCompletedDate": "2026-09-17T06:17:22.054Z",
+              "buildCompletedTime": "2026-09-17T06:17:22.054Z",
+              "buildDuration": 1029,
+              "buildDurationDescription": "1 second",
+              "buildDurationInSeconds": 1,
+              "buildNumber": 4,
+              "buildReason": "Manual build",
+              "buildRelativeTime": "3 minutes ago",
+              "buildResultKey": "LAB-PROV-JOB0-4",
+              "buildStartedTime": "2026-09-17T06:17:21.025Z",
+              "buildState": "Successful",
+              "buildTestSummary": "No tests found",
+              "changes": {
+                "max-result": 0,
+                "size": 0,
+                "start-index": 0
+              },
+              "comments": {
+                "max-result": 0,
+                "size": 0,
+                "start-index": 0
+              },
+              "expand": "changes,testResults,metadata,plan,vcsRevisions,artifacts,comments,labels,jiraIssues,variables,logFiles",
+              "failedTestCount": 0,
+              "id": 1114127,
+              "jiraIssues": {
+                "max-result": 0,
+                "size": 0,
+                "start-index": 0
+              },
+              "key": "LAB-PROV-JOB0-4",
+              "labels": {
+                "max-result": 0,
+                "size": 0,
+                "start-index": 0
+              },
+              "lifeCycleState": "Finished",
+              "link": {
+                "href": "http://bamboo.example.com/rest/api/latest/result/LAB-PROV-JOB0-4",
+                "rel": "self"
+              },
+              "logFiles": [
+                "http://bamboo.example.com/download/LAB-PROV-JOB0/build_logs/plan-786438-JOB0-4.log"
+              ],
+              "metadata": {
+                "max-result": 43,
+                "size": 43,
+                "start-index": 0
+              },
+              "number": 4,
+              "onceOff": false,
+              "parent": {
+                "href": "http://bamboo.example.com/rest/api/latest/result/LAB-PROV-4",
+                "rel": "parent"
+              },
+              "plan": {
+                "enabled": true,
+                "id": 786439,
+                "key": "LAB-PROV-JOB0",
+                "link": {
+                  "href": "http://bamboo.example.com/rest/api/latest/plan/LAB-PROV-JOB0",
+                  "rel": "self"
+                },
+                "name": "lab - Provision Cluster - Validate",
+                "planKey": {
+                  "key": "LAB-PROV-JOB0"
+                },
+                "shortKey": "PROV-JOB0",
+                "shortName": "Validate",
+                "type": "job"
+              },
+              "planName": "Validate",
+              "planResultKey": {
+                "entityKey": {
+                  "key": "LAB-PROV-JOB0"
+                },
+                "key": "LAB-PROV-JOB0-4",
+                "resultNumber": 4
+              },
+              "prettyBuildCompletedTime": "Thu, 17 Sep, 06:17 AM",
+              "prettyBuildStartedTime": "Thu, 17 Sep, 06:17 AM",
+              "prettyQueueDuration": "\u003c 1 sec",
+              "prettyQueueStartedTime": "Thu, 17 Sep, 06:17 AM",
+              "prettyVcsUpdateDuration": "\u003c 1 sec",
+              "prettyVcsUpdateStartedTime": "Thu, 17 Sep, 06:17 AM",
+              "projectName": "lab",
+              "quarantinedTestCount": 0,
+              "queueDuration": 18,
+              "queueStartedTime": "2026-09-17T06:17:21.007Z",
+              "queueTimeInSeconds": 0,
+              "reasonSummary": "Manual run by \u003ca href=\"http://bamboo.example.com/browse/user/jdoe\"\u003ejdoe\u003c/a\u003e",
+              "skippedTestCount": 0,
+              "specsResult": false,
+              "stage": "Validate",
+              "state": "Successful",
+              "successfulTestCount": 0,
+              "testResults": {
+                "all": 0,
+                "existingFailed": 0,
+                "failed": 0,
+                "fixed": 0,
+                "newFailed": 0,
+                "quarantined": 0,
+                "skipped": 0,
+                "successful": 0
+              },
+              "variables": {
+                "max-result": 2,
+                "size": 2,
+                "start-index": 0
+              },
+              "vcsRevisionKey": "781aec3a4ff6dee4f4b45423e6f77179b791ba1d",
+              "vcsRevisions": {
+                "max-result": 1,
+                "size": 1,
+                "start-index": 0
+              },
+              "vcsUpdateDuration": 0,
+              "vcsUpdateInSeconds": 0,
+              "vcsUpdateStartedTime": "2026-09-17T06:17:21.025Z"
+            }
+          ],
+          "size": 1,
+          "start-index": 0
+        },
+        "runnable": false,
+        "state": "Successful"
+      },
+      {
+        "collapsedByDefault": false,
+        "description": "",
+        "displayClass": "Failed",
+        "displayMessage": "1 of 1 job failed",
+        "expand": "results",
+        "id": 1146890,
+        "lifeCycleState": "Finished",
+        "manual": false,
+        "name": "Provision",
+        "restartable": true,
+        "results": {
+          "expand": "result",
+          "max-result": 1,
+          "result": [
+            {
+              "artifacts": {
+                "max-result": 1,
+                "size": 1,
+                "start-index": 0
+              },
+              "buildCompletedDate": "2026-09-17T06:17:36.626Z",
+              "buildCompletedTime": "2026-09-17T06:17:36.626Z",
+              "buildDuration": 14249,
+              "buildDurationDescription": "14 seconds",
+              "buildDurationInSeconds": 14,
+              "buildNumber": 4,
+              "buildReason": "Manual build",
+              "buildRelativeTime": "2 minutes ago",
+              "buildResultKey": "LAB-PROV-JOB1-4",
+              "buildStartedTime": "2026-09-17T06:17:22.377Z",
+              "buildState": "Failed",
+              "buildTestSummary": "No tests found",
+              "changes": {
+                "max-result": 0,
+                "size": 0,
+                "start-index": 0
+              },
+              "comments": {
+                "max-result": 0,
+                "size": 0,
+                "start-index": 0
+              },
+              "expand": "changes,testResults,metadata,plan,vcsRevisions,artifacts,comments,labels,jiraIssues,variables,logFiles",
+              "failedTestCount": 0,
+              "id": 1114128,
+              "jiraIssues": {
+                "max-result": 0,
+                "size": 0,
+                "start-index": 0
+              },
+              "key": "LAB-PROV-JOB1-4",
+              "labels": {
+                "max-result": 0,
+                "size": 0,
+                "start-index": 0
+              },
+              "lifeCycleState": "Finished",
+              "link": {
+                "href": "http://bamboo.example.com/rest/api/latest/result/LAB-PROV-JOB1-4",
+                "rel": "self"
+              },
+              "logFiles": [
+                "http://bamboo.example.com/download/LAB-PROV-JOB1/build_logs/plan-786438-JOB1-4.log"
+              ],
+              "metadata": {
+                "max-result": 43,
+                "size": 43,
+                "start-index": 0
+              },
+              "number": 4,
+              "onceOff": false,
+              "parent": {
+                "href": "http://bamboo.example.com/rest/api/latest/result/LAB-PROV-4",
+                "rel": "parent"
+              },
+              "plan": {
+                "enabled": true,
+                "id": 786440,
+                "key": "LAB-PROV-JOB1",
+                "link": {
+                  "href": "http://bamboo.example.com/rest/api/latest/plan/LAB-PROV-JOB1",
+                  "rel": "self"
+                },
+                "name": "lab - Provision Cluster - Provision",
+                "planKey": {
+                  "key": "LAB-PROV-JOB1"
+                },
+                "shortKey": "PROV-JOB1",
+                "shortName": "Provision",
+                "type": "job"
+              },
+              "planName": "Provision",
+              "planResultKey": {
+                "entityKey": {
+                  "key": "LAB-PROV-JOB1"
+                },
+                "key": "LAB-PROV-JOB1-4",
+                "resultNumber": 4
+              },
+              "prettyBuildCompletedTime": "Thu, 17 Sep, 06:17 AM",
+              "prettyBuildStartedTime": "Thu, 17 Sep, 06:17 AM",
+              "prettyQueueDuration": "\u003c 1 sec",
+              "prettyQueueStartedTime": "Thu, 17 Sep, 06:17 AM",
+              "prettyVcsUpdateDuration": "\u003c 1 sec",
+              "prettyVcsUpdateStartedTime": "Thu, 17 Sep, 06:17 AM",
+              "projectName": "lab",
+              "quarantinedTestCount": 0,
+              "queueDuration": 58,
+              "queueStartedTime": "2026-09-17T06:17:22.319Z",
+              "queueTimeInSeconds": 0,
+              "reasonSummary": "Manual run by \u003ca href=\"http://bamboo.example.com/browse/user/jdoe\"\u003ejdoe\u003c/a\u003e",
+              "skippedTestCount": 0,
+              "specsResult": false,
+              "stage": "Provision",
+              "state": "Failed",
+              "successfulTestCount": 0,
+              "testResults": {
+                "all": 0,
+                "existingFailed": 0,
+                "failed": 0,
+                "fixed": 0,
+                "newFailed": 0,
+                "quarantined": 0,
+                "skipped": 0,
+                "successful": 0
+              },
+              "variables": {
+                "max-result": 2,
+                "size": 2,
+                "start-index": 0
+              },
+              "vcsRevisionKey": "781aec3a4ff6dee4f4b45423e6f77179b791ba1d",
+              "vcsRevisions": {
+                "max-result": 1,
+                "size": 1,
+                "start-index": 0
+              },
+              "vcsUpdateDuration": 0,
+              "vcsUpdateInSeconds": 0,
+              "vcsUpdateStartedTime": "2026-09-17T06:17:22.377Z"
+            }
+          ],
+          "size": 1,
+          "start-index": 0
+        },
+        "runnable": false,
+        "state": "Failed"
+      }
+    ],
+    "start-index": 0
+  },
+  "state": "Failed",
+  "successful": false,
+  "successfulTestCount": 0,
+  "variables": {
+    "max-result": 2,
+    "size": 2,
+    "start-index": 0
+  },
+  "vcsRevisionKey": "781aec3a4ff6dee4f4b45423e6f77179b791ba1d",
+  "vcsRevisions": {
+    "max-result": 1,
+    "size": 1,
+    "start-index": 0
+  }
+}

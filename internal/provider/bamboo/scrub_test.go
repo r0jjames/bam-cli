@@ -176,3 +176,30 @@ func TestFixtureTermViolationsCaseInsensitive(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, len(v))
 }
+
+func TestScrubReplacesNamesWithPlaceholders(t *testing.T) {
+	s := Scrubber{
+		Host:  "bamboo.lab.example:8085",
+		Users: []string{"rsmith"},
+		Names: map[string]string{"forge-lab": "lab-ci", "FORGE": "LAB"},
+	}
+
+	out := string(s.Scrub([]byte(`{"key":"FORGE-PROV-2","planName":"forge-lab build","repositoryName":"forge-lab","project":"forge"}`)))
+
+	assert.Contains(t, out, `"key":"LAB-PROV-2"`)
+	assert.Contains(t, out, `"planName":"lab-ci build"`, "the longer name is replaced before the shorter one")
+	assert.Contains(t, out, `"repositoryName":"lab-ci"`)
+	assert.Contains(t, out, `"project":"LAB"`, "a differently cased mention is replaced too")
+	assert.NotContains(t, strings.ToLower(out), "forge")
+}
+
+func TestDenylistTermsIncludeReplacedNames(t *testing.T) {
+	s := Scrubber{Host: "bamboo.lab.example:8085", Users: []string{"rsmith"}, Names: map[string]string{"forge-lab": "lab-ci"}}
+
+	terms := s.DenylistTerms()
+
+	assert.Contains(t, terms, "forge-lab")
+	assert.Contains(t, terms, "bamboo.lab.example:8085")
+	assert.Contains(t, terms, "rsmith")
+	assert.NotContains(t, s.Terms(), "forge-lab", "Scrub must not rewrite a project name to jdoe")
+}

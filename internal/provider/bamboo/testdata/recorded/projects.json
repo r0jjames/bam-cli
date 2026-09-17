@@ -1,0 +1,35 @@
+{
+  "expand": "projects",
+  "link": {
+    "href": "http://bamboo.example.com/rest/api/latest/project",
+    "rel": "self"
+  },
+  "projects": {
+    "expand": "project",
+    "max-result": 2,
+    "project": [
+      {
+        "description": "",
+        "id": 720897,
+        "key": "AGENT",
+        "link": {
+          "href": "http://bamboo.example.com/rest/api/latest/project/AGENT",
+          "rel": "self"
+        },
+        "name": "bamboo-agent"
+      },
+      {
+        "description": "",
+        "id": 720898,
+        "key": "LAB",
+        "link": {
+          "href": "http://bamboo.example.com/rest/api/latest/project/LAB",
+          "rel": "self"
+        },
+        "name": "lab"
+      }
+    ],
+    "size": 2,
+    "start-index": 0
+  }
+}

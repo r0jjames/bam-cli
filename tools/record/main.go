@@ -17,6 +17,7 @@
 //	-failed KEY     failed build to record logs from; default: the newest
 //	                failed build of the plan, "skip" to record none
 //	-trigger        also trigger a build, stop it, and record both
+//	-as KEY         placeholder project key in the recording (default LAB)
 package main
 
 import (
@@ -185,6 +186,7 @@ func run() error {
 		planKey     = flag.String("plan", "", "plan key with builds, e.g. LAB-PROV")
 		failedKey   = flag.String("failed", "", `failed build to record logs from ("skip" to record none; default: the newest failed build)`)
 		trigger     = flag.Bool("trigger", false, "also trigger a build, stop it, and record both")
+		asKey       = flag.String("as", "LAB", "placeholder project key the recorded project is renamed to")
 	)
 	flag.Parse()
 
@@ -231,16 +233,20 @@ func run() error {
 		return fmt.Errorf("currentUser: status %d: %v", status, err)
 	}
 	_ = json.Unmarshal(body, &me)
-	r.scrub = bamboo.Scrubber{Host: u.Host, Users: []string{me.FullName, me.Name}}
-
-	// Update the fixture denylist with terms from this recording
-	if err := r.updateDenylist(); err != nil {
-		return err
-	}
 
 	project := strings.SplitN(plan, "-", 2)[0]
 	latest, err := r.latestBuild(plan)
 	if err != nil {
+		return err
+	}
+	names, err := r.placeholderNames(project, latest, *asKey)
+	if err != nil {
+		return err
+	}
+	r.scrub = bamboo.Scrubber{Host: u.Host, Users: []string{me.FullName, me.Name}, Names: names}
+
+	// Update the fixture denylist with terms from this recording
+	if err := r.updateDenylist(); err != nil {
 		return err
 	}
 	steps := []struct {
@@ -363,6 +369,53 @@ func writeScrubbed(dir, file string, body []byte, scrub bamboo.Scrubber) error {
 	return os.WriteFile(filepath.Join(dir, file), scrub.Scrub(body), 0o644)
 }
 
+// placeholderNames maps the real project key, the project name and every
+// repository name of the recorded build to placeholders, so a public
+// recording carries no name of the owner's own Bamboo or repositories.
+func (r *recorder) placeholderNames(project, build, as string) (map[string]string, error) {
+	names := map[string]string{project: as}
+	lower := strings.ToLower(as)
+
+	body, status, err := r.call(http.MethodGet, "/rest/api/latest/project/"+project, nil)
+	if err != nil || status != 200 {
+		return nil, fmt.Errorf("project %s: status %d: %v", project, status, err)
+	}
+	var p struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(body, &p); err != nil {
+		return nil, err
+	}
+	if p.Name != "" && !strings.EqualFold(p.Name, project) {
+		names[p.Name] = lower
+	}
+
+	body, status, err = r.call(http.MethodGet, "/rest/api/latest/result/"+build, url.Values{"expand": {"vcsRevisions"}})
+	if err != nil || status != 200 {
+		return nil, fmt.Errorf("vcs revisions of %s: status %d: %v", build, status, err)
+	}
+	var res struct {
+		VCSRevisions struct {
+			Revision []struct {
+				RepositoryName string `json:"repositoryName"`
+			} `json:"vcsRevision"`
+		} `json:"vcsRevisions"`
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
+		return nil, err
+	}
+	for i, rev := range res.VCSRevisions.Revision {
+		if rev.RepositoryName == "" {
+			continue
+		}
+		if _, seen := names[rev.RepositoryName]; seen {
+			continue
+		}
+		names[rev.RepositoryName] = fmt.Sprintf("%s-repo-%d", lower, i+1)
+	}
+	return names, nil
+}
+
 func (r *recorder) latestBuild(plan string) (string, error) {
 	body, status, err := r.call(http.MethodGet, "/rest/api/latest/result/"+plan, url.Values{"max-result": {"1"}})
 	if err != nil || status != 200 {
@@ -451,6 +504,49 @@ func (r *recorder) recordFailed(buildKey string) error {
 	return nil
 }
 
+// lifeCycleState reads the top-level lifeCycleState of a result document.
+func lifeCycleState(body []byte) string {
+	var res struct {
+		LifeCycleState string `json:"lifeCycleState"`
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
+		return ""
+	}
+	return res.LifeCycleState
+}
+
+// jobKeys returns the job result keys of a build that are not finished yet.
+func (r *recorder) jobKeys(build string) ([]string, error) {
+	body, status, err := r.call(http.MethodGet, "/rest/api/latest/result/"+build, url.Values{"expand": {"stages.stage.results.result"}})
+	if err != nil || status != 200 {
+		return nil, fmt.Errorf("stages of %s: status %d: %v", build, status, err)
+	}
+	var res struct {
+		Stages struct {
+			Stage []struct {
+				Results struct {
+					Result []struct {
+						Key            string `json:"buildResultKey"`
+						LifeCycleState string `json:"lifeCycleState"`
+					} `json:"result"`
+				} `json:"results"`
+			} `json:"stage"`
+		} `json:"stages"`
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
+		return nil, err
+	}
+	var keys []string
+	for _, st := range res.Stages.Stage {
+		for _, j := range st.Results.Result {
+			if j.LifeCycleState != "Finished" && j.Key != "" {
+				keys = append(keys, j.Key)
+			}
+		}
+	}
+	return keys, nil
+}
+
 func (r *recorder) recordTriggerAndStop(plan string) error {
 	body, status, err := r.call(http.MethodPost, "/rest/api/latest/queue/"+plan, url.Values{"executeAllStages": {"true"}})
 	if err != nil || status/100 != 2 {
@@ -461,17 +557,38 @@ func (r *recorder) recordTriggerAndStop(plan string) error {
 		Key string `json:"buildResultKey"`
 	}
 	_ = json.Unmarshal(body, &q)
-	time.Sleep(5 * time.Second)
-	_, status, err = r.call(http.MethodDelete, "/rest/api/latest/queue/"+q.Key, nil)
-	if err != nil {
+
+	// Stop the build the way bam does: Bamboo takes a JOB result key on
+	// the queue endpoint, not the plan-level build key.
+	var statuses []string
+	for i := 0; i < 15; i++ {
+		time.Sleep(2 * time.Second)
+		jobs, err := r.jobKeys(q.Key)
+		if err != nil {
+			return err
+		}
+		for _, job := range jobs {
+			_, status, err := r.call(http.MethodDelete, "/rest/api/latest/queue/"+job, nil)
+			if err != nil {
+				return err
+			}
+			statuses = append(statuses, fmt.Sprintf("%d", status))
+		}
+		if len(jobs) > 0 {
+			break
+		}
+	}
+	if err := os.WriteFile(filepath.Join(r.out, "stop.status"), []byte(strings.Join(statuses, "\n")+"\n"), 0o644); err != nil {
 		return err
 	}
-	_ = os.WriteFile(filepath.Join(r.out, "stop.status"), []byte(fmt.Sprintf("%d\n", status)), 0o644)
+	// A stopped build settles as NotBuilt, not Finished.
 	for i := 0; i < 30; i++ {
 		time.Sleep(2 * time.Second)
 		body, status, err = r.call(http.MethodGet, "/rest/api/latest/result/"+q.Key, url.Values{"expand": {"stages.stage.results.result"}})
-		if err == nil && status == 200 && strings.Contains(string(body), `"lifeCycleState" : "Finished"`) ||
-			err == nil && status == 200 && strings.Contains(string(body), `"lifeCycleState":"Finished"`) {
+		if err != nil || status != 200 {
+			continue
+		}
+		if state := lifeCycleState(body); state == "Finished" || state == "NotBuilt" {
 			break
 		}
 	}
@@ -502,7 +619,7 @@ func (r *recorder) updateDenylist() error {
 	}
 
 	// Get new terms from scrubber
-	newTerms := r.scrub.Terms()
+	newTerms := r.scrub.DenylistTerms()
 
 	// Append only new terms
 	var added []string

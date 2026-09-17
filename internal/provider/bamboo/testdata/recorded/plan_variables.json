@@ -1,0 +1,10 @@
+[
+  {
+    "name": "cluster_config",
+    "value": "value-1"
+  },
+  {
+    "name": "cluster_name",
+    "value": "value-2"
+  }
+]
