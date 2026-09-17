@@ -2,6 +2,10 @@
 
 Builds: list, show, run, watch, logs, cancel
 
+```
+bam build [flags]
+```
+
 ### Options
 
 ```

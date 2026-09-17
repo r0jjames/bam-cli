@@ -2,6 +2,10 @@
 
 Plans: list, show, variables, branches
 
+```
+bam plan [flags]
+```
+
 ### Options
 
 ```

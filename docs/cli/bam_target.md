@@ -2,6 +2,10 @@
 
 Run presets: list, show, add
 
+```
+bam target [flags]
+```
+
 ### Options
 
 ```

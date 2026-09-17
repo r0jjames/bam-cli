@@ -73,7 +73,30 @@ func newRoot(r *runtime) *cobra.Command {
 	for _, add := range commandSets {
 		add(root, r)
 	}
+	for _, c := range root.Commands() {
+		requireSubcommand(c)
+	}
 	return root
+}
+
+// requireSubcommand gives every group command ("bam server", "bam plan") a
+// RunE: bare it prints help, with an unknown subcommand it fails as a usage
+// error. Cobra's default prints help and exits 0, which hides a typo like
+// "bam server remove work".
+func requireSubcommand(cmd *cobra.Command) {
+	for _, c := range cmd.Commands() {
+		requireSubcommand(c)
+	}
+	if !cmd.HasSubCommands() || cmd.Run != nil || cmd.RunE != nil {
+		return
+	}
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return cmd.Help()
+		}
+		return errs.Usagef("unknown command %q for %q", args[0], cmd.CommandPath()).
+			WithTry(cmd.CommandPath() + " --help")
+	}
 }
 
 // commandSets register command groups; later tasks append to it from init().

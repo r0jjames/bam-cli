@@ -2,6 +2,10 @@
 
 Bamboo projects
 
+```
+bam project [flags]
+```
+
 ### Options
 
 ```

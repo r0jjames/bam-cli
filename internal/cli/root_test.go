@@ -23,6 +23,20 @@ func TestUnknownCommandIsUsageError(t *testing.T) {
 	assert.Contains(t, h.stderr.String(), "unknown command")
 }
 
+func TestUnknownSubcommandIsUsageError(t *testing.T) {
+	for _, args := range [][]string{{"server", "remove", "work"}, {"plan", "nope"}, {"build", "nope"}} {
+		h := newHarness(t)
+		assert.Equal(t, 2, h.run(args...), args)
+		assert.Contains(t, h.stderr.String(), "unknown command", args)
+	}
+}
+
+func TestGroupCommandWithoutArgsPrintsHelp(t *testing.T) {
+	h := newHarness(t)
+	assert.Equal(t, 0, h.run("server"))
+	assert.Contains(t, h.stdout.String(), "Usage:")
+}
+
 func TestBareBamOnTerminalPrintsHelpAndNote(t *testing.T) {
 	h := newHarness(t)
 	h.tty = true

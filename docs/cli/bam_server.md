@@ -2,6 +2,10 @@
 
 Manage Bamboo server aliases
 
+```
+bam server [flags]
+```
+
 ### Options
 
 ```
