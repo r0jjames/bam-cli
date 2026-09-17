@@ -94,6 +94,16 @@ func TestFixtureHostViolationsIPv6Bracket(t *testing.T) {
 	assert.Contains(t, v[0], "[2001:db8::1]")
 }
 
+func TestFixtureHostViolationsIPv6BracketIgnoresNonIPCandidates(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ok.json"), []byte(
+		`{"expand":"logEntries[0:50]","idx":"[1]","letters":"[abc]"}`), 0o644))
+
+	v, err := FixtureHostViolations(dir)
+	require.NoError(t, err)
+	assert.Empty(t, v, "expand ranges and other bracketed non-IPv6 text must not be flagged: %v", v)
+}
+
 func TestFixtureHostViolationsIPAddress(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "has_ip.json"), []byte(`{"host":"10.1.2.3"}`), 0o644))

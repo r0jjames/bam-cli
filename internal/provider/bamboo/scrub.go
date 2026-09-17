@@ -115,11 +115,19 @@ func FixtureHostViolations(root string) ([]string, error) {
 		}
 
 		// Check for IPv6 literals in brackets, wherever they appear, except
-		// the loopback address.
+		// the loopback address. The bracket regex is a loose candidate
+		// match (it also matches non-IPv6 things like an expand range
+		// "[0:50]" or a bare index "[1]"), so confirm each candidate with
+		// net.ParseIP before flagging it.
 		for _, m := range ipv6BracketRe.FindAllString(content, -1) {
-			if m != "[::1]" {
-				out = append(out, path+": "+m)
+			if m == "[::1]" {
+				continue
 			}
+			candidate := m[1 : len(m)-1]
+			if net.ParseIP(candidate) == nil {
+				continue
+			}
+			out = append(out, path+": "+m)
 		}
 
 		// Check for IPv4 addresses (except 127.0.0.1)
