@@ -183,9 +183,9 @@ Also used later:
 | Command | What it does |
 | --- | --- |
 | `make check-fixtures` | fails if any test fixture names a real host |
-| `make record` | records scrubbed fixtures from your own Bamboo (see below) |
+| `make record ARGS='-target provision'` | records scrubbed fixtures from your own Bamboo (see below) |
 | `make docs` | regenerates the command reference in `docs/cli/` |
-| `make e2e` | end-to-end test against a real Bamboo |
+| `make e2e ARGS='-target smoke'` | end-to-end test against a real Bamboo |
 | `go test -race ./...` | tests with the race detector |
 
 ## Your Bamboo for development
@@ -196,15 +196,31 @@ Prepare before task 9:
 
 1. Open your Bamboo in a browser and confirm it responds.
 2. Create a personal access token: your profile → Personal access tokens → Create token.
-3. Pick a plan that has builds, including at least one failed build. Note its plan key and the key of a failed build.
-4. Keep the token out of shell history and out of files in this repository:
+3. Pick a plan that has builds, including at least one failed build.
+4. Tell bam about the server once, and store the token in your keychain. The recorder and the e2e suite read the same configuration, so nothing is exported into the environment:
 
    ```bash
-   read -rs BAM_RECORD_TOKEN && export BAM_RECORD_TOKEN
-   export BAM_RECORD_URL=http://bamboo.lab.example:8085   # your server's URL
-   export BAM_RECORD_PLAN=LAB-PROV                       # your plan key
-   export BAM_RECORD_FAILED=LAB-PROV-12                  # a failed build of it
+   bam server add lab --url http://bamboo.lab.example:8085 --project LAB
+   bam login lab                      # prompts for the token; it is never echoed
+   bam whoami                         # confirms the token works
    ```
+
+   With a token in a file instead of typed by hand: `bam login lab --with-token < /path/to/token`.
+
+5. Generate `.bam.yaml` for the repository you run plans from, so the plan key has a name too:
+
+   ```bash
+   bam init --server lab --project LAB --plan LAB-PROV=provision
+   ```
+
+6. Record:
+
+   ```bash
+   make record ARGS='-target provision'          # plan key from the target
+   make record ARGS='-server lab -plan LAB-PROV' # or name the plan directly
+   ```
+
+   The recorder picks the newest failed build of the plan by itself; pass `-failed LAB-PROV-12` to choose one, or `-failed skip` to record none. Add `-trigger` to also trigger a build, stop it, and record both.
 
    The recorder replaces your host and user names with placeholders, and `make check-fixtures` rejects anything it missed. Still read every recorded file before committing.
 

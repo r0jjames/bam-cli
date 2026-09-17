@@ -1,16 +1,28 @@
 // Command record captures Bamboo REST responses from a personal server,
 // scrubs them, and writes them to internal/provider/bamboo/testdata/recorded.
 //
-//	BAM_RECORD_URL      server URL, e.g. http://bamboo.lab.example:8085
-//	BAM_RECORD_TOKEN    personal access token
-//	BAM_RECORD_PLAN     a plan key with builds, e.g. LAB-PROV
-//	BAM_RECORD_FAILED   optional: a failed build key of that plan, e.g. LAB-PROV-12
-//	BAM_RECORD_TRIGGER  optional: "1" to trigger a build, stop it, and record both
+// The server and its token come from bam's own configuration: the alias in
+// ~/.config/bam/config.yaml (or .bam.yaml) and the token stored by
+// "bam login". Nothing is exported into the environment.
+//
+//	go run ./tools/record -target provision
+//	go run ./tools/record -server lab -plan LAB-PROV
+//	go run ./tools/record -server lab -plan LAB-PROV -failed LAB-PROV-12 -trigger
+//
+// Flags:
+//
+//	-server ALIAS   server alias; default: the one bam would use here
+//	-target NAME    take the plan key from this configured target
+//	-plan KEY       plan key with builds, e.g. LAB-PROV (wins over -target)
+//	-failed KEY     failed build to record logs from; default: the newest
+//	                failed build of the plan, "skip" to record none
+//	-trigger        also trigger a build, stop it, and record both
 package main
 
 import (
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,6 +33,7 @@ import (
 	"time"
 
 	"github.com/r0jjames/bam-cli/internal/provider/bamboo"
+	"github.com/r0jjames/bam-cli/internal/toolcfg"
 )
 
 type recorder struct {
@@ -166,17 +179,44 @@ func main() {
 }
 
 func run() error {
-	base := strings.TrimRight(os.Getenv("BAM_RECORD_URL"), "/")
-	token := os.Getenv("BAM_RECORD_TOKEN")
-	plan := os.Getenv("BAM_RECORD_PLAN")
-	if base == "" || token == "" || plan == "" {
-		return errors.New("set BAM_RECORD_URL, BAM_RECORD_TOKEN and BAM_RECORD_PLAN")
-	}
-	u, err := url.Parse(base)
+	var (
+		serverAlias = flag.String("server", "", "server alias (default: the one bam would use in this directory)")
+		targetName  = flag.String("target", "", "configured target to take the plan key from")
+		planKey     = flag.String("plan", "", "plan key with builds, e.g. LAB-PROV")
+		failedKey   = flag.String("failed", "", `failed build to record logs from ("skip" to record none; default: the newest failed build)`)
+		trigger     = flag.Bool("trigger", false, "also trigger a build, stop it, and record both")
+	)
+	flag.Parse()
+
+	cfg, err := toolcfg.Load(toolcfg.SystemOptions())
 	if err != nil {
 		return err
 	}
-	r := &recorder{base: base, token: token, http: &http.Client{Timeout: 30 * time.Second},
+	plan := *planKey
+	if plan == "" {
+		if *targetName == "" {
+			return errors.New("pass -plan KEY or -target NAME (the server and token come from your bam config)")
+		}
+		var targetServer string
+		plan, targetServer, err = cfg.PlanFor(*targetName)
+		if err != nil {
+			return err
+		}
+		if *serverAlias == "" {
+			*serverAlias = targetServer
+		}
+	}
+	server, err := cfg.Server(*serverAlias)
+	if err != nil {
+		return err
+	}
+	u, err := url.Parse(server.URL)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("recording %s from %s (%s)\n", plan, server.Alias, server.URL)
+
+	r := &recorder{base: server.URL, token: server.Token, http: &http.Client{Timeout: 30 * time.Second},
 		out: filepath.Join("internal", "provider", "bamboo", "testdata", "recorded")}
 	if err := os.MkdirAll(r.out, 0o755); err != nil {
 		return err
@@ -225,12 +265,22 @@ func run() error {
 		}
 	}
 
-	if failed := os.Getenv("BAM_RECORD_FAILED"); failed != "" {
+	failed := *failedKey
+	if failed == "" {
+		failed, err = r.latestFailedBuild(plan)
+		if err != nil {
+			return err
+		}
+		if failed == "" {
+			fmt.Println("no failed build found in the last 25 results; pass -failed KEY to record one")
+		}
+	}
+	if failed != "" && failed != "skip" {
 		if err := r.recordFailed(failed); err != nil {
 			return err
 		}
 	}
-	if os.Getenv("BAM_RECORD_TRIGGER") == "1" {
+	if *trigger {
 		if err := r.recordTriggerAndStop(plan); err != nil {
 			return err
 		}
@@ -329,6 +379,33 @@ func (r *recorder) latestBuild(plan string) (string, error) {
 		return "", fmt.Errorf("plan %s has no builds; run it once first", plan)
 	}
 	return res.Results.Result[0].Key, nil
+}
+
+// latestFailedBuild returns the newest failed build of plan, or "" when the
+// recent results hold none.
+func (r *recorder) latestFailedBuild(plan string) (string, error) {
+	body, status, err := r.call(http.MethodGet, "/rest/api/latest/result/"+plan,
+		url.Values{"expand": {"results.result"}, "max-result": {"25"}})
+	if err != nil || status != 200 {
+		return "", fmt.Errorf("results of %s: status %d: %v", plan, status, err)
+	}
+	var res struct {
+		Results struct {
+			Result []struct {
+				Key   string `json:"key"`
+				State string `json:"state"`
+			} `json:"result"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
+		return "", err
+	}
+	for _, b := range res.Results.Result {
+		if b.State == "Failed" {
+			return b.Key, nil
+		}
+	}
+	return "", nil
 }
 
 func (r *recorder) recordFailed(buildKey string) error {

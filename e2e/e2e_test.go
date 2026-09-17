@@ -1,27 +1,61 @@
 //go:build e2e
 
-// Package e2e runs bam against a real Bamboo. It triggers one build of
-// BAM_E2E_PLAN, so point it at a plan that is safe to run (a smoke plan).
+// Package e2e runs bam against a real Bamboo. The server and its token come
+// from your bam configuration (the alias in ~/.config/bam/config.yaml and
+// the token stored by "bam login"); the plan comes from a flag or from a
+// configured target. The suite triggers one build, so name a plan that is
+// safe to run (a smoke plan).
 //
-//	BAM_E2E_URL=http://bamboo.lab.example:8085 BAM_E2E_TOKEN=... BAM_E2E_PLAN=LAB-SMOKE make e2e
+//	make e2e ARGS='-target smoke'
+//	make e2e ARGS='-server lab -plan LAB-SMOKE'
 package e2e
 
 import (
 	"bytes"
 	"context"
-	"os"
+	"flag"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/r0jjames/bam-cli/internal/cli"
+	"github.com/r0jjames/bam-cli/internal/toolcfg"
+)
+
+var (
+	serverAlias = flag.String("server", "", "server alias (default: the one bam would use in this directory)")
+	targetName  = flag.String("target", "", "configured target to take the plan key from")
+	planKey     = flag.String("plan", "", "plan key that is safe to run (wins over -target)")
 )
 
 func TestSmoke(t *testing.T) {
-	url, token, plan := os.Getenv("BAM_E2E_URL"), os.Getenv("BAM_E2E_TOKEN"), os.Getenv("BAM_E2E_PLAN")
-	if url == "" || token == "" || plan == "" {
-		t.Skip("set BAM_E2E_URL, BAM_E2E_TOKEN and BAM_E2E_PLAN")
+	if *planKey == "" && *targetName == "" {
+		t.Skip("pass -plan KEY or -target NAME, e.g. make e2e ARGS='-target smoke'")
 	}
+	cfg, err := toolcfg.Load(toolcfg.SystemOptions())
+	if err != nil {
+		t.Fatalf("read bam config: %v", err)
+	}
+	plan, alias := *planKey, *serverAlias
+	if plan == "" {
+		var targetServer string
+		plan, targetServer, err = cfg.PlanFor(*targetName)
+		if err != nil {
+			t.Fatalf("target %s: %v", *targetName, err)
+		}
+		if alias == "" {
+			alias = targetServer
+		}
+	}
+	server, err := cfg.Server(alias)
+	if err != nil {
+		t.Fatalf("server: %v", err)
+	}
+	t.Logf("e2e against %s (%s), plan %s", server.Alias, server.URL, plan)
+	// The suite runs bam in a throwaway home, so the resolved server is
+	// handed to it as the ad-hoc BAM_URL server rather than through the
+	// developer's own config files.
+	url, token := server.URL, server.Token
 	dir := t.TempDir()
 	run := func(args ...string) (int, string, string) {
 		t.Helper()

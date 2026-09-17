@@ -592,7 +592,7 @@ Development is test-driven.
 | `app` | fake Provider and fake clock: argument resolution, variable precedence and validation, masking, watch backoff and reset, timeout, interrupt without stopping the build, finished-build watch, failed-job selection, generator output for each variable source and masked values, state expiry on 404 |
 | `view` | golden files for TTY and pipe output, color on and off, width truncation, JSON and NDJSON shapes; a test that every state renders its glyph with color off |
 | `cli` | the cobra root in-process against a fake Bamboo server: `init`, `target add`, `plan list`, `run --watch`, `logs --failed`, `open` (injected opener); one test per exit code |
-| end to end | `//go:build e2e`, against the personal Bamboo using `BAM_E2E_URL` and `BAM_E2E_TOKEN`, excluded from default runs |
+| end to end | `//go:build e2e`, against the personal Bamboo, server and token read from bam's own config by `internal/toolcfg` (`make e2e ARGS='-target smoke'`), excluded from default runs |
 
 **Fixture guard.** `make record` captures fixtures from the personal server and scrubs hosts to `bamboo.example.com` and user names to `jdoe`. `make check-fixtures` fails if any URL host in `testdata/` is outside the allowlist (`bamboo.example.com`, `localhost`, `127.0.0.1`). CI runs it on every change.
 

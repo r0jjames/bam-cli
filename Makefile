@@ -13,10 +13,10 @@ lint:
 	golangci-lint run
 
 e2e:
-	go test -tags e2e ./e2e/...
+	go test -tags e2e ./e2e/... -args $(ARGS)
 
 record:
-	go run ./tools/record
+	go run ./tools/record $(ARGS)
 
 check-fixtures:
 	go test ./internal/provider/bamboo -run TestFixtureGuard
