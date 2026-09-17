@@ -276,6 +276,18 @@ func (r *recorder) record(file, method, path string, q url.Values) error {
 		return os.WriteFile(filepath.Join(r.out, file+".status"), []byte(fmt.Sprintf("%d\n%s\n", status, snippet)), 0o644)
 	}
 	fmt.Printf("%-28s %d\n", file, status)
+	return writeScrubbed(r.out, file, body, r.scrub)
+}
+
+// writeScrubbed applies the file-specific scrubbing pass (pretty-printing,
+// variable-value replacement, log truncation) and the host/user Scrubber,
+// then writes the result to filepath.Join(dir, file).
+//
+// It fails closed: when a scrubbing step returns an error, writeScrubbed
+// returns that error and writes nothing for file, rather than falling back
+// to the raw (unscrubbed) body. A recording that cannot be scrubbed must
+// never be committed.
+func writeScrubbed(dir, file string, body []byte, scrub bamboo.Scrubber) error {
 	if strings.HasSuffix(file, ".json") {
 		var pretty any
 		if json.Unmarshal(body, &pretty) == nil {
@@ -284,17 +296,21 @@ func (r *recorder) record(file, method, path string, q url.Values) error {
 	}
 	switch {
 	case variableValueFiles[file]:
-		if scrubbed, err := scrubVariableValues(body); err == nil {
-			body = scrubbed
+		scrubbed, err := scrubVariableValues(body)
+		if err != nil {
+			return fmt.Errorf("scrub %s: %w", file, err)
 		}
+		body = scrubbed
 	case file == "log_entries.json":
-		if scrubbed, err := scrubLogEntries(body); err == nil {
-			body = scrubbed
+		scrubbed, err := scrubLogEntries(body)
+		if err != nil {
+			return fmt.Errorf("scrub %s: %w", file, err)
 		}
+		body = scrubbed
 	case file == "log_download.log":
 		body = scrubLogDownload(body)
 	}
-	return os.WriteFile(filepath.Join(r.out, file), r.scrub.Scrub(body), 0o644)
+	return os.WriteFile(filepath.Join(dir, file), scrub.Scrub(body), 0o644)
 }
 
 func (r *recorder) latestBuild(plan string) (string, error) {

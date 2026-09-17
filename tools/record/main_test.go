@@ -2,8 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/r0jjames/bam-cli/internal/provider/bamboo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -88,6 +91,36 @@ func TestScrubLogDownloadTruncatesAndReplacesMessage(t *testing.T) {
 	require.Len(t, lines, 5, "at most the first 5 lines are kept")
 	assert.Equal(t, "simple\t01-Jan-2026 00:00:01\tlog line 1", lines[0])
 	assert.Equal(t, "simple\t01-Jan-2026 00:00:05\tlog line 5", lines[4])
+}
+
+// TestWriteScrubbedFailsClosedWhenScrubbingFails reproduces the bug where
+// record() ignored the error from scrubVariableValues/scrubLogEntries and
+// wrote the raw (unscrubbed) body anyway. writeScrubbed must instead return
+// the error and write nothing for that file.
+func TestWriteScrubbedFailsClosedWhenScrubbingFails(t *testing.T) {
+	dir := t.TempDir()
+
+	err := writeScrubbed(dir, "plan_variables.json", []byte("not json"), bamboo.Scrubber{})
+	require.Error(t, err)
+	_, statErr := os.Stat(filepath.Join(dir, "plan_variables.json"))
+	assert.True(t, os.IsNotExist(statErr), "no file should be written when scrubVariableValues fails")
+
+	err = writeScrubbed(dir, "log_entries.json", []byte("not json"), bamboo.Scrubber{})
+	require.Error(t, err)
+	_, statErr = os.Stat(filepath.Join(dir, "log_entries.json"))
+	assert.True(t, os.IsNotExist(statErr), "no file should be written when scrubLogEntries fails")
+}
+
+// TestWriteScrubbedWritesOnSuccess is the control: when scrubbing succeeds
+// the file is written normally.
+func TestWriteScrubbedWritesOnSuccess(t *testing.T) {
+	dir := t.TempDir()
+
+	in := `[{"name":"cluster_type","value":"k8s"}]`
+	require.NoError(t, writeScrubbed(dir, "plan_variables.json", []byte(in), bamboo.Scrubber{}))
+	out, err := os.ReadFile(filepath.Join(dir, "plan_variables.json"))
+	require.NoError(t, err)
+	assert.Contains(t, string(out), "value-1")
 }
 
 func splitLines(s string) []string {
