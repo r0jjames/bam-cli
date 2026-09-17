@@ -221,3 +221,18 @@ func TestPageAllStopsAtLimit(t *testing.T) {
 	assert.Len(t, rec.all(), 1)
 	assert.Equal(t, "2", rec.all()[0].URL.Query().Get("max-result"))
 }
+
+func TestErrorTextAndDebugBodyRedactSecretValues(t *testing.T) {
+	var buf bytes.Buffer
+	c, _ := newTestServer(t, map[string]*route{
+		"POST /q": {status: 400, body: `{"message":"rejected value hunter2 for bamboo.variable.db_password"}`},
+	})
+	c.log = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	form := url.Values{"bamboo.variable.db_password": {"hunter2"}, "bamboo.variable.env": {"staging"}}
+	_, err := c.do(context.Background(), request{method: "POST", path: "/q", form: form,
+		secret: map[string]bool{"bamboo.variable.db_password": true}})
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "hunter2", "Bamboo's echo of a secret value must not reach the user")
+	assert.Contains(t, err.Error(), MaskedValue)
+	assert.NotContains(t, buf.String(), "hunter2", "--debug must not log an echoed secret value")
+}
