@@ -255,3 +255,26 @@ func TestHelpIsReachableFromTheLogScreen(t *testing.T) {
 	m, _ = send(m, mkKey("?"))
 	require.Equal(t, overlayHelp, m.overlay)
 }
+
+// TestHelpScrollsToItsLastRow: the table is taller than 24 rows now, so the
+// overlay has to scroll or the last keys are unreachable.
+func TestHelpScrollsToItsLastRow(t *testing.T) {
+	m := goldenModel(80, 24)
+	m, _ = send(m, mkKey("?"))
+	require.NotContains(t, m.View(), "q ctrl-c", "the table does not fit, so it starts at the top")
+
+	for i := 0; i < 20; i++ {
+		m, _ = send(m, mkKey("j"))
+	}
+	require.Contains(t, m.View(), "q ctrl-c", "j must reach the last row")
+}
+
+// TestHelpFitsWholeOnATallTerminal.
+func TestHelpFitsWholeOnATallTerminal(t *testing.T) {
+	m := goldenModel(120, 44)
+	m, _ = send(m, mkKey("?"))
+	v := m.View()
+	for _, row := range keys.helpRows() {
+		require.Contains(t, v, row.Keys)
+	}
+}

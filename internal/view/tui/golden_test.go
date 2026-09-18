@@ -104,7 +104,7 @@ func TestDetailGolden(t *testing.T) {
 }
 
 func TestHelpGolden(t *testing.T) {
-	m := goldenModel(80, 24)
-	m.overlay = overlayHelp
+	// Opened through the key, so the viewport is sized as it would be.
+	m, _ := send(goldenModel(80, 24), mkKey("?"))
 	requireGolden(t, "help-80x24", m.View())
 }

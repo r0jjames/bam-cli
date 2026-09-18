@@ -1,3 +1,4 @@
+                                                                                
     ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓    
     ┃Keys                                                                  ┃    
     ┃MOVE  j k ↑ ↓    up / down in the focused panel                       ┃    
@@ -14,11 +15,10 @@
     ┃      n N        next / previous match, or next failure               ┃    
     ┃      r          refresh the focused panel                            ┃    
     ┃      e          expand the current error                             ┃    
+    ┃RUN   R          open the run form for the selection                  ┃    
     ┃GO    o          open the selection's Bamboo URL in the browser       ┃    
     ┃      y          copy the selection's Bamboo URL                      ┃    
     ┃      S          switch server                                        ┃    
     ┃      P          filter by project                                    ┃    
-    ┃      b          switch plan branch                                   ┃    
-    ┃META  ?          help                                                 ┃    
-    ┃      q ctrl-c   quit                                                 ┃    
     ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛    
+                                                                                

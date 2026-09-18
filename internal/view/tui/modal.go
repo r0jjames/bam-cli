@@ -5,9 +5,27 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/viewport"
+
 	"github.com/charmbracelet/lipgloss"
 	"github.com/r0jjames/bam-cli/internal/errs"
 )
+
+// helpState is the scrollable key table.
+type helpState struct {
+	vp    viewport.Model
+	ready bool
+}
+
+func (h *helpState) set(width, height int, body string) {
+	if !h.ready {
+		h.vp = viewport.New(width, height)
+		h.ready = true
+	}
+	h.vp.Width, h.vp.Height = width, height
+	h.vp.SetContent(body)
+	h.vp.GotoTop()
+}
 
 // pickerItem is one row of any overlay list. Value is what choosing it means:
 // a server alias, a project key or a branch plan key.
@@ -101,6 +119,25 @@ func (m Model) helpBody(width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
+// helpView renders the key table through a viewport, because the table is
+// taller than a 24-row terminal and the last rows must still be reachable.
+func (m Model) helpView(width int) string {
+	if !m.help.ready {
+		return m.helpBody(width, 0)
+	}
+	return m.help.vp.View()
+}
+
+// helpHeight is the rows the overlay gives the table: the terminal minus the
+// box's border, its title and the room lipgloss.Place needs.
+func (m Model) helpHeight() int {
+	h := m.height - 5
+	if h < 1 {
+		h = 1
+	}
+	return h
+}
+
 // errorBody is the What, the Why and the Try of an errs.Error. An auth error
 // always names bam login, because the UI cannot exit 4 to say so.
 func (m Model) errorBody(width int) string {
@@ -148,7 +185,7 @@ func (m Model) overlayView(base string) string {
 	var body string
 	switch m.overlay {
 	case overlayHelp:
-		body = m.helpBody(w-2, m.height-3)
+		body = m.helpView(w - 2)
 	case overlayError:
 		body = m.errorBody(w - 2)
 	default:

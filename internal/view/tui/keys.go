@@ -17,6 +17,7 @@ type keyMap struct {
 	Filter, NextMatch, PrevMatch key.Binding
 	Refresh, ExpandErr           key.Binding
 	Open, Copy                   key.Binding
+	Run                          key.Binding
 	Server, Project, Branch      key.Binding
 	Help, Quit                   key.Binding
 }
@@ -51,6 +52,7 @@ func defaultKeys() keyMap {
 		PrevMatch: b("N", "n N", "next / previous match"),
 		Refresh:   b("r", "r", "refresh the panel"),
 		ExpandErr: b("e", "e", "expand the error"),
+		Run:       b("R", "R", "open the run form"),
 		Open:      b("o", "o", "open in the browser"),
 		Copy:      b("y", "y", "copy the URL"),
 		Server:    b("S", "S", "switch server"),
@@ -68,7 +70,7 @@ func allBindings(k keyMap) []key.Binding {
 		k.Up, k.Down, k.Top, k.Bottom, k.NextPanel, k.PrevPanel,
 		k.Panel1, k.Panel2, k.Panel3, k.Enter, k.Back,
 		k.Logs, k.AllLogs, k.Follow, k.Filter, k.NextMatch, k.PrevMatch,
-		k.Refresh, k.ExpandErr, k.Open, k.Copy,
+		k.Refresh, k.ExpandErr, k.Open, k.Copy, k.Run,
 		k.Server, k.Project, k.Branch, k.Help, k.Quit,
 	}
 }
@@ -90,6 +92,7 @@ func (k keyMap) helpRows() []helpRow {
 		{"VIEW", "n N", "next / previous match, or next failure"},
 		{"VIEW", "r", "refresh the focused panel"},
 		{"VIEW", "e", "expand the current error"},
+		{"RUN", "R", "open the run form for the selection"},
 		{"GO", "o", "open the selection's Bamboo URL in the browser"},
 		{"GO", "y", "copy the selection's Bamboo URL"},
 		{"GO", "S", "switch server"},

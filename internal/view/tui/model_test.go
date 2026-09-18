@@ -1,8 +1,10 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/r0jjames/bam-cli/internal/app"
 	"github.com/r0jjames/bam-cli/internal/provider"
@@ -189,12 +191,21 @@ func TestEnterOnAPresetWhosePlanIsNotListedStillLoadsIt(t *testing.T) {
 	require.Equal(t, focusBuilds, m.focus)
 }
 
-// TestNoKeyTriggersAnything keeps part A read-only.
-func TestNoKeyTriggersAnything(t *testing.T) {
-	for _, row := range keys.helpRows() {
-		require.NotContains(t, row.Desc, "run ")
-		require.NotContains(t, row.Desc, "cancel")
+// TestNoLowercaseKeyMutatesAnything is part B's rule in place of part A's
+// "nothing mutates": R only opens a form, and the keys that reach the server
+// are uppercase or chorded, so neither is one keystroke away from a
+// forty-minute pipeline.
+func TestNoLowercaseKeyMutatesAnything(t *testing.T) {
+	mutating := []key.Binding{keys.Run}
+	for _, b := range mutating {
+		for _, k := range b.Keys() {
+			require.True(t, strings.HasPrefix(k, "ctrl+") || strings.ToLower(k) != k,
+				"key %q reaches a mutation and is lowercase", k)
+		}
 	}
+	// R opens a form and sends nothing, so it is the one uppercase key that
+	// needs no confirmation.
+	require.Equal(t, []string{"R"}, keys.Run.Keys())
 }
 
 // TestRefreshReloadsTheFocusedPanelOnly, spec §5.

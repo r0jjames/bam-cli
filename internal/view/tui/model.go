@@ -96,6 +96,7 @@ type Model struct {
 	presets listState[app.TargetInfo]
 	picker  listState[pickerItem]
 
+	help     helpState
 	form     formState
 	logs     logState
 	input    textinput.Model
@@ -106,7 +107,7 @@ type Model struct {
 	// a server, project, branch, build or job the user has left cannot land
 	// on the one they are looking at now.
 	plansGen, buildsGen, logsGen int
-	watchGen, followGen          int
+	watchGen, followGen, formGen int
 
 	watchCancel context.CancelFunc
 	watchCh     <-chan app.Event
@@ -263,6 +264,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.logs.title, m.logs.jobKey, m.logs.url, m.logs.all = msg.Title, msg.JobKey, msg.URL, msg.All
 		m.logs.setLines(m.width, m.logHeight(), msg.Lines)
 		return m, nil
+	case formLoadedMsg:
+		if msg.Gen != m.formGen {
+			return m, nil
+		}
+		m.form.loading = false
+		m.form.ref, m.form.target, m.form.base = msg.Ref, msg.Target, msg.Base
+		m.form.fields = buildFields(msg.Base, msg.Ref)
+		m.form.cursor = 0
+		return m, nil
 	case buildLoadedMsg:
 		b := msg.Build
 		m.detail = &b
@@ -331,6 +341,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.logs.nextMatch(1)
 	case key.Matches(msg, keys.PrevMatch):
 		m.logs.nextMatch(-1)
+	case key.Matches(msg, keys.Run):
+		return m.openForm()
 	case key.Matches(msg, keys.Open):
 		return m.openSelection()
 	case key.Matches(msg, keys.Copy):
@@ -340,7 +352,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.AllLogs):
 		return m.openLogs("", true)
 	case key.Matches(msg, keys.Help):
-		m.overlay = overlayHelp
+		return m.openHelp()
 	case key.Matches(msg, keys.ExpandErr):
 		if m.err == nil {
 			return m, nil
@@ -420,8 +432,28 @@ func (m *Model) applyFilter(q string) {
 	}
 }
 
+// openHelp sizes the help viewport for the terminal it is about to fill.
+func (m Model) openHelp() (tea.Model, tea.Cmd) {
+	m.overlay = overlayHelp
+	w := overlayWidth(m.width, helpMaxWidth) - 2
+	m.help.set(w, m.helpHeight(), m.helpBody(w, 0))
+	return m, nil
+}
+
 // handleOverlayKey keeps overlay keys from reaching the panels underneath.
+// The help overlay scrolls; the pickers move a cursor.
 func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.overlay == overlayHelp {
+		switch {
+		case key.Matches(msg, keys.Back):
+			return m.back()
+		case key.Matches(msg, keys.Quit):
+			return m.quit()
+		}
+		var cmd tea.Cmd
+		m.help.vp, cmd = m.help.vp.Update(msg)
+		return m, cmd
+	}
 	switch {
 	case key.Matches(msg, keys.Back):
 		return m.back()
@@ -711,8 +743,7 @@ func (m Model) handleLogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Copy):
 		return m.copySelection()
 	case key.Matches(msg, keys.Help):
-		m.overlay = overlayHelp
-		return m, nil
+		return m.openHelp()
 	case key.Matches(msg, keys.ExpandErr):
 		if m.err != nil {
 			m.overlay = overlayError
@@ -851,6 +882,51 @@ func jobByKey(b provider.Build, key string) (provider.Job, bool) {
 
 // currentBuild is the open build when there is one, otherwise whatever the
 // Builds cursor points at.
+// openForm opens the run form for whatever the cursor is on: a preset by its
+// name, so its branch and rules apply, or a plan key. Opening a form changes
+// nothing on the server, which is why R needs no confirmation.
+func (m Model) openForm() (tea.Model, tea.Cmd) {
+	if m.svc == nil {
+		return m, nil
+	}
+	arg, target := "", ""
+	switch m.focus {
+	case focusPresets:
+		t, ok := m.presets.selected()
+		if !ok {
+			return m, nil
+		}
+		arg, target = t.Name, t.Name
+	case focusPlans:
+		p, ok := m.plans.selected()
+		if !ok {
+			return m, nil
+		}
+		arg = p.Key
+	default:
+		b, ok := m.currentBuild()
+		if !ok {
+			return m, nil
+		}
+		arg = b.PlanKey
+	}
+	if arg == "" {
+		return m, nil
+	}
+
+	// Prefill from the selected build when there is one, so re-running with a
+	// tweak is the short path; otherwise from this repository's last build.
+	from := "last"
+	if b, ok := m.currentBuild(); ok && m.focus != focusPlans && m.focus != focusPresets {
+		from = b.Key
+	}
+
+	m.screen = screenForm
+	m.formGen++
+	m.form = formState{loading: true}
+	return m, openFormCmd(context.Background(), m.svc, arg, target, from, m.formGen)
+}
+
 // currentBuild is what l, a, o, y and f act on. The Builds cursor wins when
 // Builds has focus, because esc leaves the detail open: without this, moving
 // down one row and pressing l would show the previous build's log.
@@ -879,6 +955,11 @@ func (m Model) back() (tea.Model, tea.Cmd) {
 	case m.screen == screenLogs:
 		m.stopFollow()
 		m.screen = screenColumns
+		return m, nil
+	case m.screen == screenForm:
+		m.formGen++ // abandon a load still in flight
+		m.screen = screenColumns
+		m.form = formState{}
 		return m, nil
 	case m.focus != focusPlans:
 		m.focus = m.focus.parent()

@@ -210,6 +210,38 @@ func resolveTargetBuildsCmd(ctx context.Context, svc *app.Service, target string
 	}
 }
 
+type formLoadedMsg struct {
+	Gen    int
+	Ref    app.PlanRef
+	Target string
+	Base   app.VarSet
+}
+
+// openFormCmd resolves what the cursor is on into a plan reference and
+// fetches the variables the form starts from. arg is a preset's name or a
+// plan key: ResolvePlan is what turns either into a plan, so a preset's
+// branch and rules apply exactly as they do for bam run.
+//
+// from prefills the form from a previous build. It is a convenience, not a
+// requirement: a server that cannot read a build's variables, or a repository
+// with no last build, opens the form on the plan's own values instead.
+func openFormCmd(ctx context.Context, svc *app.Service, arg, target, from string, gen int) tea.Cmd {
+	return func() tea.Msg {
+		ref, err := svc.ResolvePlan(ctx, arg, "")
+		if err != nil {
+			return errMsg{Err: err, Where: "run"}
+		}
+		base, err := svc.VarBase(ctx, ref, from)
+		if err != nil && from != "" {
+			base, err = svc.VarBase(ctx, ref, "")
+		}
+		if err != nil {
+			return errMsg{Err: err, Where: "run"}
+		}
+		return formLoadedMsg{Gen: gen, Ref: ref, Target: target, Base: base}
+	}
+}
+
 type buildLoadedMsg struct{ Build provider.Build }
 
 // reloadBuildCmd re-reads one build. It goes through Service.Build rather

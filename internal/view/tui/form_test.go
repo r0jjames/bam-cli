@@ -5,6 +5,7 @@ import (
 
 	"github.com/r0jjames/bam-cli/internal/app"
 	"github.com/r0jjames/bam-cli/internal/config"
+	"github.com/r0jjames/bam-cli/internal/provider"
 	"github.com/stretchr/testify/require"
 )
 
@@ -148,3 +149,75 @@ func TestFormWhileLoadingSaysSo(t *testing.T) {
 }
 
 func TestFormGolden(t *testing.T) { requireGolden(t, "form-80x24", formModel().View()) }
+
+func TestROpensTheFormForAPreset(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.svc = testService()
+	m, _ = send(m, presetsLoadedMsg{Targets: []app.TargetInfo{{Name: "smoke", Plan: "PROJ-PROV", Branch: "develop"}}})
+	m.focus = focusPresets
+
+	m, cmd := send(m, mkKey("R"))
+	require.Equal(t, screenForm, m.screen)
+	require.True(t, m.form.loading)
+	require.NotNil(t, cmd)
+
+	msg, ok := cmd().(formLoadedMsg)
+	require.True(t, ok, "got %T", cmd())
+	require.Equal(t, "PROJ-PROV12", msg.Ref.PlanKey, "the preset's branch is resolved")
+	require.Equal(t, "smoke", msg.Target)
+}
+
+func TestROnAPlanOpensAFormWithNoTargetRules(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.svc = testService()
+	m, _ = send(m, plansLoadedMsg{Gen: m.plansGen, Plans: []provider.Plan{{Key: "PROJ-BUILD"}}})
+	m.focus = focusPlans
+
+	_, cmd := send(m, mkKey("R"))
+	require.NotNil(t, cmd)
+	msg, ok := cmd().(formLoadedMsg)
+	require.True(t, ok, "got %T", cmd())
+	require.Equal(t, "PROJ-BUILD", msg.Ref.PlanKey)
+	require.Nil(t, msg.Ref.Target)
+	require.Equal(t, "", msg.Target)
+}
+
+func TestFormLoadedFillsTheFields(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.screen, m.form.loading = screenForm, true
+	m, _ = send(m, formLoadedMsg{Gen: m.formGen, Ref: sampleRef(), Target: "provision-lab", Base: sampleBase()})
+	require.False(t, m.form.loading)
+	require.Len(t, m.form.fields, 3)
+	require.Equal(t, "provision-lab", m.form.target)
+}
+
+func TestStaleFormLoadIsDropped(t *testing.T) {
+	m := formModel()
+	stale := m.formGen
+	m.formGen++
+	m, _ = send(m, formLoadedMsg{Gen: stale, Ref: sampleRef(), Target: "other", Base: sampleBase()})
+	require.Equal(t, "provision-lab", m.form.target)
+}
+
+func TestEscLeavesTheForm(t *testing.T) {
+	m := formModel()
+	m, _ = send(m, mkKey("esc"))
+	require.Equal(t, screenColumns, m.screen)
+}
+
+// TestROnNothingDoesNothing.
+func TestROnNothingDoesNothing(t *testing.T) {
+	m := New(Deps{})
+	m.width, m.height = 80, 24
+	m, cmd := send(m, mkKey("R"))
+	require.Nil(t, cmd)
+	require.Equal(t, screenColumns, m.screen)
+}
+
+// TestRIsNotReachableFromTheLogScreen: the log screen is for reading.
+func TestRIsNotReachableFromTheLogScreen(t *testing.T) {
+	m := logModel()
+	m, cmd := send(m, mkKey("R"))
+	require.Nil(t, cmd)
+	require.Equal(t, screenLogs, m.screen)
+}
