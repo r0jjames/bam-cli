@@ -8,6 +8,7 @@ import (
 	"github.com/r0jjames/bam-cli/internal/app"
 	"github.com/r0jjames/bam-cli/internal/config"
 	"github.com/r0jjames/bam-cli/internal/provider"
+	"github.com/r0jjames/bam-cli/internal/provider/fake"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,7 +33,7 @@ func sampleBase() app.VarSet {
 		Vars: []app.ResolvedVar{
 			{Name: "cluster_name", Declared: true, Source: "plan"},
 			{Name: "cluster_type", Value: "k8s", PlanValue: "k8s", Source: "target", Declared: true},
-			{Name: "ssh_key", Value: app.MaskedDisplay, Source: "plan", Declared: true, Secret: true},
+			{Name: "ssh_key", Value: app.MaskedDisplay, PlanValue: app.MaskedDisplay, Source: "plan", Declared: true, Secret: true},
 		},
 	}
 }
@@ -430,4 +431,101 @@ func TestNoSecretEverReachesTheScreen(t *testing.T) {
 	m, _ = send(m, mkKey("enter"))
 	require.Equal(t, sentinel, m.form.fields[2].Value)
 	require.Contains(t, m.form.flags(), "ssh_key="+sentinel)
+}
+
+func TestCtrlROnAValidFormTriggers(t *testing.T) {
+	m := formModel()
+	m.revalidate()
+	require.True(t, m.canRun())
+
+	m, cmd := send(m, tea.KeyMsg{Type: tea.KeyCtrlR})
+	require.NotNil(t, cmd)
+	msg, ok := cmd().(triggeredMsg)
+	require.True(t, ok, "got %T", cmd())
+	require.NotEmpty(t, msg.Build.Key)
+}
+
+func TestCtrlRRefusesWhileAnErrorStands(t *testing.T) {
+	m := formModel()
+	m.form.fields[0].Value, m.form.fields[0].Touched = "", true
+	m.revalidate()
+
+	m, cmd := send(m, tea.KeyMsg{Type: tea.KeyCtrlR})
+	require.Nil(t, cmd)
+	require.Equal(t, screenForm, m.screen, "the form stays open")
+}
+
+// TestATriggerSendsOnlyChangedVariables, the same set bam run sends.
+func TestATriggerSendsOnlyChangedVariables(t *testing.T) {
+	m := formModel()
+	m.revalidate()
+	_, cmd := send(m, tea.KeyMsg{Type: tea.KeyCtrlR})
+	require.NotNil(t, cmd)
+	cmd()
+
+	f := m.svc.P.(*fake.Provider)
+	require.Len(t, f.Triggered, 1)
+	require.Equal(t, map[string]string{"cluster_name": "beta"}, f.Triggered[0].Variables,
+		"cluster_type equals the plan's value, so it is not sent")
+}
+
+// TestASuccessfulRunOpensAndWatchesTheNewBuild.
+func TestASuccessfulRunOpensAndWatchesTheNewBuild(t *testing.T) {
+	m := formModel()
+	m, _ = send(m, triggeredMsg{Gen: m.formGen,
+		Build: provider.Build{Key: "PROJ-PROV12-9", PlanKey: "PROJ-PROV12", Number: 9}})
+	require.Equal(t, screenColumns, m.screen)
+	require.Equal(t, focusMain, m.focus)
+	require.NotNil(t, m.detail)
+	require.Equal(t, "PROJ-PROV12-9", m.detail.Key)
+	require.NotNil(t, m.watchCancel, "the new build is watched")
+	m.stopWatch()
+}
+
+// TestAFailedTriggerKeepsTheFormAndWhatWasTyped.
+func TestAFailedTriggerKeepsTheFormAndWhatWasTyped(t *testing.T) {
+	m := formModel()
+	m, _ = send(m, errMsg{Err: errBoom, Where: "run"})
+	require.Equal(t, screenForm, m.screen)
+	require.Equal(t, "beta", m.form.fields[0].Value)
+	require.Error(t, m.err)
+}
+
+// TestCtrlRCannotBeStruckWhileEditing.
+func TestCtrlRCannotBeStruckWhileEditing(t *testing.T) {
+	m := formModel()
+	m, _ = send(m, mkKey("enter"))
+	m, cmd := send(m, tea.KeyMsg{Type: tea.KeyCtrlR})
+	require.Nil(t, cmd)
+	require.True(t, m.form.editing)
+	f := m.svc.P.(*fake.Provider)
+	require.Empty(t, f.Triggered)
+}
+
+// TestStaleTriggerIsDropped.
+func TestStaleTriggerIsDropped(t *testing.T) {
+	m := formModel()
+	stale := m.formGen
+	m.formGen++
+	m, _ = send(m, triggeredMsg{Gen: stale, Build: provider.Build{Key: "PROJ-PROV12-9"}})
+	require.Equal(t, screenForm, m.screen)
+	require.Nil(t, m.detail)
+}
+
+// TestAnUntypedMaskIsNeverSentBack: Bamboo reports a secret as ********, and
+// sending that string back would overwrite the real secret with asterisks.
+func TestAnUntypedMaskIsNeverSentBack(t *testing.T) {
+	base := sampleBase()
+	// A server that reports the mask without a plan value of its own.
+	base.Vars[2].PlanValue = ""
+	f := formState{fields: buildFields(base, sampleRef())}
+
+	vs := app.VarSet{Vars: []app.ResolvedVar{
+		{Name: "ssh_key", Value: app.MaskedDisplay, PlanValue: "", Declared: true},
+	}}
+	require.NotContains(t, f.stripUntypedMasks(vs).Changed(), "ssh_key")
+
+	f.fields[2].Value, f.fields[2].Touched = "typed", true
+	vs.Vars[0].Value = "typed"
+	require.Equal(t, "typed", f.stripUntypedMasks(vs).Changed()["ssh_key"])
 }

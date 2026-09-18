@@ -323,3 +323,25 @@ func (m Model) canRun() bool {
 	}
 	return true
 }
+
+// stripUntypedMasks stops a value Bamboo returned as ******** from being sent
+// straight back as the literal string ********, which would overwrite the
+// real secret with asterisks. Only a secret the user actually typed is sent.
+func (f formState) stripUntypedMasks(vs app.VarSet) app.VarSet {
+	typed := map[string]bool{}
+	for _, fl := range f.fields {
+		if fl.Touched {
+			typed[fl.Name] = true
+		}
+	}
+	out := vs
+	out.Vars = make([]app.ResolvedVar, len(vs.Vars))
+	copy(out.Vars, vs.Vars)
+	for i := range out.Vars {
+		v := &out.Vars[i]
+		if v.Value == app.MaskedDisplay && !typed[v.Name] {
+			v.Value = v.PlanValue
+		}
+	}
+	return out
+}

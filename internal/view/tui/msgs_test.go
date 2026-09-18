@@ -31,6 +31,8 @@ func testService() *app.Service {
 		Branches: map[string][]provider.Branch{"PROJ-PROV": {
 			{Key: "PROJ-PROV12", Name: "Provision lab - develop", ShortName: "develop", PlanKey: "PROJ-PROV"},
 		}},
+		TriggerResult: provider.Build{Key: "PROJ-PROV12-9", PlanKey: "PROJ-PROV12", Number: 9,
+			State: provider.StateQueued, URL: labOrigin + "/browse/PROJ-PROV12-9"},
 		Logs: map[string][]string{
 			"PROJ-BUILD-INT-44": {
 				"12:04:31  [INFO] Running integration suite",

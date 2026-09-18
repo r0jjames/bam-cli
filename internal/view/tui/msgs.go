@@ -264,6 +264,23 @@ func openFormCmd(ctx context.Context, svc *app.Service, planKey string, target *
 	}
 }
 
+type triggeredMsg struct {
+	Gen   int
+	Build provider.Build
+}
+
+// runCmd triggers the build. It sends vs.Changed(), the same set bam run
+// sends, so a variable equal to the plan's value is not transmitted.
+func runCmd(ctx context.Context, svc *app.Service, ref app.PlanRef, vs app.VarSet, gen int) tea.Cmd {
+	return func() tea.Msg {
+		b, err := svc.Run(ctx, ref, vs)
+		if err != nil {
+			return errMsg{Err: err, Where: "run"}
+		}
+		return triggeredMsg{Gen: gen, Build: b}
+	}
+}
+
 type buildLoadedMsg struct {
 	Gen   int
 	Build provider.Build

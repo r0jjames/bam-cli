@@ -287,6 +287,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.form.cursor = 0
 		m.revalidate()
 		return m, nil
+	case triggeredMsg:
+		if msg.Gen != m.formGen {
+			return m, nil
+		}
+		return m.openTriggered(msg.Build)
 	case buildLoadedMsg:
 		if msg.Gen != m.detailGen {
 			return m, nil
@@ -959,6 +964,8 @@ func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.form.move(1)
 	case key.Matches(msg, keys.PrevPanel), key.Matches(msg, keys.Up):
 		m.form.move(-1)
+	case key.Matches(msg, keys.Trigger):
+		return m.trigger()
 	case key.Matches(msg, keys.Enter):
 		if len(m.form.fields[m.form.cursor].Options) > 0 {
 			m.form.cycle(1)
@@ -969,6 +976,46 @@ func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, textinput.Blink
 	}
 	return m, nil
+}
+
+// trigger sends the run. It revalidates first and refuses on an error: the
+// form stays open with everything typed still in it, because losing a filled
+// form to a rejected value is worse than the rejection.
+func (m Model) trigger() (tea.Model, tea.Cmd) {
+	m.revalidate()
+	if !m.canRun() || m.svc == nil {
+		return m, nil
+	}
+	getenv := m.deps.Getenv
+	if getenv == nil {
+		getenv = func(string) string { return "" }
+	}
+	vs, err := app.ValidateVars(m.form.ref, m.form.base, m.form.flags(), getenv)
+	if err != nil {
+		m.form.err = err
+		return m, nil
+	}
+	return m, runCmd(context.Background(), m.svc, m.form.ref, m.form.stripUntypedMasks(vs), m.formGen)
+}
+
+// openTriggered shows the build that was just started and watches it. It is
+// the drill-into-a-build path, so at most one watch still runs.
+func (m Model) openTriggered(b provider.Build) (tea.Model, tea.Cmd) {
+	m.screen = screenColumns
+	m.form = formState{}
+	m.focus = focusMain
+	m.detail = &b
+	m.expanded = defaultExpanded(b)
+	m.treeCursor = 0
+	m.status = "queued " + b.Key
+
+	next, watch := m.startWatch(b.Key)
+	m = next.(Model)
+	cmds := []tea.Cmd{watch}
+	if b.PlanKey != "" {
+		cmds = append(cmds, m.loadBuilds(b.PlanKey, false))
+	}
+	return m, tea.Batch(cmds...)
 }
 
 // openForm opens the run form for whatever the cursor is on: a preset by its

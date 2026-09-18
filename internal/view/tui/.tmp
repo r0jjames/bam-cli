@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "repos": {
+    "/repo": {
+      "build_key": "PROJ-PROV12-9",
+      "origin": "",
+      "plan_key": "PROJ-PROV12",
+      "target": "provision-lab",
+      "triggered_at": "2026-09-18T16:41:16.425288839+02:00"
+    }
+  }
+}
