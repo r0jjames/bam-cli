@@ -27,6 +27,7 @@ type screen int
 const (
 	screenColumns screen = iota
 	screenLogs
+	screenForm
 )
 
 // focus is which panel takes keys. Main is the right-hand panel.
@@ -95,6 +96,7 @@ type Model struct {
 	presets listState[app.TargetInfo]
 	picker  listState[pickerItem]
 
+	form     formState
 	logs     logState
 	input    textinput.Model
 	inputFor inputMode
@@ -906,8 +908,11 @@ func (m Model) View() string {
 	if m.width < 4 || m.height < 4 {
 		return ""
 	}
-	if m.screen == screenLogs {
+	switch m.screen {
+	case screenLogs:
 		return m.overlayView(m.logsView())
+	case screenForm:
+		return m.overlayView(m.formView())
 	}
 	return m.columnsView()
 }

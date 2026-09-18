@@ -175,6 +175,15 @@ func branchOrDefault(b provider.Build) string {
 	return b.Branch
 }
 
+// keyLine is the reminder on the right of the status bar. It follows the
+// screen, because the keys do.
+func (m Model) keyLine() string {
+	if m.screen == screenForm {
+		return "enter edit  tab next  ^R run  d dry-run  esc cancel"
+	}
+	return "?help  tab focus  l logs  o open  q quit"
+}
+
 // statusBar is one line: where we are on the left, what to press on the
 // right. An error takes over the left half until it is dismissed.
 func (m Model) statusBar(width int) string {
@@ -188,7 +197,7 @@ func (m Model) statusBar(width int) string {
 	case m.status != "":
 		left = m.status
 	}
-	right := "?help  tab focus  l logs  o open  q quit"
+	right := m.keyLine()
 	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		return truncate(left, width)
