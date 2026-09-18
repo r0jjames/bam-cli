@@ -76,6 +76,11 @@ func (f focus) prev() focus { return tabOrder[(int(f)+len(tabOrder)-1)%len(tabOr
 type Model struct {
 	deps Deps
 
+	// ctx is the UI's lifetime. Every watch, follow and load hangs off it, so
+	// when bubbletea returns because its context was cancelled — which can
+	// happen without any key reaching quit — no goroutine outlives the UI.
+	ctx context.Context
+
 	width, height int
 
 	screen  screen
@@ -133,6 +138,7 @@ type Model struct {
 func New(d Deps) Model {
 	return Model{
 		deps:    d,
+		ctx:     context.Background(),
 		server:  d.Initial,
 		screen:  screenColumns,
 		focus:   focusPlans,
@@ -150,7 +156,7 @@ func New(d Deps) Model {
 func (m *Model) loadPlans() tea.Cmd {
 	m.plansGen++
 	m.plans.loading = true
-	return loadPlansCmd(context.Background(), m.svc, m.project, m.plansGen)
+	return loadPlansCmd(m.baseCtx(), m.svc, m.project, m.plansGen)
 }
 
 // clear empties the panel first, for a switch to a different plan or branch:
@@ -163,7 +169,60 @@ func (m *Model) loadBuilds(planKey string, clear bool) tea.Cmd {
 	if clear {
 		m.builds.setItems(nil)
 	}
-	return loadBuildsCmd(context.Background(), m.svc, planKey, buildsPerPlan, m.buildsGen)
+	return loadBuildsCmd(m.baseCtx(), m.svc, planKey, buildsPerPlan, m.buildsGen)
+}
+
+// presetsForServer keeps the panel to the presets that belong to the server
+// the UI is connected to. A preset may name a server of its own, and the
+// panel loads every layer of the configuration: acting on one bound to
+// another alias would resolve its plan against the wrong Bamboo and show
+// unrelated builds. Switching server with S reloads the panel.
+func presetsForServer(ts []app.TargetInfo, alias string) []app.TargetInfo {
+	out := make([]app.TargetInfo, 0, len(ts))
+	for _, t := range ts {
+		if t.Server == "" || t.Server == alias {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// currentStream says whether a message belongs to the request the model is
+// waiting on. An untagged message (streamNone) is always current.
+func (m Model) currentStream(s stream, gen int) bool {
+	switch s {
+	case streamConnect:
+		return gen == m.connGen
+	case streamPlans:
+		return gen == m.plansGen
+	case streamBuilds:
+		return gen == m.buildsGen
+	case streamLogs:
+		return gen == m.logsGen
+	case streamDetail:
+		return gen == m.detailGen
+	case streamPicker:
+		return gen == m.pickerGen
+	case streamPresets:
+		return gen == m.presetsGen
+	}
+	return true
+}
+
+// baseCtx is the context every command runs under. A zero Model built by a
+// test still gets a usable one.
+func (m Model) baseCtx() context.Context {
+	if m.ctx == nil {
+		return context.Background()
+	}
+	return m.ctx
+}
+
+// withContext roots the model in the UI's lifetime. Run calls it before the
+// program starts.
+func (m Model) withContext(ctx context.Context) Model {
+	m.ctx = ctx
+	return m
 }
 
 // connected folds the start-up handshake's result into the model, so Init
@@ -181,7 +240,7 @@ func (m Model) Init() tea.Cmd {
 		m.plans.loading = true
 		cmds = append(cmds, m.loadPlans())
 	case m.deps.Connect != nil:
-		cmds = append(cmds, connectCmd(context.Background(), m.deps, m.server, m.connGen))
+		cmds = append(cmds, connectCmd(m.baseCtx(), m.deps, m.server, m.connGen))
 	}
 	if m.deps.Targets != nil {
 		cmds = append(cmds, loadPresetsCmd(m.deps, m.presetsGen))
@@ -225,7 +284,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Gen != m.presetsGen {
 			return m, nil
 		}
-		m.presets.setItems(msg.Targets)
+		m.presets.setItems(presetsForServer(msg.Targets, m.server))
 		return m, nil
 	case projectsLoadedMsg:
 		if msg.Gen != m.pickerGen {
@@ -330,6 +389,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.stopWatch()
 		return m, nil
 	case errMsg:
+		// A failure from a request the user has abandoned must not replace
+		// the status of the one they are waiting on.
+		if !m.currentStream(msg.Stream, msg.Gen) {
+			return m, nil
+		}
 		m.err = msg.Err
 		m.status = ""
 		m.plans.loading, m.builds.loading = false, false
@@ -413,7 +477,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.pickerGen++
 		m.picker.setQuery("")
 		m.picker.setItems(nil)
-		return m, loadProjectsCmd(context.Background(), m.svc, m.pickerGen)
+		return m, loadProjectsCmd(m.baseCtx(), m.svc, m.pickerGen)
 	case key.Matches(msg, keys.Branch):
 		p, ok := m.plans.selected()
 		if !ok || m.svc == nil {
@@ -423,7 +487,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.pickerGen++
 		m.picker.setQuery("")
 		m.picker.setItems(nil)
-		return m, loadBranchesCmd(context.Background(), m.svc, p.Key, m.pickerGen)
+		return m, loadBranchesCmd(m.baseCtx(), m.svc, p.Key, m.pickerGen)
 	}
 	return m, nil
 }
@@ -578,7 +642,7 @@ func (m Model) refresh() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.detailGen++
-		return m, reloadBuildCmd(context.Background(), m.svc, m.detail.Key, m.detailGen)
+		return m, reloadBuildCmd(m.baseCtx(), m.svc, m.detail.Key, m.detailGen)
 	}
 	return m, nil
 }
@@ -611,7 +675,19 @@ func (m Model) chooseOverlay() (tea.Model, tea.Cmd) {
 		return m.switchServer(it.Value)
 	case overlayProjects:
 		m.overlay = overlayNone
+		if it.Value == m.project {
+			return m, nil
+		}
 		m.project = it.Value
+		// The plans, the builds and the open build all belonged to the old
+		// filter. Leaving them selectable while the new list loads means
+		// enter can open a build from a project that is no longer shown.
+		m.leaveBuild()
+		m.buildsPlan = ""
+		m.buildsGen++
+		m.builds.setItems(nil)
+		m.plans.setItems(nil)
+		m.focus = focusPlans
 		return m, m.loadPlans()
 	case overlayBranches:
 		m.overlay = overlayNone
@@ -652,7 +728,7 @@ func (m Model) switchServer(alias string) (tea.Model, tea.Cmd) {
 	}
 	if m.deps.Connect != nil {
 		m.connGen++
-		cmds = append(cmds, connectCmd(context.Background(), m.deps, alias, m.connGen))
+		cmds = append(cmds, connectCmd(m.baseCtx(), m.deps, alias, m.connGen))
 	}
 	return m, tea.Batch(cmds...)
 }
@@ -774,7 +850,7 @@ func (m Model) drill() (tea.Model, tea.Cmd) {
 		// A preset may name a branch, and its builds live under the branch
 		// plan, not the master. ResolvePlan is what turns the two into a plan
 		// key, exactly as bam run does it.
-		return m, resolveTargetBuildsCmd(context.Background(), m.svc, t, m.buildsGen)
+		return m, resolveTargetBuildsCmd(m.baseCtx(), m.svc, t, m.buildsGen)
 	case focusMain:
 		row, ok := m.selectedTreeRow()
 		if !ok {
@@ -825,7 +901,7 @@ func (m Model) startWatch(key string) (tea.Model, tea.Cmd) {
 	if m.svc == nil {
 		return m, nil
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(m.baseCtx())
 	m.watchCancel = cancel
 	m.watchCh = m.svc.Watch(ctx, key)
 	return m, watchCmd(m.watchCh, m.watchGen)
@@ -890,9 +966,9 @@ func (m Model) openLogs(jobKey string, all bool) (tea.Model, tea.Cmd) {
 	// straight from the Builds panel has no job to take a log from. Expand it
 	// first rather than reporting that it has no failed job.
 	if len(b.Stages) == 0 {
-		return m, logsForKeyCmd(context.Background(), m.svc, b.Key, jobKey, all, m.logsGen)
+		return m, logsForKeyCmd(m.baseCtx(), m.svc, b.Key, jobKey, all, m.logsGen)
 	}
-	return m, loadLogsCmd(context.Background(), m.svc, b, jobKey, all, m.logsGen)
+	return m, loadLogsCmd(m.baseCtx(), m.svc, b, jobKey, all, m.logsGen)
 }
 
 // copiedMsg says the URL reached the terminal's clipboard.
@@ -976,7 +1052,7 @@ func (m Model) toggleFollow() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(m.baseCtx())
 	m.followCancel = cancel
 	m.logs.following = true
 	// Resume at the provider's own offset, not at the number of lines drawn:
