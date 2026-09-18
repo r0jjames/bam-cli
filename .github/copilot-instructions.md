@@ -10,8 +10,9 @@ These rules are not visible from the diff alone, so check them explicitly.
 
 ## 1. Public repository: placeholders only
 
-This repository is public. Code, tests, fixtures, docs and commit messages may
-only use placeholder identifiers:
+This repository is published publicly, so treat every file and every commit
+message as world-readable whatever the current visibility setting says. Code,
+tests, fixtures, docs and commit messages may only use placeholder identifiers:
 
 - hosts: `bamboo.example.com`, `bamboo.lab.example`
 - project keys: `PROJ`, `OPS`, `LAB`
@@ -93,7 +94,10 @@ rather than fail. Only changed variables are sent to Bamboo.
 
 - Tests never sleep and never touch the network. Clock, HTTP client, keychain,
   browser, pager and filesystem paths are injected; tests use `fake.Provider`,
-  an instant fake clock, and `httptest` with fixtures.
+  an instant fake clock, and `httptest` with fixtures. The one exception is the
+  `//go:build e2e` suite under `e2e/`, which runs against a real Bamboo on
+  demand and is excluded from the default build; it may use the network and may
+  wait on a real build.
 - Interrupting `bam watch` must never stop the build. Only `bam build cancel`
   stops builds.
 - Golden files in `internal/view/` change only when a renderer changed on
