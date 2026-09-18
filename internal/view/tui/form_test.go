@@ -394,3 +394,40 @@ func TestAcceptingAnEditRevalidates(t *testing.T) {
 	m, _ = send(m, mkKey("enter"))
 	require.Contains(t, m.form.fields[0].Err, "required")
 }
+
+// TestNoSecretEverReachesTheScreen fills every secret field with a sentinel
+// and checks it appears nowhere a person or a terminal recording could see
+// it. It is the test that catches a future renderer that forgets.
+func TestNoSecretEverReachesTheScreen(t *testing.T) {
+	const sentinel = "correct-horse-battery-staple"
+
+	m := formModel()
+	for i := range m.form.fields {
+		if m.form.fields[i].Secret {
+			m.form.fields[i].Value, m.form.fields[i].Touched = sentinel, true
+		}
+	}
+	m.revalidate()
+
+	surfaces := map[string]string{
+		"the form":       m.View(),
+		"the form body":  m.formBody(76, 20),
+		"the status bar": m.statusBar(80),
+	}
+	for name, s := range surfaces {
+		require.NotContains(t, s, sentinel, "a secret reached %s", name)
+	}
+
+	// And while it is being typed.
+	m.form.cursor = 2
+	m, _ = send(m, mkKey("enter"))
+	for _, r := range sentinel {
+		m, _ = send(m, mkKey(string(r)))
+	}
+	require.NotContains(t, m.View(), sentinel, "a secret reached the screen while being typed")
+
+	// The value is still carried, or the run would send the wrong thing.
+	m, _ = send(m, mkKey("enter"))
+	require.Equal(t, sentinel, m.form.fields[2].Value)
+	require.Contains(t, m.form.flags(), "ssh_key="+sentinel)
+}
