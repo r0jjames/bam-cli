@@ -93,3 +93,12 @@ func TestFocusedPanelIsMarked(t *testing.T) {
 func TestZeroSizeDoesNotPanic(t *testing.T) {
 	require.NotPanics(t, func() { _ = New(Deps{}).View() })
 }
+
+// TestDetailGolden is the screen spec §3 draws.
+func TestDetailGolden(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.focus = focusMain
+	m.detail = ptr(sampleBuild())
+	m.expanded = defaultExpanded(sampleBuild())
+	requireGolden(t, "detail-80x24", m.View())
+}

@@ -76,6 +76,10 @@ type Model struct {
 	project    string // the project filter; empty means every project
 	buildsPlan string // the plan (or branch plan) the Builds panel holds
 
+	detail     *provider.Build
+	expanded   map[string]bool
+	treeCursor int
+
 	plans   listState[provider.Plan]
 	builds  listState[provider.Build]
 	presets listState[app.TargetInfo]

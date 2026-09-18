@@ -1,5 +1,5 @@
 ┏━1 Plans━━━━━━━━━━━━━━━━━━━━┓╭─PROJ-BUILD-44──────────────────────────────────────────────────────────────────────────╮
-┃▸ PROJ-BUILD                ┃│✗ failed   #44   branch main   3m12s                                                    │
+┃▸ PROJ-BUILD                ┃│press enter to open this build                                                          │
 ┃  PROJ-DEPLOY               ┃│                                                                                        │
 ┃  OPS-NIGHTLY               ┃│                                                                                        │
 ┃                            ┃│                                                                                        │

@@ -149,16 +149,15 @@ func (m Model) leftColumn(width, height int) string {
 	)
 }
 
-// mainPanel shows what the focused left panel points at. Part 2 replaces the
-// placeholder body with the build detail and the stage and job tree.
+// mainPanel shows what the focused left panel points at: the open build's
+// detail, otherwise a hint about the build the Builds cursor is on.
 func (m Model) mainPanel(width, height int) string {
+	if m.detail != nil {
+		return panel(m.detail.Key, m.focus == focusMain, width, height, m.detailBody(width-2, height-2))
+	}
 	if b, ok := m.builds.selected(); ok {
-		body := strings.Join([]string{
-			fmt.Sprintf("%s   #%d   branch %s   %s",
-				stateCell(b.State), b.Number, branchOrDefault(b), view.Duration(b.Duration)),
-			dimStyle.Render(b.Reason),
-		}, "\n")
-		return panel(b.Key, m.focus == focusMain, width, height, body)
+		return panel(b.Key, m.focus == focusMain, width, height,
+			dimStyle.Render("press enter to open this build"))
 	}
 	return panel("bam", m.focus == focusMain, width, height, dimStyle.Render("select a plan"))
 }

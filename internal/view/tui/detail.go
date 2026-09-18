@@ -1,0 +1,120 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/r0jjames/bam-cli/internal/provider"
+	"github.com/r0jjames/bam-cli/internal/view"
+)
+
+type treeKind int
+
+const (
+	rowStage treeKind = iota
+	rowJob
+)
+
+// treeRow is one visible line of the stage and job tree. Stage and Job are
+// indexes into the build, so a row survives a refresh that reorders nothing.
+type treeRow struct {
+	Kind     treeKind
+	Stage    int
+	Job      int
+	Name     string
+	State    provider.State
+	Duration time.Duration
+	Key      string // job result key; empty for a stage
+	URL      string
+}
+
+// buildTree flattens the build into the rows to draw, honouring which stages
+// are expanded.
+func buildTree(b provider.Build, expanded map[string]bool) []treeRow {
+	var out []treeRow
+	for si, st := range b.Stages {
+		out = append(out, treeRow{Kind: rowStage, Stage: si, Name: st.Name, State: st.State, Duration: st.Duration})
+		if !expanded[st.Name] {
+			continue
+		}
+		for ji, j := range st.Jobs {
+			out = append(out, treeRow{Kind: rowJob, Stage: si, Job: ji, Name: j.Name,
+				State: j.State, Duration: j.Duration, Key: j.Key, URL: j.URL})
+		}
+	}
+	return out
+}
+
+// defaultExpanded opens the stages that failed or are still running, because
+// that is what the user opened the build to read.
+func defaultExpanded(b provider.Build) map[string]bool {
+	out := map[string]bool{}
+	for _, st := range b.Stages {
+		if st.State == provider.StateFailed || st.State == provider.StateRunning {
+			out[st.Name] = true
+		}
+	}
+	return out
+}
+
+// detailBody is the main panel's contents for a build: a header, the tree,
+// and the failed-test count when the server reported one.
+func (m Model) detailBody(width, height int) string {
+	b := *m.detail
+	lines := []string{
+		fmt.Sprintf("%s   #%d   branch %s   %s",
+			stateCell(b.State), b.Number, branchOrDefault(b), view.Duration(b.Duration)),
+		dimStyle.Render(strings.TrimSpace(b.Reason + " " + revisionShort(b))),
+		"",
+	}
+
+	nameWidth := maxNameWidth(width)
+	for i, r := range buildTree(b, m.expanded) {
+		indent := ""
+		if r.Kind == rowJob {
+			indent = "  "
+		}
+		dur := ""
+		if r.Duration > 0 {
+			dur = view.Duration(r.Duration)
+		}
+		// The glyph is indented with its job, and the whole cell is padded by
+		// lipgloss rather than by %-*s, because the glyph carries ANSI and
+		// fmt would count those bytes as width. Every duration then lands in
+		// the same column.
+		cell := indent + stateStyle(r.State).Render(stateGlyph(r.State)) + " " +
+			truncate(r.Name, nameWidth-len(indent))
+		line := m.cursorFor(m.focus == focusMain, m.treeCursor == i) +
+			lipgloss.NewStyle().Width(nameWidth+2).Render(cell) + " " + dur
+		lines = append(lines, strings.TrimRight(line, " "))
+	}
+	if n := len(b.FailedTests); n > 0 {
+		lines = append(lines, "", errorStyle.Render(fmt.Sprintf("%d failed tests", n)))
+	}
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	return strings.Join(lines, "\n")
+}
+
+// maxNameWidth leaves room for the cursor, the glyph and the duration, and
+// caps the column so durations stay readable next to their names.
+func maxNameWidth(panelWidth int) int {
+	w := panelWidth - 12
+	switch {
+	case w < 8:
+		w = 8
+	case w > 26:
+		w = 26
+	}
+	return w
+}
+
+func revisionShort(b provider.Build) string {
+	if len(b.Revisions) == 0 {
+		return ""
+	}
+	return "· " + b.Revisions[0].Short()
+}
