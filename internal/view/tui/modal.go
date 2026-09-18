@@ -65,16 +65,19 @@ func overlayBox(title string, w int, body string) string {
 		Render(titleStyle.Render(truncate(title, w-2)) + "\n" + body)
 }
 
-func (m Model) pickerRows(height int) string {
+func (m Model) pickerRows(width, height int) string {
 	rows := m.picker.rows()
 	start, end := m.picker.window(height)
 	var b strings.Builder
 	for i := start; i < end; i++ {
-		b.WriteString(m.cursorFor(true, m.picker.cursor == i))
-		b.WriteString(rows[i].Label)
+		// Truncate to the box's inner width: a long alias or URL would
+		// otherwise make the modal wider than the terminal.
+		row := rows[i].Label
 		if rows[i].Detail != "" {
-			b.WriteString("  " + dimStyle.Render(rows[i].Detail))
+			row += "  " + dimStyle.Render(rows[i].Detail)
 		}
+		b.WriteString(m.cursorFor(true, m.picker.cursor == i))
+		b.WriteString(truncate(row, width-2))
 		b.WriteString("\n")
 	}
 	return strings.TrimSuffix(b.String(), "\n")
@@ -197,7 +200,7 @@ func (m Model) overlayView(base string) string {
 	case overlayConfirm:
 		body = m.confirmBody(w - 2)
 	default:
-		body = m.pickerRows(m.height / 2)
+		body = m.pickerRows(w-2, m.height/2)
 	}
 	box := overlayBox(m.overlayTitle(), w, body)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)

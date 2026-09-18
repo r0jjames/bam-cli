@@ -150,3 +150,17 @@ func TestBamUIWithoutASelectionFallsBackToTheFirstServer(t *testing.T) {
 	require.Equal(t, 0, h.run())
 	require.Equal(t, "work", h.tuiRuns[0].Initial)
 }
+
+// TestBamUIWithNoServerConfiguredSaysSo, rather than dialling an empty alias
+// and suggesting "bam server add  --url URL".
+func TestBamUIWithNoServerConfiguredSaysSo(t *testing.T) {
+	h := newHarness(t)
+	h.tty = true
+	require.NoError(t, os.Remove(filepath.Join(h.root, ".bam.yaml")))
+
+	code := h.run("ui")
+	require.Equal(t, 3, code)
+	require.Empty(t, h.tuiRuns)
+	require.NotContains(t, h.stderr.String(), "add  --url", "no empty alias in the suggestion")
+	require.Contains(t, strings.ToLower(h.stderr.String()), "server")
+}

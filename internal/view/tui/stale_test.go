@@ -2,11 +2,15 @@ package tui
 
 import (
 	"context"
+	"strings"
 	"testing"
+
+	"github.com/charmbracelet/lipgloss"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/r0jjames/bam-cli/internal/app"
 	"github.com/r0jjames/bam-cli/internal/provider"
+	"github.com/r0jjames/bam-cli/internal/provider/fake"
 	"github.com/stretchr/testify/require"
 )
 
@@ -229,4 +233,157 @@ func TestStalePickerResponsesAreDropped(t *testing.T) {
 
 	m, _ = send(m, branchesLoadedMsg{Gen: stale, MasterKey: "OLD", Branches: nil})
 	require.Equal(t, 0, m.picker.len())
+}
+
+// TestFollowSurfacesItsError: the goroutine used to close the line channel
+// before publishing the error, so a real log-fetch failure could be read as a
+// clean end.
+func TestFollowSurfacesItsError(t *testing.T) {
+	svc := testService()
+	svc.P.(*fake.Provider).LogErrs = []error{errBoom}
+
+	lines, done := followCmd(t.Context(), svc, "PROJ-BUILD-44",
+		provider.Job{Key: "PROJ-BUILD-INT-44"}, 0)
+
+	var msg tea.Msg
+	for {
+		msg = drainFollowCmd(lines, done, 0)()
+		if _, ok := msg.(logChunkMsg); !ok {
+			break
+		}
+	}
+	ended, ok := msg.(followEndedMsg)
+	require.True(t, ok, "got %T", msg)
+	require.Error(t, ended.Err, "the fetch failed, so the end must say so")
+}
+
+// TestStalePresetsResponseIsDropped: two refreshes can finish out of order,
+// and the panel documents a live reread.
+func TestStalePresetsResponseIsDropped(t *testing.T) {
+	m := testModel()
+	m, _ = send(m, presetsLoadedMsg{Gen: m.presetsGen, Targets: []app.TargetInfo{{Name: "current"}}})
+	stale := m.presetsGen
+	m.presetsGen++
+
+	m, _ = send(m, presetsLoadedMsg{Gen: stale, Targets: []app.TargetInfo{{Name: "older"}, {Name: "older2"}}})
+	require.Equal(t, 1, m.presets.len())
+	sel, _ := m.presets.selected()
+	require.Equal(t, "current", sel.Name)
+}
+
+// TestOpeningAnotherPlanStopsTheWatchAndClearsTheDetail: the open build
+// belongs to the plan being left, and its watch would keep overwriting the
+// main panel while the new plan loads.
+func TestOpeningAnotherPlanStopsTheWatchAndClearsTheDetail(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.svc = testService()
+	m, _ = send(m, plansLoadedMsg{Gen: m.plansGen, Plans: []provider.Plan{{Key: "PROJ-BUILD"}, {Key: "PROJ-PROV"}}})
+	m.detail = ptr(sampleBuild())
+	stopped := false
+	m.watchCancel = func() { stopped = true }
+
+	m.focus = focusPlans
+	m, _ = send(m, mkKey("enter"))
+	require.True(t, stopped)
+	require.Nil(t, m.detail)
+	require.Nil(t, m.watchCancel)
+}
+
+// TestOpeningAPresetStopsTheWatchToo.
+func TestOpeningAPresetStopsTheWatchToo(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.svc = testService()
+	m, _ = send(m, presetsLoadedMsg{Gen: m.presetsGen,
+		Targets: []app.TargetInfo{{Name: "smoke", Plan: "PROJ-PROV", Branch: "develop"}}})
+	m.detail = ptr(sampleBuild())
+	stopped := false
+	m.watchCancel = func() { stopped = true }
+
+	m.focus = focusPresets
+	m, _ = send(m, mkKey("enter"))
+	require.True(t, stopped)
+	require.Nil(t, m.detail)
+}
+
+// TestSwitchingServerClearsThePresetsAndTheProjectFilter: both are keyed to
+// the server being left.
+func TestSwitchingServerClearsThePresetsAndTheProjectFilter(t *testing.T) {
+	m := New(Deps{Servers: []Server{{Alias: "lab"}, {Alias: "work"}}, Initial: "lab",
+		Connect: func(context.Context, string) (*app.Service, error) { return testService(), nil },
+		Targets: func() ([]app.TargetInfo, error) { return []app.TargetInfo{{Name: "fresh"}}, nil }})
+	m.width, m.height = 80, 24
+	m.svc = testService()
+	m.project = "OLD-PROJECT"
+	m, _ = send(m, presetsLoadedMsg{Gen: m.presetsGen, Targets: []app.TargetInfo{{Name: "from-the-old-server"}}})
+	require.Equal(t, 1, m.presets.len())
+
+	m, _ = send(m, mkKey("S"))
+	m, _ = send(m, mkKey("j"))
+	m, _ = send(m, mkKey("enter"))
+	require.Equal(t, 0, m.presets.len(), "the old server's presets are gone")
+	require.Equal(t, "", m.project, "a project filter from another server would hide everything")
+}
+
+// TestAReopensTheLogsWithEveryJob: the failed-log error advises pressing a,
+// so a has to work from the log screen.
+func TestAReopensTheLogsWithEveryJob(t *testing.T) {
+	m := logModel()
+	m, cmd := send(m, mkKey("a"))
+	require.Equal(t, screenLogs, m.screen)
+	require.NotNil(t, cmd, "a must reopen the logs, not scroll the viewport")
+	msg, ok := cmd().(logsLoadedMsg)
+	require.True(t, ok, "got %T", cmd())
+	require.True(t, msg.All)
+}
+
+// TestLogsOnASummaryBuildFetchTheFullBuildFirst. ListBuilds returns builds
+// without their stage and job tree, so the row the cursor is on has no jobs
+// to pick a log from.
+func TestLogsOnASummaryBuildFetchTheFullBuildFirst(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.svc = testService()
+	summary := provider.Build{Key: "PROJ-BUILD-44", PlanKey: "PROJ-BUILD", Number: 44}
+	require.Empty(t, summary.Stages)
+	m.builds.setItems([]provider.Build{summary})
+	m.focus = focusBuilds
+	m.svc.P.(*fake.Provider).History["PROJ-BUILD"] = []provider.Build{sampleBuild()}
+
+	m, cmd := send(m, mkKey("l"))
+	require.Equal(t, screenLogs, m.screen)
+	require.NotNil(t, cmd)
+	msg, ok := cmd().(logsLoadedMsg)
+	require.True(t, ok, "got %T: a summary row must be expanded before its logs are read", cmd())
+	require.Equal(t, "PROJ-BUILD-INT-44", msg.JobKey)
+}
+
+// TestALongPickerRowDoesNotWidenTheModal: a configured URL can be long, and a
+// row wider than the box breaks the whole layout.
+func TestALongPickerRowDoesNotWidenTheModal(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.overlay = overlayServers
+	m.picker.setItems([]pickerItem{{
+		Label:  "a-very-long-server-alias-that-nobody-would-really-use",
+		Detail: "https://bamboo.lab.example/a/very/long/path/that/keeps/going/and/going",
+	}})
+	for i, line := range strings.Split(m.View(), "\n") {
+		require.LessOrEqual(t, lipgloss.Width(line), 80, "line %d", i)
+	}
+}
+
+// TestTheDetailTreeScrollsWithItsCursor: the cursor used to walk onto rows
+// that truncation had cut, so enter and o acted on something invisible.
+func TestTheDetailTreeScrollsWithItsCursor(t *testing.T) {
+	b := sampleBuild()
+	for i := 0; i < 40; i++ {
+		b.Stages = append(b.Stages, provider.Stage{
+			Name: "Stage" + string(rune('A'+i%26)) + string(rune('0'+i/26)), State: provider.StateSuccess})
+	}
+	m := goldenModel(80, 24)
+	m.detail, m.expanded, m.focus = &b, map[string]bool{}, focusMain
+	m.treeCursor = len(m.treeRows()) - 1
+
+	last, ok := m.selectedTreeRow()
+	require.True(t, ok)
+	require.Contains(t, m.detailBody(56, 18), last.Name,
+		"the row the cursor is on must be on screen")
 }
