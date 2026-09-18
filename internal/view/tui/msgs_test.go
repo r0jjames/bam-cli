@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -15,6 +17,22 @@ import (
 )
 
 const labOrigin = "https://bamboo.lab.example"
+
+// stateDir keeps the tests' last-build records out of the source tree: a
+// StateStore with an empty Path writes its temporary file into the package
+// directory.
+var stateDir string
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "bam-tui-state")
+	if err != nil {
+		panic(err)
+	}
+	stateDir = dir
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
+}
 
 var errBoom = errors.New("bamboo returned 500")
 
@@ -66,7 +84,8 @@ func testService() *app.Service {
 		MachinePath: "config.yaml",
 		RepoRoot:    "/repo",
 	}
-	return &app.Service{P: f, Cfg: cfg, Clock: app.SystemClock{}, State: &app.StateStore{},
+	return &app.Service{P: f, Cfg: cfg, Clock: app.SystemClock{},
+		State:  &app.StateStore{Path: filepath.Join(stateDir, "state.json")},
 		Getenv: func(string) string { return "" }}
 }
 
