@@ -285,6 +285,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.form.ref, m.form.target, m.form.base = msg.Ref, msg.Target, msg.Base
 		m.form.fields = buildFields(msg.Base, msg.Ref)
 		m.form.cursor = 0
+		m.revalidate()
 		return m, nil
 	case buildLoadedMsg:
 		if msg.Gen != m.detailGen {
@@ -933,6 +934,7 @@ func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case tea.KeyEnter:
 			m.form.acceptEdit()
+			m.revalidate()
 			return m, nil
 		}
 		var cmd tea.Cmd
@@ -960,6 +962,7 @@ func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Enter):
 		if len(m.form.fields[m.form.cursor].Options) > 0 {
 			m.form.cycle(1)
+			m.revalidate()
 			return m, nil
 		}
 		m.form.startEditing()

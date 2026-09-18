@@ -255,3 +255,71 @@ func (f *formState) cancelEdit() {
 	f.editing = false
 	f.input.Blur()
 }
+
+// revalidate runs the same rules bam run applies, against the fields as they
+// stand. It makes no request: ValidateVars is pure, and the values it needs
+// were fetched once when the form opened. A usage error naming a variable is
+// shown against that field; anything else is a form-level error.
+func (m *Model) revalidate() {
+	for i := range m.form.fields {
+		m.form.fields[i].Err = ""
+	}
+	m.form.err = nil
+
+	getenv := m.deps.Getenv
+	if getenv == nil {
+		getenv = func(string) string { return "" }
+	}
+	_, err := app.ValidateVars(m.form.ref, m.form.base, m.form.flags(), getenv)
+	if err == nil {
+		return
+	}
+	if name, msg, ok := fieldError(err, m.form.fields); ok {
+		for i := range m.form.fields {
+			if m.form.fields[i].Name == name {
+				m.form.fields[i].Err = msg
+				return
+			}
+		}
+	}
+	m.form.err = err
+}
+
+// fieldError finds which field an error is about, so the mark lands on the
+// row the reader is looking at rather than only in the footer.
+func fieldError(err error, fields []formField) (string, string, bool) {
+	what := errorWhat(err)
+	for _, f := range fields {
+		if f.Name != "" && strings.Contains(what, f.Name) {
+			return f.Name, shortFieldError(what, f.Name), true
+		}
+	}
+	return "", "", false
+}
+
+// shortFieldError keeps the third column narrow: the rule, not the sentence.
+func shortFieldError(what, name string) string {
+	switch {
+	case strings.Contains(what, "is required"):
+		return "required"
+	case strings.Contains(what, "is not allowed"):
+		return "not allowed"
+	case strings.Contains(what, "needs environment variable"):
+		return "unset ${ENV}"
+	}
+	return strings.TrimPrefix(what, name+" ")
+}
+
+// canRun says whether ctrl-R may send. A warning does not block, exactly as
+// it does not block bam run.
+func (m Model) canRun() bool {
+	if m.form.err != nil {
+		return false
+	}
+	for _, f := range m.form.fields {
+		if f.Err != "" {
+			return false
+		}
+	}
+	return true
+}

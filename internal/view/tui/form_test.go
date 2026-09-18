@@ -3,6 +3,8 @@ package tui
 import (
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/r0jjames/bam-cli/internal/app"
 	"github.com/r0jjames/bam-cli/internal/config"
 	"github.com/r0jjames/bam-cli/internal/provider"
@@ -317,4 +319,78 @@ func TestASecretFieldNeverEchoesWhatIsTyped(t *testing.T) {
 	require.Equal(t, "s3cret", m.form.fields[2].Value)
 	require.True(t, m.form.fields[2].Touched)
 	require.NotContains(t, m.View(), "s3cret")
+}
+
+func TestAnEmptyRequiredFieldIsMarkedAndBlocksRun(t *testing.T) {
+	m := formModel()
+	m.form.fields[0].Value, m.form.fields[0].Touched = "", true
+	m.revalidate()
+	require.Contains(t, m.form.fields[0].Err, "required")
+	require.False(t, m.canRun())
+}
+
+func TestFillingTheFieldClearsTheMark(t *testing.T) {
+	m := formModel()
+	m.form.fields[0].Value, m.form.fields[0].Touched = "", true
+	m.revalidate()
+	require.NotEmpty(t, m.form.fields[0].Err)
+
+	m.form.fields[0].Value = "beta"
+	m.revalidate()
+	require.Empty(t, m.form.fields[0].Err)
+	require.True(t, m.canRun())
+}
+
+// TestAnUnsetEnvReferenceNamesTheVariableAndBlocksRun.
+func TestAnUnsetEnvReferenceNamesTheVariableAndBlocksRun(t *testing.T) {
+	base := sampleBase()
+	base.Vars = append(base.Vars, app.ResolvedVar{Name: "token", Value: "${LAB_TOKEN}", Source: "target"})
+	ref := sampleRef()
+	ref.Target.Defaults = config.StringMap{"cluster_type": "k8s", "token": "${LAB_TOKEN}"}
+
+	m := formModel()
+	m.deps.Getenv = func(string) string { return "" }
+	m.form.base, m.form.ref = base, ref
+	m.form.fields = buildFields(base, ref)
+	m.revalidate()
+
+	// The message names the variable, so it lands on that field's row rather
+	// than only in the footer.
+	var note string
+	for _, f := range m.form.fields {
+		if f.Name == "token" {
+			note = f.Err
+		}
+	}
+	require.Equal(t, "unset ${ENV}", note)
+	require.False(t, m.canRun())
+}
+
+// TestWarningsDoNotBlock, exactly as they do not block bam run.
+func TestWarningsDoNotBlock(t *testing.T) {
+	m := formModel()
+	m.form.fields = append(m.form.fields, formField{Name: "typo_name", Value: "x", Touched: true})
+	m.revalidate()
+	require.True(t, m.canRun())
+	require.NoError(t, m.form.err)
+}
+
+// TestCyclingAnOptionRevalidates: the feedback follows the keystroke.
+func TestCyclingAnOptionRevalidates(t *testing.T) {
+	m := formModel()
+	m.form.fields[0].Value, m.form.fields[0].Touched = "", true
+	m.form.cursor = 1
+	m, _ = send(m, mkKey("enter"))
+	require.Contains(t, m.form.fields[0].Err, "required", "the required mark survives a cycle elsewhere")
+}
+
+// TestAcceptingAnEditRevalidates.
+func TestAcceptingAnEditRevalidates(t *testing.T) {
+	m := formModel()
+	m, _ = send(m, mkKey("enter"))
+	for i := 0; i < len("beta"); i++ {
+		m, _ = send(m, tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	m, _ = send(m, mkKey("enter"))
+	require.Contains(t, m.form.fields[0].Err, "required")
 }

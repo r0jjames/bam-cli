@@ -26,6 +26,7 @@ type Deps struct {
 	Connect   func(ctx context.Context, alias string) (*app.Service, error)
 	Targets   func() ([]app.TargetInfo, error)
 	Open      func(url string) error
+	Getenv    func(name string) string // for ${ENV} references in a preset
 	Clipboard io.Writer
 	Output    io.Writer // the tea.Program's output; nil means os.Stdout
 }
