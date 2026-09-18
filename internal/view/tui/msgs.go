@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/r0jjames/bam-cli/internal/app"
+	"github.com/r0jjames/bam-cli/internal/errs"
 	"github.com/r0jjames/bam-cli/internal/provider"
 )
 
@@ -96,6 +97,44 @@ func loadPresetsCmd(d Deps) tea.Cmd {
 			return errMsg{Err: err, Where: "presets"}
 		}
 		return presetsLoadedMsg{Targets: ts}
+	}
+}
+
+type logsLoadedMsg struct {
+	JobKey string
+	Title  string
+	URL    string
+	Lines  []string
+	All    bool
+}
+
+// loadLogsCmd reads one build's logs. An empty jobKey with all=false means the
+// failed jobs, which is what bam logs --last --failed prints.
+func loadLogsCmd(ctx context.Context, svc *app.Service, b provider.Build, jobKey string, all bool) tea.Cmd {
+	return func() tea.Msg {
+		jobs, err := svc.Logs(ctx, b, app.LogsOptions{Failed: !all && jobKey == "", Job: jobKey})
+		if err != nil {
+			return errMsg{Err: err, Where: "logs"}
+		}
+		if len(jobs) == 0 {
+			return errMsg{Err: errs.Bamboof("no failed job in %s", b.Key).
+				WithTry("press a for every job's log"), Where: "logs"}
+		}
+		var lines []string
+		for i, j := range jobs {
+			if len(jobs) > 1 {
+				if i > 0 {
+					lines = append(lines, "")
+				}
+				lines = append(lines, "== "+j.Job.Name+" ==")
+			}
+			lines = append(lines, j.Lines...)
+		}
+		title := jobs[0].Job.Key
+		if len(jobs) > 1 {
+			title = b.Key
+		}
+		return logsLoadedMsg{JobKey: jobs[0].Job.Key, Title: title, URL: jobs[0].Job.URL, Lines: lines, All: all}
 	}
 }
 

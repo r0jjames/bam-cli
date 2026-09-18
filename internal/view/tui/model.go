@@ -85,6 +85,8 @@ type Model struct {
 	presets listState[app.TargetInfo]
 	picker  listState[pickerItem]
 
+	logs logState
+
 	watchCancel context.CancelFunc
 	watchCh     <-chan app.Event
 
@@ -164,6 +166,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.picker.setItems(items)
 		m.picker.cursor = indexOf(items, m.buildsPlan)
 		return m, nil
+	case logsLoadedMsg:
+		m.logs.title, m.logs.jobKey, m.logs.url, m.logs.all = msg.Title, msg.JobKey, msg.URL, msg.All
+		m.logs.setLines(m.width, m.logHeight(), msg.Lines)
+		return m, nil
 	case buildLoadedMsg:
 		b := msg.Build
 		m.detail = &b
@@ -186,6 +192,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.overlay != overlayNone {
 		return m.handleOverlayKey(msg)
+	}
+	if m.screen == screenLogs {
+		return m.handleLogKey(msg)
 	}
 	switch {
 	case key.Matches(msg, keys.Quit):
@@ -212,6 +221,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.jumpFocused(false)
 	case key.Matches(msg, keys.Enter):
 		return m.drill()
+	case key.Matches(msg, keys.Logs):
+		return m.openLogs("", false)
+	case key.Matches(msg, keys.AllLogs):
+		return m.openLogs("", true)
 	case key.Matches(msg, keys.Refresh):
 		return m.refresh()
 	case key.Matches(msg, keys.Server):
@@ -509,8 +522,46 @@ func (m Model) startWatch(key string) (tea.Model, tea.Cmd) {
 	return m, watchCmd(m.watchCh)
 }
 
-// openLogs is implemented in Task 18.
-func (m Model) openLogs(string, bool) (tea.Model, tea.Cmd) { return m, nil }
+// handleLogKey owns the keys while the log screen fills the terminal; the
+// rest go to the viewport, which scrolls itself.
+func (m Model) handleLogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, keys.Back):
+		return m.back()
+	case key.Matches(msg, keys.Quit):
+		return m.quit()
+	case key.Matches(msg, keys.Bottom):
+		m.logs.vp.GotoBottom()
+		return m, nil
+	case key.Matches(msg, keys.Top):
+		m.logs.vp.GotoTop()
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.logs.vp, cmd = m.logs.vp.Update(msg)
+	return m, cmd
+}
+
+// openLogs takes the screen for the log viewport. An empty jobKey means the
+// selected build's failed jobs, the same default bam logs uses.
+func (m Model) openLogs(jobKey string, all bool) (tea.Model, tea.Cmd) {
+	b, ok := m.currentBuild()
+	if !ok || m.svc == nil {
+		return m, nil
+	}
+	m.screen = screenLogs
+	m.logs = logState{all: all}
+	return m, loadLogsCmd(context.Background(), m.svc, b, jobKey, all)
+}
+
+// currentBuild is the open build when there is one, otherwise whatever the
+// Builds cursor points at.
+func (m Model) currentBuild() (provider.Build, bool) {
+	if m.detail != nil {
+		return *m.detail, true
+	}
+	return m.builds.selected()
+}
 
 // back pops exactly one level, in the order spec §4.1 fixes.
 func (m Model) back() (tea.Model, tea.Cmd) {
@@ -548,9 +599,19 @@ func (m Model) View() string {
 		return ""
 	}
 	if m.screen == screenLogs {
-		return m.logsView()
+		return m.overlayView(m.logsView())
 	}
 	return m.columnsView()
+}
+
+// logHeight is the viewport's height: the terminal minus the header and the
+// key line.
+func (m Model) logHeight() int {
+	h := m.height - 2
+	if h < 1 {
+		h = 1
+	}
+	return h
 }
 
 func (m Model) columnsView() string {
@@ -562,6 +623,3 @@ func (m Model) columnsView() string {
 			m.mainPanel(m.width-lw, body)),
 		m.statusBar(m.width)))
 }
-
-// logsView is filled in by Task 18.
-func (m Model) logsView() string { return "" }

@@ -26,6 +26,16 @@ func testService() *app.Service {
 		Plans: map[string][]provider.Plan{"PROJ": {
 			{Key: "PROJ-BUILD", Name: "Build and test", ProjectKey: "PROJ", URL: labOrigin + "/browse/PROJ-BUILD"},
 		}},
+		Logs: map[string][]string{
+			"PROJ-BUILD-INT-44": {
+				"12:04:31  [INFO] Running integration suite",
+				"12:06:58  [ERROR] ConnectionRefused: bamboo.lab.example:5432",
+				"12:06:58  [ERROR] 3 tests failed",
+				"12:07:01  Finished with exit code 1",
+			},
+			"PROJ-BUILD-COMP-44": {"12:03:02  compiled"},
+			"PROJ-BUILD-UNIT-44": {"12:03:44  all tests passed"},
+		},
 		History: map[string][]provider.Build{"PROJ-BUILD": {
 			{Key: "PROJ-BUILD-44", PlanKey: "PROJ-BUILD", Number: 44, State: provider.StateFailed,
 				URL: labOrigin + "/browse/PROJ-BUILD-44", Duration: 192 * time.Second},
