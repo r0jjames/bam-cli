@@ -178,7 +178,7 @@ func (m Model) statusBar(width int) string {
 	left := fmt.Sprintf("%s · %s · %s", m.server, m.info.Version, m.user.Name)
 	switch {
 	case m.err != nil:
-		left = errorStyle.Render(errorLine(m.err))
+		left = errorStyle.Render(errorWhat(m.err))
 	case m.status != "":
 		left = m.status
 	}
@@ -189,7 +189,3 @@ func (m Model) statusBar(width int) string {
 	}
 	return left + strings.Repeat(" ", gap) + statusStyle.Render(right)
 }
-
-// errorLine is the message to show in the status bar. Task 22 narrows it to
-// an errs.Error's What.
-func errorLine(err error) string { return err.Error() }

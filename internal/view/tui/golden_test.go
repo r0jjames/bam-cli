@@ -102,3 +102,9 @@ func TestDetailGolden(t *testing.T) {
 	m.expanded = defaultExpanded(sampleBuild())
 	requireGolden(t, "detail-80x24", m.View())
 }
+
+func TestHelpGolden(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.overlay = overlayHelp
+	requireGolden(t, "help-80x24", m.View())
+}

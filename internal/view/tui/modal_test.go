@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/r0jjames/bam-cli/internal/app"
+	"github.com/r0jjames/bam-cli/internal/errs"
 	"github.com/r0jjames/bam-cli/internal/provider"
 	"github.com/stretchr/testify/require"
 )
@@ -189,4 +190,68 @@ func TestBWithNoPlanSelectedDoesNothing(t *testing.T) {
 	m, cmd := send(m, mkKey("b"))
 	require.Equal(t, overlayNone, m.overlay)
 	require.Nil(t, cmd)
+}
+
+func TestHelpOverlayShowsEveryRowOfTheKeyMap(t *testing.T) {
+	m := goldenModel(120, 40)
+	m, _ = send(m, mkKey("?"))
+	require.Equal(t, overlayHelp, m.overlay)
+	v := m.View()
+	for _, row := range keys.helpRows() {
+		require.Contains(t, v, row.Keys, "help is missing %q", row.Keys)
+	}
+}
+
+// TestErrorOverlayShowsWhyAndTry, spec §6.
+func TestErrorOverlayShowsWhyAndTry(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.err = errs.Authf("no token for %s", labOrigin).
+		WithWhy("the keychain has no entry for this origin").
+		WithTry("run bam login --server lab")
+	m, _ = send(m, mkKey("e"))
+	require.Equal(t, overlayError, m.overlay)
+	v := m.View()
+	require.Contains(t, v, "no token for")
+	require.Contains(t, v, "keychain has no entry")
+	require.Contains(t, v, "bam login")
+}
+
+// TestAuthErrorNamesBamLoginEvenWithoutATry: the UI cannot exit 4, so it must
+// say what to do.
+func TestAuthErrorNamesBamLoginEvenWithoutATry(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.err = errs.Authf("401 from %s", labOrigin)
+	m, _ = send(m, mkKey("e"))
+	require.Contains(t, m.View(), "bam login")
+}
+
+func TestStatusBarShowsTheWhatNotTheWholeError(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.err = errs.Bamboof("plan PROJ-BUILD not found").WithWhy("the server returned 404")
+	bar := m.statusBar(80)
+	require.Contains(t, bar, "not found")
+	require.NotContains(t, bar, "404", "the why belongs behind e")
+}
+
+func TestEWithNoErrorDoesNothing(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.err = nil
+	m, _ = send(m, mkKey("e"))
+	require.Equal(t, overlayNone, m.overlay)
+}
+
+func TestDismissingTheErrorClearsTheStatusBar(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.err = errs.Bamboof("boom")
+	m, _ = send(m, mkKey("e"))
+	m, _ = send(m, mkKey("esc"))
+	require.Equal(t, overlayNone, m.overlay)
+	require.NoError(t, m.err, "closing the error overlay dismisses the error")
+}
+
+// TestHelpIsReachableFromTheLogScreen.
+func TestHelpIsReachableFromTheLogScreen(t *testing.T) {
+	m := logModel()
+	m, _ = send(m, mkKey("?"))
+	require.Equal(t, overlayHelp, m.overlay)
 }

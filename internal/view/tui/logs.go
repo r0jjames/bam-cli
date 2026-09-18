@@ -77,7 +77,7 @@ func (m Model) logsView() string {
 		foot = truncate(m.input.View(), m.width)
 	}
 	if m.err != nil {
-		foot = truncate(errorStyle.Render(errorLine(m.err)), m.width)
+		foot = truncate(errorStyle.Render(errorWhat(m.err)), m.width)
 	}
 	return strings.Join([]string{head, m.logs.vp.View(), foot}, "\n")
 }

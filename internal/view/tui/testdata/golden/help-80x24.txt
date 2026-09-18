@@ -1,0 +1,24 @@
+    ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓    
+    ┃Keys                                                                  ┃    
+    ┃MOVE  j k ↑ ↓    up / down in the focused panel                       ┃    
+    ┃      g G        first / last row                                     ┃    
+    ┃      tab        next panel                                           ┃    
+    ┃      shift-tab  previous panel                                       ┃    
+    ┃      1 2 3      focus Plans / Builds / Presets                       ┃    
+    ┃      enter      drill in                                             ┃    
+    ┃      esc        back out one level, close an overlay                 ┃    
+    ┃VIEW  l          logs for the selection (failed jobs by default)      ┃    
+    ┃      a          all logs, not only failed                            ┃    
+    ┃      f          follow (log screen)                                  ┃    
+    ┃      /          filter the focused list, or search the log           ┃    
+    ┃      n N        next / previous match, or next failure               ┃    
+    ┃      r          refresh the focused panel                            ┃    
+    ┃      e          expand the current error                             ┃    
+    ┃GO    o          open the selection's Bamboo URL in the browser       ┃    
+    ┃      y          copy the selection's Bamboo URL                      ┃    
+    ┃      S          switch server                                        ┃    
+    ┃      P          filter by project                                    ┃    
+    ┃      b          switch plan branch                                   ┃    
+    ┃META  ?          help                                                 ┃    
+    ┃      q ctrl-c   quit                                                 ┃    
+    ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛    

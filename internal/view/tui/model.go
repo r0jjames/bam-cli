@@ -267,6 +267,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openLogs("", false)
 	case key.Matches(msg, keys.AllLogs):
 		return m.openLogs("", true)
+	case key.Matches(msg, keys.Help):
+		m.overlay = overlayHelp
+	case key.Matches(msg, keys.ExpandErr):
+		if m.err == nil {
+			return m, nil
+		}
+		m.overlay = overlayError
 	case key.Matches(msg, keys.Refresh):
 		return m.refresh()
 	case key.Matches(msg, keys.Server):
@@ -631,6 +638,14 @@ func (m Model) handleLogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openSelection()
 	case key.Matches(msg, keys.Copy):
 		return m.copySelection()
+	case key.Matches(msg, keys.Help):
+		m.overlay = overlayHelp
+		return m, nil
+	case key.Matches(msg, keys.ExpandErr):
+		if m.err != nil {
+			m.overlay = overlayError
+		}
+		return m, nil
 	case key.Matches(msg, keys.Follow):
 		return m.toggleFollow()
 	case key.Matches(msg, keys.Filter):
@@ -774,6 +789,10 @@ func (m Model) currentBuild() (provider.Build, bool) {
 func (m Model) back() (tea.Model, tea.Cmd) {
 	switch {
 	case m.overlay != overlayNone:
+		// Closing the error overlay is how an error is dismissed.
+		if m.overlay == overlayError {
+			m.err = nil
+		}
 		m.overlay = overlayNone
 		return m, nil
 	case m.screen == screenLogs:
