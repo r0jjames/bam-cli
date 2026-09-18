@@ -30,6 +30,7 @@ type Provider struct {
 	TriggerResult provider.Build
 	TriggerErr    error
 	StopErr       error
+	LogErrs       []error // returned by FetchLog in order, one per call; nil entries succeed
 
 	mu        sync.Mutex
 	Triggered []provider.TriggerRequest
@@ -144,6 +145,16 @@ func (f *Provider) StopBuild(_ context.Context, key string) error {
 }
 
 func (f *Provider) FetchLog(_ context.Context, key string, o provider.LogOptions) (provider.LogChunk, error) {
+	f.mu.Lock()
+	if len(f.LogErrs) > 0 {
+		err := f.LogErrs[0]
+		f.LogErrs = f.LogErrs[1:]
+		if err != nil {
+			f.mu.Unlock()
+			return provider.LogChunk{}, err
+		}
+	}
+	f.mu.Unlock()
 	lines, ok := f.Logs[key]
 	if !ok {
 		return provider.LogChunk{}, notFound("job", key)

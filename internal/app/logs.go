@@ -113,7 +113,10 @@ func (s *Service) FollowLog(ctx context.Context, buildKey string, job provider.J
 		}
 		if jobFinished(b, job.Key) {
 			last, err := s.P.FetchLog(ctx, job.Key, provider.LogOptions{Offset: offset})
-			if err == nil && len(last.Lines) > 0 {
+			if err != nil {
+				return err
+			}
+			if len(last.Lines) > 0 {
 				emit(last.Lines)
 			}
 			return nil

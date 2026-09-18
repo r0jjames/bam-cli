@@ -69,6 +69,14 @@ func TestDoctorProbeErrorExitsFiveButReportsAll(t *testing.T) {
 	assert.Contains(t, h.stdout.String(), "stop builds", "checks after the failure still run")
 }
 
+func TestDoctorFailsWhenListingPlansFails(t *testing.T) {
+	h := newHarness(t)
+	h.probe = okProbe()
+	h.fake.Plans = nil // the configured project cannot be listed
+	assert.Equal(t, 5, h.run("doctor"), "a failed listing is a failed diagnosis, not a skipped check")
+	assert.Regexp(t, `✗ capabilities\s+project PROJ not found`, h.stdout.String())
+}
+
 func TestDoctorJSON(t *testing.T) {
 	h := newHarness(t)
 	h.probe = okProbe()

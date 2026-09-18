@@ -11,12 +11,12 @@
       {
         "description": "",
         "id": 720897,
-        "key": "AGENT",
+        "key": "LAB2",
         "link": {
-          "href": "http://bamboo.example.com/rest/api/latest/project/AGENT",
+          "href": "http://bamboo.example.com/rest/api/latest/project/LAB2",
           "rel": "self"
         },
-        "name": "bamboo-agent"
+        "name": "lab2"
       },
       {
         "description": "",

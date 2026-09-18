@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -194,7 +196,7 @@ func (c *Client) once(ctx context.Context, r request) (int, []byte, http.Header,
 	data, err := io.ReadAll(resp.Body)
 	c.log.Debug("http", "method", r.method, "url", redactURL(u, r.secret), "status", resp.StatusCode, "duration", c.now().Sub(start))
 	if resp.StatusCode >= 400 && len(data) > 0 {
-		c.log.Debug("http body", "body", truncate(string(data), 2048))
+		c.log.Debug("http body", "body", truncate(r.scrubSecrets(string(data)), 2048))
 	}
 	return resp.StatusCode, data, resp.Header, err
 }
@@ -249,7 +251,7 @@ func (c *Client) statusError(r request, status int, body []byte) error {
 	default:
 		e := errs.Bamboof("Bamboo rejected the request (%d)", status).Wrap(cause)
 		if msg := bambooMessage(body); msg != "" {
-			_ = e.WithWhy(msg)
+			_ = e.WithWhy(r.scrubSecrets(msg))
 		}
 		return e
 	}
@@ -291,6 +293,54 @@ func (c *Client) getJSON(ctx context.Context, path string, q url.Values, out any
 		return errs.Bamboof("unexpected response from %s", path).WithWhy("the body is not the JSON bam expects").Wrap(err)
 	}
 	return nil
+}
+
+// scrubSecrets replaces every submitted secret value in s with MaskedValue.
+// Bamboo echoes a rejected variable back in its error text, so a response can
+// carry a value bam promised never to print; both the user-facing reason and
+// the --debug body go through here. The escaped form is replaced too, because
+// Bamboo HTML-escapes the text it echoes.
+func (r request) scrubSecrets(s string) string {
+	if len(r.secret) == 0 || s == "" {
+		return s
+	}
+	replacements := map[string]struct{}{}
+	for k := range r.secret {
+		for _, v := range append(append([]string(nil), r.form[k]...), r.query[k]...) {
+			if v == "" {
+				continue
+			}
+			replacements[v] = struct{}{}
+			if e := html.EscapeString(v); e != v {
+				replacements[e] = struct{}{}
+			}
+			if j, ok := jsonEscaped(v); ok && j != v {
+				replacements[j] = struct{}{}
+			}
+		}
+	}
+	values := make([]string, 0, len(replacements))
+	for v := range replacements {
+		values = append(values, v)
+	}
+	sort.Slice(values, func(i, j int) bool {
+		if len(values[i]) != len(values[j]) {
+			return len(values[i]) > len(values[j])
+		}
+		return values[i] < values[j]
+	})
+	for _, v := range values {
+		s = strings.ReplaceAll(s, v, MaskedValue)
+	}
+	return s
+}
+
+func jsonEscaped(s string) (string, bool) {
+	b, err := json.Marshal(s)
+	if err != nil || len(b) < 2 {
+		return "", false
+	}
+	return string(b[1 : len(b)-1]), true
 }
 
 func redactURL(u url.URL, secret map[string]bool) string {

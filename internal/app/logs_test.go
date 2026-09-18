@@ -80,6 +80,20 @@ func TestFollowLogStopsWhenJobFinishes(t *testing.T) {
 	assert.Equal(t, []time.Duration{MinPoll}, s.Clock.(*fakeClock).Waits())
 }
 
+func TestFollowLogReportsAFailedFinalFetch(t *testing.T) {
+	p := logsProvider()
+	running := failedBuild()
+	running.State = provider.StateRunning
+	running.Stages[1].Jobs[1].State = provider.StateRunning
+	p.Sequences = map[string][]provider.Build{"PROJ-BUILD12-44": {running, failedBuild()}}
+	boom := errs.Bamboof("log read failed")
+	p.LogErrs = []error{nil, boom}
+	s := newService(t, p)
+
+	err := s.FollowLog(bg, "PROJ-BUILD12-44", running.Stages[1].Jobs[1], 1, func([]string) {})
+	require.ErrorIs(t, err, boom, "--follow must not exit clean when the last log fetch fails")
+}
+
 func TestCancel(t *testing.T) {
 	p := fakeBamboo()
 	p.Sequences = map[string][]provider.Build{"PROJ-P-1": {{Key: "PROJ-P-1", State: provider.StateRunning}}}
