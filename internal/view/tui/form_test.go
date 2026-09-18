@@ -674,3 +674,16 @@ func TestConfirmKeysDoNotReachThePanels(t *testing.T) {
 	m, _ = send(m, mkKey("j"))
 	require.Equal(t, before, m.plans.cursor)
 }
+
+// TestAStaleFormErrorIsDropped: leaving a form and opening another must not
+// let the first one's failure land on the second.
+func TestAStaleFormErrorIsDropped(t *testing.T) {
+	m := formModel()
+	stale := m.formGen
+	m.formGen++
+	m, _ = send(m, errMsg{Err: errBoom, Where: "run", Stream: streamRun, Gen: stale})
+	require.NoError(t, m.err)
+
+	m, _ = send(m, errMsg{Err: errBoom, Where: "run", Stream: streamRun, Gen: m.formGen})
+	require.Error(t, m.err)
+}

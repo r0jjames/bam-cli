@@ -205,6 +205,8 @@ func (m Model) currentStream(s stream, gen int) bool {
 		return gen == m.pickerGen
 	case streamPresets:
 		return gen == m.presetsGen
+	case streamRun:
+		return gen == m.formGen
 	}
 	return true
 }
