@@ -44,17 +44,16 @@ func newRoot(r *runtime) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "bam",
 		Short:         "A terminal remote control for Atlassian Bamboo",
-		Long:          "bam triggers, watches and diagnoses Bamboo builds from the terminal.\nRun bam alone on a terminal for the interactive UI (coming in v0.2).",
+		Long:          "bam triggers, watches and diagnoses Bamboo builds from the terminal.\nRun bam alone on a terminal for the interactive UI.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := cmd.Help(); err != nil {
-				return err
+			if r.tuiAllowed() {
+				return r.wrap(func(*cobra.Command, []string) error {
+					return r.openUI(cmd.Context())
+				})(cmd, args)
 			}
-			if r.env.StdoutTTY {
-				fmt.Fprintln(cmd.OutOrStdout(), "\ninteractive mode arrives in v0.2")
-			}
-			return nil
+			return cmd.Help()
 		},
 	}
 	pf := root.PersistentFlags()
@@ -62,6 +61,7 @@ func newRoot(r *runtime) *cobra.Command {
 	pf.BoolVar(&r.flags.json, "json", false, "print JSON")
 	pf.StringVar(&r.flags.color, "color", "", "color output: auto, always or never")
 	pf.BoolVar(&r.flags.debug, "debug", false, "log HTTP requests to stderr")
+	pf.BoolVar(&r.flags.noTUI, "no-tui", false, "never open the terminal UI")
 
 	root.AddGroup(
 		&cobra.Group{ID: groupSetup, Title: "Setup:"},
@@ -69,7 +69,7 @@ func newRoot(r *runtime) *cobra.Command {
 		&cobra.Group{ID: groupRun, Title: "Run:"},
 		&cobra.Group{ID: groupShortcut, Title: "Shortcuts:"},
 	)
-	root.AddCommand(newVersionCmd(r))
+	root.AddCommand(newVersionCmd(r), newUICmd(r))
 	for _, add := range commandSets {
 		add(root, r)
 	}

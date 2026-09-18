@@ -14,6 +14,7 @@ import (
 	"github.com/r0jjames/bam-cli/internal/credential"
 	"github.com/r0jjames/bam-cli/internal/provider"
 	"github.com/r0jjames/bam-cli/internal/provider/bamboo"
+	"github.com/r0jjames/bam-cli/internal/view/tui"
 	"golang.org/x/term"
 )
 
@@ -49,7 +50,10 @@ type Env struct {
 	OpenBrowser func(url string) error
 	RunPager    func(cmd string, r io.Reader) error
 	ReadSecret  func() (string, error)
-	GOOS        string
+	// RunTUI opens the terminal UI. It is a field so tests can assert on the
+	// Deps the CLI builds without starting a terminal program.
+	RunTUI func(context.Context, tui.Deps) error
+	GOOS   string
 }
 
 // SystemEnv returns the Env of the running process.
@@ -100,6 +104,7 @@ func SystemEnv() Env {
 			b, err := term.ReadPassword(int(os.Stdin.Fd()))
 			return string(b), err
 		},
-		GOOS: goruntime.GOOS,
+		RunTUI: tui.Run,
+		GOOS:   goruntime.GOOS,
 	}
 }

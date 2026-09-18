@@ -22,6 +22,7 @@ type globalFlags struct {
 	color  string
 	json   bool
 	debug  bool
+	noTUI  bool
 }
 
 // runtime holds what commands share: the Env, global flags and the lazily

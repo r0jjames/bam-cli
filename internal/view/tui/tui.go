@@ -7,6 +7,7 @@ import (
 	"context"
 	"io"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/r0jjames/bam-cli/internal/app"
 )
 
@@ -28,9 +29,13 @@ type Deps struct {
 	Output    io.Writer // the tea.Program's output; nil means os.Stdout
 }
 
-// Run opens the UI and returns when the user quits. Task 8 gives it the real
-// body once New exists.
+// Run opens the UI and returns when the user quits. Ending ctx closes the UI;
+// it never stops a running build.
 func Run(ctx context.Context, d Deps) error {
-	_, _ = ctx, d
-	return nil
+	opts := []tea.ProgramOption{tea.WithAltScreen(), tea.WithContext(ctx)}
+	if d.Output != nil {
+		opts = append(opts, tea.WithOutput(d.Output))
+	}
+	_, err := tea.NewProgram(New(d), opts...).Run()
+	return err
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/r0jjames/bam-cli/internal/provider"
 	"github.com/r0jjames/bam-cli/internal/provider/bamboo"
 	"github.com/r0jjames/bam-cli/internal/provider/fake"
+	"github.com/r0jjames/bam-cli/internal/view/tui"
 	"github.com/stretchr/testify/require"
 	"github.com/zalando/go-keyring"
 )
@@ -113,6 +114,7 @@ type harness struct {
 	opened      []string
 	probe       []bamboo.ProbeResult
 	connectOpts []bamboo.Options
+	tuiRuns     []tui.Deps
 }
 
 var fixedNow = time.Date(2026, 9, 12, 12, 0, 0, 0, time.UTC)
@@ -152,7 +154,10 @@ func newHarness(t *testing.T) *harness {
 	require.NoError(t, os.WriteFile(filepath.Join(root, ".bam.yaml"), []byte(projectYAML), 0o644))
 
 	h := &harness{t: t, root: root, home: home, stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{},
-		fake: sampleFake(), kr: &memKeyring{m: map[string]string{"bam|" + workOrigin: "tok"}}, vars: map[string]string{}}
+		fake: sampleFake(), kr: &memKeyring{m: map[string]string{"bam|" + workOrigin: "tok"}},
+		// A real terminal sets TERM; the UI gate reads it, so the harness
+		// supplies one and the dumb-terminal test overrides it.
+		vars: map[string]string{"TERM": "xterm-256color"}}
 	cfgDir := filepath.Join(home, ".config", "bam")
 	h.env = Env{
 		Stdout:  h.stdout,
@@ -176,6 +181,7 @@ func newHarness(t *testing.T) *harness {
 		OpenBrowser: func(u string) error { h.opened = append(h.opened, u); return nil },
 		RunPager:    func(_ string, r io.Reader) error { _, err := io.Copy(h.stdout, r); return err },
 		ReadSecret:  func() (string, error) { return h.secret, nil },
+		RunTUI:      func(_ context.Context, d tui.Deps) error { h.tuiRuns = append(h.tuiRuns, d); return nil },
 		GOOS:        "linux",
 	}
 	return h
