@@ -16,6 +16,8 @@ type logState struct {
 	jobKey    string
 	url       string
 	all       bool
+	multi     bool // several jobs concatenated; there is no single job to follow
+	offset    int  // the provider's next-read offset for the followed job
 	lines     []string
 	query     string
 	matches   []int

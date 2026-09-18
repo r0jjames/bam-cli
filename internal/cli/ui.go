@@ -78,10 +78,20 @@ func (r *runtime) openUI(ctx context.Context) error {
 		deps.Servers = append(deps.Servers, tui.Server{Alias: alias, URL: servers[alias].URL})
 	}
 	sortServers(deps.Servers)
-	if sel, err := cfg.SelectServer(r.flags.server, ""); err == nil {
+
+	sel, err := cfg.SelectServer(r.flags.server, "")
+	switch {
+	case err == nil:
 		deps.Initial = sel.Alias
-	} else if len(deps.Servers) > 0 {
+	case r.flags.server != "":
+		// An explicit --server that cannot be resolved is an error here for
+		// the same reason it is for every command: opening a different
+		// server than the one asked for is worse than not opening one.
+		return err
+	case len(deps.Servers) > 0:
 		deps.Initial = deps.Servers[0].Alias
+	default:
+		return err
 	}
 	return r.env.RunTUI(ctx, deps)
 }

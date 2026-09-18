@@ -130,3 +130,23 @@ func targetNames(ts []app.TargetInfo) []string {
 	}
 	return out
 }
+
+// TestBamUIWithAnUnknownServerIsAConfigError: an explicit --server that does
+// not exist must fail the way it does for every other command, not silently
+// open a different server.
+func TestBamUIWithAnUnknownServerIsAConfigError(t *testing.T) {
+	h := newHarness(t)
+	h.tty = true
+	require.Equal(t, 3, h.run("--server", "missing"))
+	require.Empty(t, h.tuiRuns)
+	require.Contains(t, h.stderr.String(), "missing")
+}
+
+// TestBamUIWithoutASelectionFallsBackToTheFirstServer, which is the only case
+// the fallback is for.
+func TestBamUIWithoutASelectionFallsBackToTheFirstServer(t *testing.T) {
+	h := newHarness(t)
+	h.tty = true
+	require.Equal(t, 0, h.run())
+	require.Equal(t, "work", h.tuiRuns[0].Initial)
+}

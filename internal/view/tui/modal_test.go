@@ -113,7 +113,7 @@ func TestChoosingAProjectReloadsThePlans(t *testing.T) {
 	m := goldenModel(80, 24)
 	m.svc = testService()
 	m, _ = send(m, mkKey("P"))
-	m, _ = send(m, projectsLoadedMsg{Projects: []provider.Project{{Key: "PROJ"}, {Key: "OPS"}}})
+	m, _ = send(m, projectsLoadedMsg{Gen: m.pickerGen, Projects: []provider.Project{{Key: "PROJ"}, {Key: "OPS"}}})
 	m, _ = send(m, mkKey("j")) // onto PROJ
 	m, cmd := send(m, mkKey("enter"))
 	require.Equal(t, "PROJ", m.project)
@@ -127,7 +127,7 @@ func TestChoosingAllProjectsClearsTheFilter(t *testing.T) {
 	m.svc = testService()
 	m.project = "PROJ"
 	m, _ = send(m, mkKey("P"))
-	m, _ = send(m, projectsLoadedMsg{Projects: []provider.Project{{Key: "PROJ"}}})
+	m, _ = send(m, projectsLoadedMsg{Gen: m.pickerGen, Projects: []provider.Project{{Key: "PROJ"}}})
 	m.picker.top()
 	m, _ = send(m, mkKey("enter"))
 	require.Equal(t, "", m.project)
@@ -141,7 +141,7 @@ func TestBOpensTheBranchPickerForTheSelectedPlan(t *testing.T) {
 	require.Equal(t, overlayBranches, m.overlay)
 	require.NotNil(t, cmd)
 
-	m, _ = send(m, branchesLoadedMsg{MasterKey: "PROJ-PROV", Branches: []provider.Branch{
+	m, _ = send(m, branchesLoadedMsg{Gen: m.pickerGen, MasterKey: "PROJ-PROV", Branches: []provider.Branch{
 		{Key: "PROJ-PROV12", ShortName: "develop", PlanKey: "PROJ-PROV"},
 	}})
 	rows := m.picker.rows()
@@ -156,7 +156,7 @@ func TestChoosingABranchLoadsThatBranchPlansBuilds(t *testing.T) {
 	m.svc = testService()
 	m, _ = send(m, plansLoadedMsg{Gen: m.plansGen, Plans: []provider.Plan{{Key: "PROJ-PROV"}}})
 	m, _ = send(m, mkKey("b"))
-	m, _ = send(m, branchesLoadedMsg{MasterKey: "PROJ-PROV", Branches: []provider.Branch{
+	m, _ = send(m, branchesLoadedMsg{Gen: m.pickerGen, MasterKey: "PROJ-PROV", Branches: []provider.Branch{
 		{Key: "PROJ-PROV12", ShortName: "develop", PlanKey: "PROJ-PROV"},
 	}})
 	m, _ = send(m, mkKey("j"))
@@ -177,7 +177,7 @@ func TestBranchSwitchCancelsTheWatch(t *testing.T) {
 	m.watchCancel = func() { cancelled = true }
 	m.detail = ptr(sampleBuild())
 	m, _ = send(m, mkKey("b"))
-	m, _ = send(m, branchesLoadedMsg{MasterKey: "PROJ-PROV", Branches: nil})
+	m, _ = send(m, branchesLoadedMsg{Gen: m.pickerGen, MasterKey: "PROJ-PROV", Branches: nil})
 	m, _ = send(m, mkKey("enter"))
 	require.True(t, cancelled)
 	require.Nil(t, m.detail)

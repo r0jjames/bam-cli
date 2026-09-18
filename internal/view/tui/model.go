@@ -108,6 +108,8 @@ type Model struct {
 	// on the one they are looking at now.
 	plansGen, buildsGen, logsGen int
 	watchGen, followGen, formGen int
+	connGen, detailGen           int
+	pickerGen                    int
 
 	watchCancel context.CancelFunc
 	watchCh     <-chan app.Event
@@ -115,6 +117,7 @@ type Model struct {
 	followCancel context.CancelFunc
 	followLines  <-chan []string
 	followDone   <-chan error
+	followFrom   int // the offset the current follow resumed at
 
 	now func() time.Time
 
@@ -179,7 +182,7 @@ func (m Model) Init() tea.Cmd {
 		m.plans.loading = true
 		cmds = append(cmds, m.loadPlans())
 	case m.deps.Connect != nil:
-		cmds = append(cmds, connectCmd(m.deps, m.server))
+		cmds = append(cmds, connectCmd(m.deps, m.server, m.connGen))
 	}
 	if m.deps.Targets != nil {
 		cmds = append(cmds, loadPresetsCmd(m.deps))
@@ -198,6 +201,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	case connectedMsg:
+		if msg.Gen != m.connGen {
+			return m, nil
+		}
 		m.svc, m.info, m.user, m.server = msg.Svc, msg.Info, msg.User, msg.Alias
 		m.err = nil
 		return m, m.loadPlans()
@@ -220,6 +226,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.presets.setItems(msg.Targets)
 		return m, nil
 	case projectsLoadedMsg:
+		if msg.Gen != m.pickerGen {
+			return m, nil
+		}
 		// The empty value is the "no filter" row, so one list both sets and
 		// clears the filter.
 		items := []pickerItem{{Label: "all projects", Value: ""}}
@@ -230,6 +239,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.picker.cursor = indexOf(items, m.project)
 		return m, nil
 	case branchesLoadedMsg:
+		if msg.Gen != m.pickerGen {
+			return m, nil
+		}
 		// The first row is the master plan itself, so one list both sets and
 		// clears the branch.
 		items := []pickerItem{{Label: "default branch", Value: msg.MasterKey}}
@@ -262,6 +274,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.logs.title, m.logs.jobKey, m.logs.url, m.logs.all = msg.Title, msg.JobKey, msg.URL, msg.All
+		m.logs.multi, m.logs.offset = msg.Multi, msg.Offset
 		m.logs.setLines(m.width, m.logHeight(), msg.Lines)
 		return m, nil
 	case formLoadedMsg:
@@ -274,6 +287,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.form.cursor = 0
 		return m, nil
 	case buildLoadedMsg:
+		if msg.Gen != m.detailGen {
+			return m, nil
+		}
 		b := msg.Build
 		m.detail = &b
 		m.clampTree()
@@ -367,18 +383,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.overlay = overlayProjects
+		m.pickerGen++
 		m.picker.setQuery("")
 		m.picker.setItems(nil)
-		return m, loadProjectsCmd(context.Background(), m.svc)
+		return m, loadProjectsCmd(context.Background(), m.svc, m.pickerGen)
 	case key.Matches(msg, keys.Branch):
 		p, ok := m.plans.selected()
 		if !ok || m.svc == nil {
 			return m, nil
 		}
 		m.overlay = overlayBranches
+		m.pickerGen++
 		m.picker.setQuery("")
 		m.picker.setItems(nil)
-		return m, loadBranchesCmd(context.Background(), m.svc, p.Key)
+		return m, loadBranchesCmd(context.Background(), m.svc, p.Key, m.pickerGen)
 	}
 	return m, nil
 }
@@ -499,7 +517,8 @@ func (m Model) refresh() (tea.Model, tea.Cmd) {
 		if m.detail == nil {
 			return m, nil
 		}
-		return m, reloadBuildCmd(context.Background(), m.svc, m.detail.Key)
+		m.detailGen++
+		return m, reloadBuildCmd(context.Background(), m.svc, m.detail.Key, m.detailGen)
 	}
 	return m, nil
 }
@@ -510,6 +529,7 @@ func (m Model) openServerPicker() (tea.Model, tea.Cmd) {
 		items = append(items, pickerItem{Label: s.Alias, Value: s.Alias, Detail: s.URL})
 	}
 	m.overlay = overlayServers
+	m.pickerGen++
 	m.picker.setQuery("")
 	m.picker.setItems(items)
 	m.picker.cursor = indexOf(items, m.server)
@@ -555,10 +575,18 @@ func (m Model) switchServer(alias string) (tea.Model, tea.Cmd) {
 	m.plans.setItems(nil)
 	m.builds.setItems(nil)
 	m.err = nil
+	// Clearing the rows is not enough: a request already in flight for the
+	// server being left would still match these generations and repopulate
+	// the panels under the new one.
+	m.plansGen++
+	m.buildsGen++
+	m.detailGen++
+	m.logsGen++
 	if m.deps.Connect == nil {
 		return m, nil
 	}
-	return m, connectCmd(m.deps, alias)
+	m.connGen++
+	return m, connectCmd(m.deps, alias, m.connGen)
 }
 
 // moveFocused moves exactly one cursor: the focused panel's.
@@ -667,7 +695,7 @@ func (m Model) drill() (tea.Model, tea.Cmd) {
 		// A preset may name a branch, and its builds live under the branch
 		// plan, not the master. ResolvePlan is what turns the two into a plan
 		// key, exactly as bam run does it.
-		return m, resolveTargetBuildsCmd(context.Background(), m.svc, t.Name, m.buildsGen)
+		return m, resolveTargetBuildsCmd(context.Background(), m.svc, t, m.buildsGen)
 	case focusMain:
 		row, ok := m.selectedTreeRow()
 		if !ok {
@@ -844,6 +872,12 @@ func (m Model) toggleFollow() (tea.Model, tea.Cmd) {
 		m.stopFollow()
 		return m, nil
 	}
+	if m.logs.multi {
+		// The screen is several jobs concatenated, so there is no single job
+		// to resume and appending would interleave one job into another.
+		m.status = "follow needs one job; press l for the failed job or pick one"
+		return m, nil
+	}
 	b, ok := m.currentBuild()
 	if !ok || m.svc == nil || m.logs.jobKey == "" {
 		return m, nil
@@ -855,7 +889,10 @@ func (m Model) toggleFollow() (tea.Model, tea.Cmd) {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.followCancel = cancel
 	m.logs.following = true
-	m.followLines, m.followDone = followCmd(ctx, m.svc, b.Key, job, len(m.logs.lines))
+	// Resume at the provider's own offset, not at the number of lines drawn:
+	// the two are different numbers and only the first is a contract.
+	m.followFrom = m.logs.offset
+	m.followLines, m.followDone = followCmd(ctx, m.svc, b.Key, job, m.followFrom)
 	return m, drainFollowCmd(m.followLines, m.followDone, m.followGen)
 }
 
@@ -889,28 +926,31 @@ func (m Model) openForm() (tea.Model, tea.Cmd) {
 	if m.svc == nil {
 		return m, nil
 	}
-	arg, target := "", ""
+	var (
+		planKey string
+		target  *app.TargetInfo
+	)
 	switch m.focus {
 	case focusPresets:
 		t, ok := m.presets.selected()
 		if !ok {
 			return m, nil
 		}
-		arg, target = t.Name, t.Name
+		target = &t
 	case focusPlans:
 		p, ok := m.plans.selected()
 		if !ok {
 			return m, nil
 		}
-		arg = p.Key
+		planKey = p.Key
 	default:
 		b, ok := m.currentBuild()
 		if !ok {
 			return m, nil
 		}
-		arg = b.PlanKey
+		planKey = b.PlanKey
 	}
-	if arg == "" {
+	if target == nil && planKey == "" {
 		return m, nil
 	}
 
@@ -924,7 +964,7 @@ func (m Model) openForm() (tea.Model, tea.Cmd) {
 	m.screen = screenForm
 	m.formGen++
 	m.form = formState{loading: true}
-	return m, openFormCmd(context.Background(), m.svc, arg, target, from, m.formGen)
+	return m, openFormCmd(context.Background(), m.svc, planKey, target, from, m.formGen)
 }
 
 // currentBuild is what l, a, o, y and f act on. The Builds cursor wins when

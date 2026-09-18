@@ -14,6 +14,7 @@ import (
 const buildsPerPlan = 25
 
 type connectedMsg struct {
+	Gen   int
 	Alias string
 	Svc   *app.Service
 	Info  provider.ServerInfo
@@ -45,7 +46,7 @@ type errMsg struct {
 	Where string
 }
 
-func connectCmd(d Deps, alias string) tea.Cmd {
+func connectCmd(d Deps, alias string, gen int) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 		svc, err := d.Connect(ctx, alias)
@@ -60,7 +61,7 @@ func connectCmd(d Deps, alias string) tea.Cmd {
 		if err != nil {
 			return errMsg{Err: err, Where: "connect"}
 		}
-		return connectedMsg{Alias: alias, Svc: svc, Info: info, User: user}
+		return connectedMsg{Gen: gen, Alias: alias, Svc: svc, Info: info, User: user}
 	}
 }
 
@@ -116,6 +117,8 @@ type logsLoadedMsg struct {
 	URL    string
 	Lines  []string
 	All    bool
+	Multi  bool // several jobs are concatenated in Lines
+	Offset int  // the provider's next-read offset, for follow
 }
 
 // loadLogsCmd reads one build's logs. An empty jobKey with all=false means the
@@ -144,7 +147,11 @@ func loadLogsCmd(ctx context.Context, svc *app.Service, b provider.Build, jobKey
 		if len(jobs) > 1 {
 			title = b.Key
 		}
-		return logsLoadedMsg{Gen: gen, JobKey: jobs[0].Job.Key, Title: title, URL: jobs[0].Job.URL, Lines: lines, All: all}
+		// Next is the provider's offset contract for the next read. It is
+		// meaningful only for a single job: a concatenation of several has no
+		// one offset to resume from.
+		return logsLoadedMsg{Gen: gen, JobKey: jobs[0].Job.Key, Title: title, URL: jobs[0].Job.URL,
+			Lines: lines, All: all, Multi: len(jobs) > 1, Offset: jobs[0].Next}
 	}
 }
 
@@ -196,9 +203,12 @@ func drainFollowCmd(lines <-chan []string, done <-chan error, gen int) tea.Cmd {
 // resolveTargetBuildsCmd resolves a preset to its plan, honouring the branch
 // the preset names, and then lists that plan's builds. It is one command so
 // the two requests share a generation.
-func resolveTargetBuildsCmd(ctx context.Context, svc *app.Service, target string, gen int) tea.Cmd {
+func resolveTargetBuildsCmd(ctx context.Context, svc *app.Service, target app.TargetInfo, gen int) tea.Cmd {
 	return func() tea.Msg {
-		ref, err := svc.ResolvePlan(ctx, target, "")
+		// From the TargetInfo the panel is showing, not from the service's
+		// configuration: the panel may have been refreshed since the UI
+		// started, and the service's copy would be the older one.
+		ref, err := svc.RefFromTarget(ctx, target)
 		if err != nil {
 			return errMsg{Err: err, Where: "presets"}
 		}
@@ -218,16 +228,28 @@ type formLoadedMsg struct {
 }
 
 // openFormCmd resolves what the cursor is on into a plan reference and
-// fetches the variables the form starts from. arg is a preset's name or a
-// plan key: ResolvePlan is what turns either into a plan, so a preset's
-// branch and rules apply exactly as they do for bam run.
+// fetches the variables the form starts from.
+//
+// A preset resolves from the TargetInfo the Presets panel is showing, not
+// from the service's configuration, for the same reason the preset drill
+// does: the panel may have been refreshed since the UI started.
 //
 // from prefills the form from a previous build. It is a convenience, not a
 // requirement: a server that cannot read a build's variables, or a repository
 // with no last build, opens the form on the plan's own values instead.
-func openFormCmd(ctx context.Context, svc *app.Service, arg, target, from string, gen int) tea.Cmd {
+func openFormCmd(ctx context.Context, svc *app.Service, planKey string, target *app.TargetInfo, from string, gen int) tea.Cmd {
 	return func() tea.Msg {
-		ref, err := svc.ResolvePlan(ctx, arg, "")
+		var (
+			ref  app.PlanRef
+			err  error
+			name string
+		)
+		if target != nil {
+			name = target.Name
+			ref, err = svc.RefFromTarget(ctx, *target)
+		} else {
+			ref, err = svc.ResolvePlan(ctx, planKey, "")
+		}
 		if err != nil {
 			return errMsg{Err: err, Where: "run"}
 		}
@@ -238,49 +260,56 @@ func openFormCmd(ctx context.Context, svc *app.Service, arg, target, from string
 		if err != nil {
 			return errMsg{Err: err, Where: "run"}
 		}
-		return formLoadedMsg{Gen: gen, Ref: ref, Target: target, Base: base}
+		return formLoadedMsg{Gen: gen, Ref: ref, Target: name, Base: base}
 	}
 }
 
-type buildLoadedMsg struct{ Build provider.Build }
+type buildLoadedMsg struct {
+	Gen   int
+	Build provider.Build
+}
 
 // reloadBuildCmd re-reads one build. It goes through Service.Build rather
 // than the provider directly, so a build the server has dropped is forgotten
 // the same way the commands forget it.
-func reloadBuildCmd(ctx context.Context, svc *app.Service, key string) tea.Cmd {
+func reloadBuildCmd(ctx context.Context, svc *app.Service, key string, gen int) tea.Cmd {
 	return func() tea.Msg {
 		b, err := svc.Build(ctx, key)
 		if err != nil {
 			return errMsg{Err: err, Where: "build"}
 		}
-		return buildLoadedMsg{Build: b}
+		return buildLoadedMsg{Gen: gen, Build: b}
 	}
 }
 
-type projectsLoadedMsg struct{ Projects []provider.Project }
+type projectsLoadedMsg struct {
+	Gen      int
+	Projects []provider.Project
+}
 
-func loadProjectsCmd(ctx context.Context, svc *app.Service) tea.Cmd {
+func loadProjectsCmd(ctx context.Context, svc *app.Service, gen int) tea.Cmd {
 	return func() tea.Msg {
 		ps, err := svc.P.ListProjects(ctx)
 		if err != nil {
 			return errMsg{Err: err, Where: "projects"}
 		}
-		return projectsLoadedMsg{Projects: ps}
+		return projectsLoadedMsg{Gen: gen, Projects: ps}
 	}
 }
 
 type branchesLoadedMsg struct {
+	Gen       int
 	MasterKey string
 	Branches  []provider.Branch
 }
 
-func loadBranchesCmd(ctx context.Context, svc *app.Service, masterKey string) tea.Cmd {
+func loadBranchesCmd(ctx context.Context, svc *app.Service, masterKey string, gen int) tea.Cmd {
 	return func() tea.Msg {
 		bs, err := svc.P.ListBranches(ctx, masterKey)
 		if err != nil {
 			return errMsg{Err: err, Where: "branches"}
 		}
-		return branchesLoadedMsg{MasterKey: masterKey, Branches: bs}
+		return branchesLoadedMsg{Gen: gen, MasterKey: masterKey, Branches: bs}
 	}
 }
 
