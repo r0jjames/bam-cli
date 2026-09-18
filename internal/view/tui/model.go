@@ -323,6 +323,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.overlay != overlayNone {
 		return m.handleOverlayKey(msg)
 	}
+	if m.screen == screenForm {
+		return m.handleFormKey(msg)
+	}
 	if m.screen == screenLogs {
 		return m.handleLogKey(msg)
 	}
@@ -919,6 +922,52 @@ func jobByKey(b provider.Build, key string) (provider.Job, bool) {
 
 // currentBuild is the open build when there is one, otherwise whatever the
 // Builds cursor points at.
+// handleFormKey owns the keys while the form fills the terminal. While a
+// field is being edited every key is a character, so q is a q and ctrl-R
+// cannot be struck by accident.
+func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.form.editing {
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.form.cancelEdit()
+			return m, nil
+		case tea.KeyEnter:
+			m.form.acceptEdit()
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.form.input, cmd = m.form.input.Update(msg)
+		return m, cmd
+	}
+	if len(m.form.fields) == 0 {
+		if key.Matches(msg, keys.Back) {
+			return m.back()
+		}
+		if key.Matches(msg, keys.Quit) {
+			return m.quit()
+		}
+		return m, nil
+	}
+	switch {
+	case key.Matches(msg, keys.Back):
+		return m.back()
+	case key.Matches(msg, keys.Quit):
+		return m.quit()
+	case key.Matches(msg, keys.NextPanel), key.Matches(msg, keys.Down):
+		m.form.move(1)
+	case key.Matches(msg, keys.PrevPanel), key.Matches(msg, keys.Up):
+		m.form.move(-1)
+	case key.Matches(msg, keys.Enter):
+		if len(m.form.fields[m.form.cursor].Options) > 0 {
+			m.form.cycle(1)
+			return m, nil
+		}
+		m.form.startEditing()
+		return m, textinput.Blink
+	}
+	return m, nil
+}
+
 // openForm opens the run form for whatever the cursor is on: a preset by its
 // name, so its branch and rules apply, or a plan key. Opening a form changes
 // nothing on the server, which is why R needs no confirmation.

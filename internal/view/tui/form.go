@@ -197,3 +197,61 @@ func formValueWidth(width int) int {
 	}
 	return w
 }
+
+// cycle steps an options field to the next allowed value and wraps. It is how
+// an options field is edited: free text is never accepted for one, so the
+// commonest rejection cannot be typed.
+func (f *formState) cycle(delta int) {
+	fl := &f.fields[f.cursor]
+	if len(fl.Options) == 0 {
+		return
+	}
+	at := 0
+	for i, v := range fl.Options {
+		if v == fl.Value {
+			at = i
+			break
+		}
+	}
+	at = (at + delta + len(fl.Options)) % len(fl.Options)
+	fl.Value, fl.Touched = fl.Options[at], true
+}
+
+// move walks the fields and wraps.
+func (f *formState) move(delta int) {
+	if len(f.fields) == 0 {
+		return
+	}
+	f.cursor = (f.cursor + delta + len(f.fields)) % len(f.fields)
+}
+
+// startEditing opens the text input on the current field. A secret echoes
+// asterisks, so nothing typed reaches the screen.
+func (f *formState) startEditing() {
+	fl := f.fields[f.cursor]
+	f.input = textinput.New()
+	f.input.Prompt = ""
+	f.input.SetValue(fl.Value)
+	f.input.CursorEnd()
+	if fl.Secret {
+		f.input.EchoMode = textinput.EchoPassword
+		f.input.EchoCharacter = '*'
+		f.input.SetValue("")
+	}
+	f.input.Focus()
+	f.editing = true
+}
+
+// acceptEdit takes what was typed. An empty value typed on purpose is a
+// value, so Touched is set either way.
+func (f *formState) acceptEdit() {
+	f.fields[f.cursor].Value = f.input.Value()
+	f.fields[f.cursor].Touched = true
+	f.editing = false
+	f.input.Blur()
+}
+
+func (f *formState) cancelEdit() {
+	f.editing = false
+	f.input.Blur()
+}

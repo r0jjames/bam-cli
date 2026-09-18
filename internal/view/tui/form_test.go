@@ -221,3 +221,100 @@ func TestRIsNotReachableFromTheLogScreen(t *testing.T) {
 	require.Nil(t, cmd)
 	require.Equal(t, screenLogs, m.screen)
 }
+
+func TestTabMovesBetweenFields(t *testing.T) {
+	m := formModel()
+	require.Equal(t, 0, m.form.cursor)
+	m, _ = send(m, mkKey("tab"))
+	require.Equal(t, 1, m.form.cursor)
+	m, _ = send(m, mkKey("shift+tab"))
+	require.Equal(t, 0, m.form.cursor)
+	m, _ = send(m, mkKey("shift+tab"))
+	require.Equal(t, 2, m.form.cursor, "moving back from the first field wraps")
+}
+
+func TestJAndKMoveBetweenFieldsToo(t *testing.T) {
+	m := formModel()
+	m, _ = send(m, mkKey("j"))
+	require.Equal(t, 1, m.form.cursor)
+	m, _ = send(m, mkKey("k"))
+	require.Equal(t, 0, m.form.cursor)
+}
+
+func TestEnterEditsAFreeTextFieldAndAcceptsIt(t *testing.T) {
+	m := formModel()
+	m, _ = send(m, mkKey("enter"))
+	require.True(t, m.form.editing)
+	require.Equal(t, "beta", m.form.input.Value(), "editing starts from the current value")
+
+	for _, r := range "gamma" {
+		m, _ = send(m, mkKey(string(r)))
+	}
+	m, _ = send(m, mkKey("enter"))
+	require.False(t, m.form.editing)
+	require.Equal(t, "betagamma", m.form.fields[0].Value)
+	require.True(t, m.form.fields[0].Touched)
+}
+
+// TestEnterOnAnOptionsFieldCyclesRatherThanEdits: the commonest rejection
+// cannot be typed at all.
+func TestEnterOnAnOptionsFieldCyclesRatherThanEdits(t *testing.T) {
+	m := formModel()
+	m.form.cursor = 1
+	m, _ = send(m, mkKey("enter"))
+	require.False(t, m.form.editing)
+	require.Equal(t, "dcos", m.form.fields[1].Value)
+	require.True(t, m.form.fields[1].Touched)
+
+	m, _ = send(m, mkKey("enter"))
+	require.Equal(t, "k8s", m.form.fields[1].Value, "cycling wraps")
+}
+
+// TestEscWhileEditingLeavesTheFieldNotTheForm.
+func TestEscWhileEditingLeavesTheFieldNotTheForm(t *testing.T) {
+	m := formModel()
+	m, _ = send(m, mkKey("enter"))
+	m, _ = send(m, mkKey("esc"))
+	require.False(t, m.form.editing)
+	require.Equal(t, screenForm, m.screen)
+
+	m, _ = send(m, mkKey("esc"))
+	require.Equal(t, screenColumns, m.screen)
+}
+
+// TestEscWhileEditingKeepsTheOldValue.
+func TestEscWhileEditingKeepsTheOldValue(t *testing.T) {
+	m := formModel()
+	m, _ = send(m, mkKey("enter"))
+	for _, r := range "zzz" {
+		m, _ = send(m, mkKey(string(r)))
+	}
+	m, _ = send(m, mkKey("esc"))
+	require.Equal(t, "beta", m.form.fields[0].Value)
+}
+
+// TestTypingQWhileEditingDoesNotQuit.
+func TestTypingQWhileEditingDoesNotQuit(t *testing.T) {
+	m := formModel()
+	m, _ = send(m, mkKey("enter"))
+	m, _ = send(m, mkKey("q"))
+	require.Equal(t, screenForm, m.screen)
+	require.True(t, m.form.editing)
+	require.Contains(t, m.form.input.Value(), "q")
+}
+
+// TestASecretFieldNeverEchoesWhatIsTyped.
+func TestASecretFieldNeverEchoesWhatIsTyped(t *testing.T) {
+	m := formModel()
+	m.form.cursor = 2
+	m, _ = send(m, mkKey("enter"))
+	for _, r := range "s3cret" {
+		m, _ = send(m, mkKey(string(r)))
+	}
+	require.NotContains(t, m.View(), "s3cret")
+
+	m, _ = send(m, mkKey("enter"))
+	require.Equal(t, "s3cret", m.form.fields[2].Value)
+	require.True(t, m.form.fields[2].Touched)
+	require.NotContains(t, m.View(), "s3cret")
+}
