@@ -151,3 +151,98 @@ func TestPlanVars(t *testing.T) {
 		{Name: "db_password", Value: "********", LastUsed: "********", Masked: true},
 	}, res.Rows)
 }
+
+// TestValidateVarsNeedsNoService is the point of the split: the terminal UI's
+// run form calls it on every keystroke, so it must touch no provider, no
+// clock and no network.
+func TestValidateVarsNeedsNoService(t *testing.T) {
+	base := VarSet{DeclaredKnown: true, Declared: map[string]bool{"cluster_name": true, "cluster_type": true},
+		Vars: []ResolvedVar{
+			{Name: "cluster_name", Declared: true},
+			{Name: "cluster_type", Value: "k8s", PlanValue: "k8s", Source: "plan", Declared: true},
+		}}
+	ref := PlanRef{PlanKey: "PROJ-PROV", MasterKey: "PROJ-PROV"}
+
+	got, err := ValidateVars(ref, base, []string{"cluster_name=beta"}, func(string) string { return "" })
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"cluster_name": "beta"}, got.Changed())
+}
+
+func TestValidateVarsEnforcesRequired(t *testing.T) {
+	tgt := config.ResolvedTarget{Name: "provision-lab", Target: config.Target{Required: []string{"cluster_name"}}}
+	ref := PlanRef{PlanKey: "PROJ-PROV", MasterKey: "PROJ-PROV", Target: &tgt}
+	_, err := ValidateVars(ref, VarSet{DeclaredKnown: true}, nil, func(string) string { return "" })
+	require.Error(t, err)
+	assert.Equal(t, errs.KindUsage, errs.KindOf(err))
+	assert.Contains(t, err.Error(), "cluster_name")
+}
+
+func TestValidateVarsEnforcesOptions(t *testing.T) {
+	tgt := config.ResolvedTarget{Name: "provision-lab",
+		Target: config.Target{Options: config.StringListMap{"cluster_type": {"k8s", "dcos"}}}}
+	ref := PlanRef{PlanKey: "PROJ-PROV", MasterKey: "PROJ-PROV", Target: &tgt}
+	_, err := ValidateVars(ref, VarSet{DeclaredKnown: true}, []string{"cluster_type=swarm"}, func(string) string { return "" })
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "k8s, dcos")
+}
+
+func TestValidateVarsResolvesEnvReferencesAndMarksThemSecret(t *testing.T) {
+	tgt := config.ResolvedTarget{Name: "provision-lab",
+		Target: config.Target{Defaults: config.StringMap{"token": "${LAB_TOKEN}"}}}
+	ref := PlanRef{PlanKey: "PROJ-PROV", MasterKey: "PROJ-PROV", Target: &tgt}
+	base := VarSet{DeclaredKnown: true, Vars: []ResolvedVar{
+		{Name: "token", Value: "${LAB_TOKEN}", Source: "target"},
+	}}
+
+	got, err := ValidateVars(ref, base, nil, func(k string) string {
+		if k == "LAB_TOKEN" {
+			return "s3cret"
+		}
+		return ""
+	})
+	require.NoError(t, err)
+	tok, ok := got.Get("token")
+	require.True(t, ok)
+	assert.Equal(t, MaskedDisplay, tok.Display(), "a resolved environment value is secret")
+
+	_, err = ValidateVars(ref, base, nil, func(string) string { return "" })
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "LAB_TOKEN")
+}
+
+// TestVarBaseFetchesWithoutApplyingRules: a required variable left empty is
+// not an error until ValidateVars runs.
+func TestVarBaseFetchesWithoutApplyingRules(t *testing.T) {
+	s := newService(t, fakeBamboo())
+	ref, err := s.ResolvePlan(bg, "provision-lab", "")
+	require.NoError(t, err)
+
+	base, err := s.VarBase(bg, ref, "")
+	require.NoError(t, err, "cluster_name is required and empty, and VarBase does not care")
+	assert.True(t, base.DeclaredKnown)
+	assert.NotEmpty(t, base.Vars)
+
+	_, err = ValidateVars(ref, base, nil, func(string) string { return "" })
+	require.Error(t, err, "the rules are what reject it")
+}
+
+// TestVarBaseAndValidateVarsComposeToResolveVars pins the refactor: the two
+// halves in sequence are the whole.
+func TestVarBaseAndValidateVarsComposeToResolveVars(t *testing.T) {
+	s := newService(t, fakeBamboo())
+	withEnv(s, map[string]string{"LAB_DB_PASSWORD": "hunter2"})
+	ref, err := s.ResolvePlan(bg, "provision-lab", "")
+	require.NoError(t, err)
+
+	want, err := s.ResolveVars(bg, ref, VarOptions{From: "last", Flags: []string{"compute_nodes=5"}})
+	require.NoError(t, err)
+
+	base, err := s.VarBase(bg, ref, "last")
+	require.NoError(t, err)
+	got, err := ValidateVars(ref, base, []string{"compute_nodes=5"}, s.Getenv)
+	require.NoError(t, err)
+
+	assert.Equal(t, want.Changed(), got.Changed())
+	assert.Equal(t, want.Secret(), got.Secret())
+	assert.Equal(t, want.FromBuild, got.FromBuild)
+}

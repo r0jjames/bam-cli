@@ -39,6 +39,9 @@ type VarSet struct {
 	FromBuild     string
 	Warnings      []string
 	DeclaredKnown bool
+	// Declared is the names the plan declares. ValidateVars needs it to warn
+	// about a name the plan does not know, and VarBase is what fills it in.
+	Declared map[string]bool
 }
 
 // Changed returns the variables to send: undeclared ones and those whose
@@ -83,7 +86,24 @@ type VarOptions struct {
 // ResolveVars applies, lowest to highest: plan values, target defaults,
 // --from, --var. Then it validates env references, required names and allowed
 // values (spec §2.3).
+//
+// It is VarBase followed by ValidateVars. The two halves are separate because
+// the terminal UI's run form fetches once and then validates on every
+// keystroke; keeping the rules in one function is what stops the UI and the
+// commands disagreeing about a plan's variables.
 func (s *Service) ResolveVars(ctx context.Context, ref PlanRef, o VarOptions) (VarSet, error) {
+	base, err := s.VarBase(ctx, ref, o.From)
+	if err != nil {
+		return VarSet{}, err
+	}
+	return ValidateVars(ref, base, o.Flags, s.Getenv)
+}
+
+// VarBase fetches what the rules are applied to: the plan's declared
+// variables, the target's defaults, and, when from is set, a previous build's
+// values. It applies no rules, so a required variable left empty is not an
+// error here.
+func (s *Service) VarBase(ctx context.Context, ref PlanRef, from string) (VarSet, error) {
 	var set VarSet
 	vars := map[string]*ResolvedVar{}
 	declaredNames := map[string]bool{}
@@ -125,8 +145,8 @@ func (s *Service) ResolveVars(ctx context.Context, ref PlanRef, o VarOptions) (V
 		}
 	}
 
-	if o.From != "" {
-		key, err := s.ResolveFrom(ctx, ref, o.From)
+	if from != "" {
+		key, err := s.ResolveFrom(ctx, ref, from)
 		if err != nil {
 			return VarSet{}, err
 		}
@@ -162,14 +182,50 @@ func (s *Service) ResolveVars(ctx context.Context, ref PlanRef, o VarOptions) (V
 		}
 	}
 
-	for _, f := range o.Flags {
+	set.Declared = declaredNames
+	for _, name := range sortedNames(vars) {
+		set.Vars = append(set.Vars, *vars[name])
+	}
+	return set, nil
+}
+
+// ValidateVars applies the rules to already-fetched values: the --var flags,
+// ${ENV} resolution, required names and allowed values. It touches no
+// network and no clock, so the terminal UI calls it on every keystroke.
+func ValidateVars(ref PlanRef, base VarSet, flags []string, getenv func(string) string) (VarSet, error) {
+	set := VarSet{FromBuild: base.FromBuild, DeclaredKnown: base.DeclaredKnown, Declared: base.Declared}
+	set.Warnings = append(set.Warnings, base.Warnings...)
+
+	vars := map[string]*ResolvedVar{}
+	for i := range base.Vars {
+		v := base.Vars[i]
+		vars[v.Name] = &v
+	}
+	get := func(name string) *ResolvedVar {
+		v, ok := vars[name]
+		if !ok {
+			v = &ResolvedVar{Name: name, Secret: config.IsMaskedName(name)}
+			vars[name] = v
+		}
+		return v
+	}
+	t := ref.Target
+	inTarget := func(name string) bool {
+		if t == nil {
+			return false
+		}
+		_, ok := t.Defaults[name]
+		return ok
+	}
+
+	for _, f := range flags {
 		name, val, ok := strings.Cut(f, "=")
 		if !ok || name == "" {
 			return VarSet{}, errs.Usagef("--var takes name=value, not %q", f)
 		}
-		if set.DeclaredKnown && !declaredNames[name] && !inTarget(name) {
+		if set.DeclaredKnown && !base.Declared[name] && !inTarget(name) {
 			w := fmt.Sprintf("%s is not a declared variable of %s", name, ref.MasterKey)
-			if c := Closest(name, sortedNames(declaredNames), 1); len(c) > 0 {
+			if c := Closest(name, sortedNames(base.Declared), 1); len(c) > 0 {
 				w += "; did you mean " + c[0] + "?"
 			}
 			set.Warnings = append(set.Warnings, w)
@@ -185,7 +241,7 @@ func (s *Service) ResolveVars(ctx context.Context, ref PlanRef, o VarOptions) (V
 			continue
 		}
 		if envName, ok := config.EnvRef(v.Value); ok {
-			val := s.Getenv(envName)
+			val := getenv(envName)
 			if val == "" {
 				return VarSet{}, errs.Usagef("variable %s needs environment variable %s, which is not set", name, envName).
 					WithTry(fmt.Sprintf("export %s=..., or pass --var %s=VALUE", envName, name))
