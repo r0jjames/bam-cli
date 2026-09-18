@@ -5,10 +5,20 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/r0jjames/bam-cli/internal/app"
 	"github.com/r0jjames/bam-cli/internal/provider"
+)
+
+// inputMode says what the text input is collecting, if anything.
+type inputMode int
+
+const (
+	inputNone inputMode = iota
+	inputFilter
+	inputSearch
 )
 
 // screen is what fills the terminal. The log screen takes the whole width.
@@ -85,7 +95,9 @@ type Model struct {
 	presets listState[app.TargetInfo]
 	picker  listState[pickerItem]
 
-	logs logState
+	logs     logState
+	input    textinput.Model
+	inputFor inputMode
 
 	watchCancel context.CancelFunc
 	watchCh     <-chan app.Event
@@ -108,6 +120,7 @@ func New(d Deps) Model {
 		presets: newList(func(t app.TargetInfo) string { return t.Name + " " + t.Plan }),
 		picker:  newList(func(p pickerItem) string { return p.Label + " " + p.Detail }),
 		now:     time.Now,
+		input:   textinput.New(),
 	}
 }
 
@@ -190,6 +203,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.inputFor != inputNone {
+		return m.handleInputKey(msg)
+	}
 	if m.overlay != overlayNone {
 		return m.handleOverlayKey(msg)
 	}
@@ -221,6 +237,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.jumpFocused(false)
 	case key.Matches(msg, keys.Enter):
 		return m.drill()
+	case key.Matches(msg, keys.Filter):
+		return m.startInput()
+	case key.Matches(msg, keys.NextMatch):
+		m.logs.nextMatch(1)
+	case key.Matches(msg, keys.PrevMatch):
+		m.logs.nextMatch(-1)
 	case key.Matches(msg, keys.Logs):
 		return m.openLogs("", false)
 	case key.Matches(msg, keys.AllLogs):
@@ -248,6 +270,55 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, loadBranchesCmd(context.Background(), m.svc, p.Key)
 	}
 	return m, nil
+}
+
+// handleInputKey owns every key while the user is typing, so q, l and j are
+// characters rather than commands.
+func (m Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.inputFor = inputNone
+		m.input.SetValue("")
+		m.input.Blur()
+		return m, nil
+	case tea.KeyEnter:
+		mode, q := m.inputFor, m.input.Value()
+		m.inputFor = inputNone
+		m.input.Blur()
+		if mode == inputSearch {
+			m.logs.search(q)
+			return m, nil
+		}
+		m.applyFilter(q)
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+// startInput opens the text input for the filter or the log search.
+func (m Model) startInput() (tea.Model, tea.Cmd) {
+	m.inputFor = inputFilter
+	if m.screen == screenLogs {
+		m.inputFor = inputSearch
+	}
+	m.input.SetValue("")
+	m.input.Prompt = "/"
+	m.input.Focus()
+	return m, textinput.Blink
+}
+
+// applyFilter narrows whichever list has focus.
+func (m *Model) applyFilter(q string) {
+	switch m.focus {
+	case focusPlans:
+		m.plans.setQuery(q)
+	case focusBuilds:
+		m.builds.setQuery(q)
+	case focusPresets:
+		m.presets.setQuery(q)
+	}
 }
 
 // handleOverlayKey keeps overlay keys from reaching the panels underneath.
@@ -535,6 +606,14 @@ func (m Model) handleLogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case key.Matches(msg, keys.Top):
 		m.logs.vp.GotoTop()
+		return m, nil
+	case key.Matches(msg, keys.Filter):
+		return m.startInput()
+	case key.Matches(msg, keys.NextMatch):
+		m.logs.nextMatch(1)
+		return m, nil
+	case key.Matches(msg, keys.PrevMatch):
+		m.logs.nextMatch(-1)
 		return m, nil
 	}
 	var cmd tea.Cmd

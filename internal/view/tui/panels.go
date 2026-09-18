@@ -172,6 +172,9 @@ func branchOrDefault(b provider.Build) string {
 // statusBar is one line: where we are on the left, what to press on the
 // right. An error takes over the left half until it is dismissed.
 func (m Model) statusBar(width int) string {
+	if m.inputFor != inputNone {
+		return truncate(m.input.View(), width)
+	}
 	left := fmt.Sprintf("%s · %s · %s", m.server, m.info.Version, m.user.Name)
 	switch {
 	case m.err != nil:

@@ -17,6 +17,10 @@ type logState struct {
 	url       string
 	all       bool
 	lines     []string
+	query     string
+	matches   []int
+	match     int
+	line      int // the line search and next-failure last landed on
 	following bool
 	ready     bool
 }
@@ -58,8 +62,77 @@ func (m Model) logsView() string {
 		keyLine = "following · " + keyLine
 	}
 	foot := truncate(statusStyle.Render(keyLine), m.width)
+	if m.inputFor != inputNone {
+		foot = truncate(m.input.View(), m.width)
+	}
 	if m.err != nil {
 		foot = truncate(errorStyle.Render(errorLine(m.err)), m.width)
 	}
 	return strings.Join([]string{head, m.logs.vp.View(), foot}, "\n")
+}
+
+// search records every matching line and jumps to the first one. Matching is
+// case-insensitive substring, the same rule the panel filters use.
+func (l *logState) search(q string) {
+	l.query = q
+	l.matches = l.matches[:0]
+	l.match = 0
+	if q == "" {
+		return
+	}
+	needle := strings.ToLower(q)
+	for i, line := range l.lines {
+		if strings.Contains(strings.ToLower(line), needle) {
+			l.matches = append(l.matches, i)
+		}
+	}
+	l.jumpToMatch()
+}
+
+// nextMatch walks the matches and wraps. With no search typed it falls back
+// to the next failure, which is what the key line promises.
+func (l *logState) nextMatch(delta int) {
+	if len(l.matches) == 0 {
+		l.nextFailure(delta)
+		return
+	}
+	l.match = (l.match + delta + len(l.matches)) % len(l.matches)
+	l.jumpToMatch()
+}
+
+func (l *logState) jumpToMatch() {
+	if len(l.matches) == 0 {
+		return
+	}
+	l.goTo(l.matches[l.match])
+}
+
+// goTo records the line landed on and scrolls to it. The line is tracked
+// separately because the viewport clamps its offset when the log is shorter
+// than the screen, and a search must still know where it is.
+func (l *logState) goTo(i int) {
+	l.line = i
+	l.vp.SetYOffset(i)
+}
+
+// failureMarkers are what a failing job's log says. They are deliberately
+// broad: the point is to land near the failure, not to parse it.
+var failureMarkers = []string{"error", "failed", "failure", "exception", "exit code 1"}
+
+func (l *logState) nextFailure(delta int) {
+	n := len(l.lines)
+	if n == 0 || delta == 0 {
+		return
+	}
+	start := l.line
+	for step := 1; step <= n; step++ {
+		i := ((start+step*delta)%n + n) % n
+		low := strings.ToLower(l.lines[i])
+		for _, marker := range failureMarkers {
+			if strings.Contains(low, marker) {
+				l.goTo(i)
+				return
+			}
+		}
+	}
 }

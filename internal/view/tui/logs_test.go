@@ -101,3 +101,69 @@ func TestOpeningLogsWithNoBuildDoesNothing(t *testing.T) {
 	require.Equal(t, screenColumns, m.screen)
 	require.Nil(t, cmd)
 }
+
+func TestSearchJumpsToTheFirstMatch(t *testing.T) {
+	m := logModel()
+	m.logs.search("connectionrefused")
+	require.Equal(t, []int{1}, m.logs.matches, "search is case-insensitive")
+	require.Equal(t, 1, m.logs.line)
+}
+
+func TestNAndShiftNWalkTheMatchesAndWrap(t *testing.T) {
+	m := logModel()
+	m.logs.search("ERROR")
+	require.Equal(t, []int{1, 2}, m.logs.matches)
+	require.Equal(t, 0, m.logs.match)
+
+	m.logs.nextMatch(1)
+	require.Equal(t, 1, m.logs.match)
+	m.logs.nextMatch(1)
+	require.Equal(t, 0, m.logs.match, "n wraps at the end")
+	m.logs.nextMatch(-1)
+	require.Equal(t, 1, m.logs.match, "N wraps at the start")
+}
+
+// TestNWithNoSearchGoesToTheNextFailure, which is what the key line promises.
+func TestNWithNoSearchGoesToTheNextFailure(t *testing.T) {
+	m := logModel()
+	m.logs.query = ""
+	m.logs.nextFailure(1)
+	require.Equal(t, 1, m.logs.line, "the first ERROR line")
+}
+
+func TestSlashOpensTheSearchInputAndKeysGoToIt(t *testing.T) {
+	m := logModel()
+	m, _ = send(m, mkKey("/"))
+	require.Equal(t, inputSearch, m.inputFor)
+
+	for _, r := range "quota" {
+		m, _ = send(m, mkKey(string(r)))
+	}
+	require.Equal(t, "quota", m.input.Value())
+	require.Equal(t, screenLogs, m.screen, "q while typing does not quit")
+
+	m, _ = send(m, mkKey("enter"))
+	require.Equal(t, inputNone, m.inputFor)
+	require.Equal(t, "quota", m.logs.query)
+}
+
+func TestEscCancelsTheSearchInputBeforeTheScreen(t *testing.T) {
+	m := logModel()
+	m, _ = send(m, mkKey("/"))
+	m, _ = send(m, mkKey("esc"))
+	require.Equal(t, inputNone, m.inputFor)
+	require.Equal(t, screenLogs, m.screen, "the input closes before the screen")
+}
+
+func TestSlashInAPanelFiltersThatPanel(t *testing.T) {
+	m := goldenModel(80, 24)
+	m, _ = send(m, mkKey("/"))
+	require.Equal(t, inputFilter, m.inputFor)
+	for _, r := range "ops" {
+		m, _ = send(m, mkKey(string(r)))
+	}
+	m, _ = send(m, mkKey("enter"))
+	require.Equal(t, 1, m.plans.len())
+	sel, _ := m.plans.selected()
+	require.Equal(t, "OPS-NIGHTLY", sel.Key)
+}
