@@ -18,7 +18,7 @@
     ┃RUN   R          open the run form for the selection                  ┃    
     ┃      ctrl-R     run (in the form)                                    ┃    
     ┃      d          dry-run: show what would be sent (in the form)       ┃    
+    ┃      C          cancel the selected build (asks first)               ┃    
     ┃GO    o          open the selection's Bamboo URL in the browser       ┃    
-    ┃      y          copy the selection's Bamboo URL                      ┃    
     ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛    
                                                                                 

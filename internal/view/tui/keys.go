@@ -18,6 +18,7 @@ type keyMap struct {
 	Refresh, ExpandErr           key.Binding
 	Open, Copy                   key.Binding
 	Run, Trigger, DryRun         key.Binding
+	Cancel                       key.Binding
 	Server, Project, Branch      key.Binding
 	Help, Quit                   key.Binding
 }
@@ -55,6 +56,7 @@ func defaultKeys() keyMap {
 		Run:       b("R", "R", "open the run form"),
 		Trigger:   b("ctrl+r", "ctrl-R", "run"),
 		DryRun:    b("d", "d", "dry-run"),
+		Cancel:    b("C", "C", "cancel the build"),
 		Open:      b("o", "o", "open in the browser"),
 		Copy:      b("y", "y", "copy the URL"),
 		Server:    b("S", "S", "switch server"),
@@ -97,6 +99,7 @@ func (k keyMap) helpRows() []helpRow {
 		{"RUN", "R", "open the run form for the selection"},
 		{"RUN", "ctrl-R", "run (in the form)"},
 		{"RUN", "d", "dry-run: show what would be sent (in the form)"},
+		{"RUN", "C", "cancel the selected build (asks first)"},
 		{"GO", "o", "open the selection's Bamboo URL in the browser"},
 		{"GO", "y", "copy the selection's Bamboo URL"},
 		{"GO", "S", "switch server"},

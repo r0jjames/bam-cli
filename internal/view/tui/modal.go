@@ -92,6 +92,10 @@ func (m Model) overlayTitle() string {
 		return "Keys"
 	case overlayError:
 		return "Error"
+	case overlayDryRun:
+		return "Would send"
+	case overlayConfirm:
+		return "Confirm"
 	}
 	return ""
 }
@@ -188,6 +192,10 @@ func (m Model) overlayView(base string) string {
 		body = m.helpView(w - 2)
 	case overlayError:
 		body = m.errorBody(w - 2)
+	case overlayDryRun:
+		body = m.dryRunBody(w - 2)
+	case overlayConfirm:
+		body = m.confirmBody(w - 2)
 	default:
 		body = m.pickerRows(m.height / 2)
 	}

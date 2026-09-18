@@ -345,3 +345,39 @@ func (f formState) stripUntypedMasks(vs app.VarSet) app.VarSet {
 	}
 	return out
 }
+
+// dryRunBody is exactly what a trigger would send, with secrets masked. It
+// reaches no server: the values are already in hand.
+func (m Model) dryRunBody(width int) string {
+	getenv := m.deps.Getenv
+	if getenv == nil {
+		getenv = func(string) string { return "" }
+	}
+	vs, err := app.ValidateVars(m.form.ref, m.form.base, m.form.flags(), getenv)
+	if err != nil {
+		return errorStyle.Render(truncate(errorWhat(err), width))
+	}
+	vs = m.form.stripUntypedMasks(vs)
+
+	lines := []string{dimStyle.Render("plan " + m.form.ref.PlanKey)}
+	changed := vs.Changed()
+	secret := vs.Secret()
+	if len(changed) == 0 {
+		lines = append(lines, "", "no variables would be sent")
+		return strings.Join(lines, "\n")
+	}
+	lines = append(lines, "")
+	names := make([]string, 0, len(changed))
+	for n := range changed {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		v := changed[n]
+		if secret[n] {
+			v = app.MaskedDisplay
+		}
+		lines = append(lines, truncate(n+"="+v, width))
+	}
+	return strings.Join(lines, "\n")
+}

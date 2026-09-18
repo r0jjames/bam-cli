@@ -264,6 +264,24 @@ func openFormCmd(ctx context.Context, svc *app.Service, planKey string, target *
 	}
 }
 
+type cancelledMsg struct {
+	Build           provider.Build
+	AlreadyFinished bool
+}
+
+// cancelCmd stops a queued or running build. It is the only thing in the UI
+// that stops a build: leaving a screen, switching server and quitting all
+// cancel watches, and a watch is not a build.
+func cancelCmd(ctx context.Context, svc *app.Service, key string) tea.Cmd {
+	return func() tea.Msg {
+		b, alreadyFinished, err := svc.Cancel(ctx, key)
+		if err != nil {
+			return errMsg{Err: err, Where: "cancel"}
+		}
+		return cancelledMsg{Build: b, AlreadyFinished: alreadyFinished}
+	}
+}
+
 type triggeredMsg struct {
 	Gen   int
 	Build provider.Build

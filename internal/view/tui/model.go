@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -50,6 +51,8 @@ const (
 	overlayBranches
 	overlayHelp
 	overlayError
+	overlayDryRun
+	overlayConfirm
 )
 
 var tabOrder = []focus{focusPlans, focusBuilds, focusPresets, focusMain}
@@ -96,6 +99,7 @@ type Model struct {
 	presets listState[app.TargetInfo]
 	picker  listState[pickerItem]
 
+	confirm  confirmState
 	help     helpState
 	form     formState
 	logs     logState
@@ -287,6 +291,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.form.cursor = 0
 		m.revalidate()
 		return m, nil
+	case cancelledMsg:
+		// An already-finished build is not an error: it is a fact about
+		// timing, and the status bar is where facts go.
+		if msg.AlreadyFinished {
+			m.status = msg.Build.Key + " had already finished"
+			return m, nil
+		}
+		m.status = "cancelled " + msg.Build.Key
+		if msg.Build.Key != "" && m.detail != nil && m.detail.Key == msg.Build.Key {
+			b := msg.Build
+			m.detail = &b
+			m.clampTree()
+		}
+		return m, nil
 	case triggeredMsg:
 		if msg.Gen != m.formGen {
 			return m, nil
@@ -368,6 +386,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.logs.nextMatch(-1)
 	case key.Matches(msg, keys.Run):
 		return m.openForm()
+	case key.Matches(msg, keys.Cancel):
+		return m.askCancel()
 	case key.Matches(msg, keys.Open):
 		return m.openSelection()
 	case key.Matches(msg, keys.Copy):
@@ -460,6 +480,35 @@ func (m *Model) applyFilter(q string) {
 }
 
 // openHelp sizes the help viewport for the terminal it is about to fill.
+// handleConfirmKey answers the question and nothing else. Any other key is
+// ignored rather than guessed at.
+func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEnter:
+		return m.answerYes()
+	case tea.KeyEsc:
+		m.overlay, m.confirm = overlayNone, confirmState{}
+		return m, nil
+	}
+	switch strings.ToLower(msg.String()) {
+	case "y":
+		return m.answerYes()
+	case "n", "q":
+		m.overlay, m.confirm = overlayNone, confirmState{}
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m Model) answerYes() (tea.Model, tea.Cmd) {
+	action := m.confirm.Action
+	m.overlay, m.confirm = overlayNone, confirmState{}
+	if action == nil {
+		return m, nil
+	}
+	return action(m)
+}
+
 func (m Model) openHelp() (tea.Model, tea.Cmd) {
 	m.overlay = overlayHelp
 	w := overlayWidth(m.width, helpMaxWidth) - 2
@@ -470,6 +519,9 @@ func (m Model) openHelp() (tea.Model, tea.Cmd) {
 // handleOverlayKey keeps overlay keys from reaching the panels underneath.
 // The help overlay scrolls; the pickers move a cursor.
 func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.overlay == overlayConfirm {
+		return m.handleConfirmKey(msg)
+	}
 	if m.overlay == overlayHelp {
 		switch {
 		case key.Matches(msg, keys.Back):
@@ -966,6 +1018,9 @@ func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.form.move(-1)
 	case key.Matches(msg, keys.Trigger):
 		return m.trigger()
+	case key.Matches(msg, keys.DryRun):
+		m.overlay = overlayDryRun
+		return m, nil
 	case key.Matches(msg, keys.Enter):
 		if len(m.form.fields[m.form.cursor].Options) > 0 {
 			m.form.cycle(1)
@@ -996,6 +1051,23 @@ func (m Model) trigger() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, runCmd(context.Background(), m.svc, m.form.ref, m.form.stripUntypedMasks(vs), m.formGen)
+}
+
+// askCancel confirms before stopping a build. Cancelling is the one action
+// in the UI that cannot be undone, so it always asks and always names the
+// build it will stop.
+func (m Model) askCancel() (tea.Model, tea.Cmd) {
+	b, ok := m.currentBuild()
+	if !ok || m.svc == nil {
+		return m, nil
+	}
+	if b.State.Finished() {
+		m.status = b.Key + " has already finished"
+		return m, nil
+	}
+	return m.ask("Cancel "+b.Key+"?", func(m Model) (tea.Model, tea.Cmd) {
+		return m, cancelCmd(context.Background(), m.svc, b.Key)
+	})
 }
 
 // openTriggered shows the build that was just started and watches it. It is

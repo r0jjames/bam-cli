@@ -529,3 +529,148 @@ func TestAnUntypedMaskIsNeverSentBack(t *testing.T) {
 	vs.Vars[0].Value = "typed"
 	require.Equal(t, "typed", f.stripUntypedMasks(vs).Changed()["ssh_key"])
 }
+
+func TestDShowsWhatWouldBeSentAndReachesNoServer(t *testing.T) {
+	m := formModel()
+	m.revalidate()
+	m, cmd := send(m, mkKey("d"))
+	require.Equal(t, overlayDryRun, m.overlay)
+	require.Nil(t, cmd, "a dry-run sends nothing")
+
+	v := m.View()
+	require.Contains(t, v, "cluster_name=beta")
+	require.Empty(t, m.svc.P.(*fake.Provider).Triggered)
+}
+
+func TestDryRunMasksSecrets(t *testing.T) {
+	m := formModel()
+	m.form.fields[2].Value, m.form.fields[2].Touched = "s3cret", true
+	m.revalidate()
+	m, _ = send(m, mkKey("d"))
+	require.NotContains(t, m.View(), "s3cret")
+	require.Contains(t, m.View(), "ssh_key="+app.MaskedDisplay)
+}
+
+func TestDryRunSaysWhenNothingChanged(t *testing.T) {
+	// A bare plan: nothing required, nothing typed, so nothing to send.
+	m := formModel()
+	base := app.VarSet{DeclaredKnown: true, Declared: map[string]bool{"debug": true},
+		Vars: []app.ResolvedVar{{Name: "debug", Value: "false", PlanValue: "false", Source: "plan", Declared: true}}}
+	ref := app.PlanRef{PlanKey: "PROJ-BUILD", MasterKey: "PROJ-BUILD"}
+	m.form = formState{ref: ref, base: base, fields: buildFields(base, ref)}
+	m.revalidate()
+
+	m, _ = send(m, mkKey("d"))
+	require.Contains(t, m.View(), "no variables")
+}
+
+func TestEscClosesTheDryRunAndKeepsTheForm(t *testing.T) {
+	m := formModel()
+	m, _ = send(m, mkKey("d"))
+	m, _ = send(m, mkKey("esc"))
+	require.Equal(t, overlayNone, m.overlay)
+	require.Equal(t, screenForm, m.screen)
+}
+
+func cancelModel() Model {
+	m := goldenModel(80, 24)
+	m.svc = testService()
+	running := sampleBuild()
+	running.State = provider.StateRunning
+	// Cancel re-reads the build from the server, so the server's copy is the
+	// one that has to be running.
+	m.svc.P.(*fake.Provider).History["PROJ-BUILD"] = []provider.Build{running}
+	m.builds.setItems([]provider.Build{running})
+	m.focus = focusBuilds
+	return m
+}
+
+func TestCAsksBeforeCancelling(t *testing.T) {
+	m := cancelModel()
+	m, cmd := send(m, mkKey("C"))
+	require.Equal(t, overlayConfirm, m.overlay)
+	require.Nil(t, cmd, "nothing is sent before the answer")
+	require.Contains(t, m.confirm.Prompt, "PROJ-BUILD-44")
+	require.Empty(t, m.svc.P.(*fake.Provider).Stopped)
+}
+
+func TestNoDoesNotCancel(t *testing.T) {
+	m := cancelModel()
+	m, _ = send(m, mkKey("C"))
+	m, cmd := send(m, mkKey("n"))
+	require.Equal(t, overlayNone, m.overlay)
+	require.Nil(t, cmd)
+	require.Empty(t, m.svc.P.(*fake.Provider).Stopped)
+}
+
+func TestEscDoesNotCancelEither(t *testing.T) {
+	m := cancelModel()
+	m, _ = send(m, mkKey("C"))
+	m, _ = send(m, mkKey("esc"))
+	require.Equal(t, overlayNone, m.overlay)
+	require.Empty(t, m.svc.P.(*fake.Provider).Stopped)
+}
+
+func TestYesCancels(t *testing.T) {
+	m := cancelModel()
+	m, _ = send(m, mkKey("C"))
+	m, cmd := send(m, mkKey("y"))
+	require.Equal(t, overlayNone, m.overlay)
+	require.NotNil(t, cmd)
+	cmd()
+	require.Equal(t, []string{"PROJ-BUILD-44"}, m.svc.P.(*fake.Provider).Stopped)
+}
+
+func TestEnterAlsoConfirms(t *testing.T) {
+	m := cancelModel()
+	m, _ = send(m, mkKey("C"))
+	_, cmd := send(m, mkKey("enter"))
+	require.NotNil(t, cmd)
+}
+
+// TestAnAlreadyFinishedBuildIsAStatusLineNotAnError.
+func TestAnAlreadyFinishedBuildIsAStatusLineNotAnError(t *testing.T) {
+	m := cancelModel()
+	m, _ = send(m, cancelledMsg{AlreadyFinished: true, Build: sampleBuild()})
+	require.NoError(t, m.err)
+	require.Contains(t, m.status, "already finished")
+}
+
+// TestCOnAFinishedBuildSaysSoWithoutAsking.
+func TestCOnAFinishedBuildSaysSoWithoutAsking(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.svc = testService()
+	m.builds.setItems([]provider.Build{sampleBuild()}) // failed, so finished
+	m.focus = focusBuilds
+	m, cmd := send(m, mkKey("C"))
+	require.Equal(t, overlayNone, m.overlay)
+	require.Nil(t, cmd)
+	require.Contains(t, m.status, "already finished")
+}
+
+// TestCancellingLeavesTheWatchRunning: a cancelled build still transitions,
+// and the watch is what reports the transition.
+func TestCancellingLeavesTheWatchRunning(t *testing.T) {
+	m := cancelModel()
+	m.watchCancel = func() {}
+	m, _ = send(m, cancelledMsg{Build: sampleBuild()})
+	require.NotNil(t, m.watchCancel)
+}
+
+// TestLowercaseCDoesNotCancel.
+func TestLowercaseCDoesNotCancel(t *testing.T) {
+	m := cancelModel()
+	m, cmd := send(m, mkKey("c"))
+	require.Nil(t, cmd)
+	require.Equal(t, overlayNone, m.overlay)
+}
+
+// TestConfirmKeysDoNotReachThePanels.
+func TestConfirmKeysDoNotReachThePanels(t *testing.T) {
+	m := cancelModel()
+	m, _ = send(m, plansLoadedMsg{Gen: m.plansGen, Plans: []provider.Plan{{Key: "A"}, {Key: "B"}}})
+	m, _ = send(m, mkKey("C"))
+	before := m.plans.cursor
+	m, _ = send(m, mkKey("j"))
+	require.Equal(t, before, m.plans.cursor)
+}
