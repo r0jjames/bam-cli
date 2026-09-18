@@ -198,16 +198,19 @@ func TestEnterOnAPresetWhosePlanIsNotListedStillLoadsIt(t *testing.T) {
 // are uppercase or chorded, so neither is one keystroke away from a
 // forty-minute pipeline.
 func TestNoLowercaseKeyMutatesAnything(t *testing.T) {
-	mutating := []key.Binding{keys.Run}
+	mutating := []key.Binding{keys.Run, keys.Trigger, keys.Cancel}
 	for _, b := range mutating {
 		for _, k := range b.Keys() {
 			require.True(t, strings.HasPrefix(k, "ctrl+") || strings.ToLower(k) != k,
 				"key %q reaches a mutation and is lowercase", k)
 		}
 	}
-	// R opens a form and sends nothing, so it is the one uppercase key that
-	// needs no confirmation.
+	// R opens a form and sends nothing, so it is the one of the three that
+	// needs no confirmation. ctrl-R cannot be struck while a field is being
+	// edited, and C always asks.
 	require.Equal(t, []string{"R"}, keys.Run.Keys())
+	require.Equal(t, []string{"ctrl+r"}, keys.Trigger.Keys())
+	require.Equal(t, []string{"C"}, keys.Cancel.Keys())
 }
 
 // TestRefreshReloadsTheFocusedPanelOnly, spec §5.

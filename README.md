@@ -39,8 +39,11 @@ A teammate who clones the repository only needs `bam login work`.
 ## Terminal UI
 
 Running `bam` alone on a terminal opens a lazygit-style UI over the same
-commands. It is read-only in v0.2 part A: it browses, watches and reads logs,
-and nothing in it triggers or cancels a build.
+commands: browse, watch a build live, read its logs, run a preset, and cancel.
+
+No lowercase key changes anything on the server. `R` only opens the run form,
+`ctrl-R` inside that form is the only key that starts a build, and `C` always
+asks before it cancels one.
 
 ```
 ┏━1 Plans━━━━━━━━━━┓╭─PROJ-BUILD-44────────────────────────────────────────────╮
@@ -81,6 +84,10 @@ without a terminal, bare `bam` prints help exactly as before.
 | | `n` `N` | next / previous match, or next failure |
 | | `r` | refresh the focused panel |
 | | `e` | expand the current error |
+| Run | `R` | open the run form for the selection |
+| | `ctrl-R` | run (in the form) |
+| | `d` | dry-run: show what would be sent (in the form) |
+| | `C` | cancel the selected build (asks first) |
 | Go | `o` | open the selection's Bamboo URL in the browser |
 | | `y` | copy the selection's Bamboo URL |
 | | `S` | switch server |
@@ -89,7 +96,9 @@ without a terminal, bare `bam` prints help exactly as before.
 | Meta | `?` | help |
 | | `q` `ctrl-c` | quit |
 
-Leaving the UI never stops a build. Only `bam build cancel` does.
+Leaving the UI never stops a build: quitting, leaving a screen and switching
+server all cancel *watches*, and a watch is not a build. Only `C` in the UI,
+and `bam build cancel` on the command line, stop a build.
 
 ## Everyday commands
 
