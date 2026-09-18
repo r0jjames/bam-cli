@@ -163,7 +163,9 @@ func TestEnterOnAPresetSelectsItsPlan(t *testing.T) {
 	m := testModel()
 	m.svc = testService()
 	m, _ = send(m, plansLoadedMsg{Gen: m.plansGen, Plans: []provider.Plan{{Key: "PROJ-BUILD"}, {Key: "PROJ-PROV"}}})
-	m, _ = send(m, presetsLoadedMsg{Targets: []app.TargetInfo{{Name: "smoke", Plan: "PROJ-PROV"}}})
+	// The panel's own data is what resolves now, so it carries the branch
+	// exactly as app.DescribeTargets reports it.
+	m, _ = send(m, presetsLoadedMsg{Targets: []app.TargetInfo{{Name: "smoke", Plan: "PROJ-PROV", Branch: "develop"}}})
 	m.focus = focusPresets
 
 	m, cmd := send(m, mkKey("enter"))

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"time"
 
 	"github.com/r0jjames/bam-cli/internal/config"
@@ -82,4 +83,38 @@ func describe(t config.ResolvedTarget, getenv func(string) string) TargetInfo {
 		info.Defaults = append(info.Defaults, v)
 	}
 	return info
+}
+
+// RefFromTarget builds a plan reference from an already-described target.
+//
+// It exists for the terminal UI, which refreshes its preset list from the
+// files on disk and must then resolve one of those presets. Going back
+// through Service.Cfg would resolve against the configuration parsed when the
+// UI started, so a preset added since would be unknown, or would run on its
+// old branch. TargetInfo carries the raw values, including ${ENV} references
+// as written, so nothing is lost in the round trip.
+func (s *Service) RefFromTarget(ctx context.Context, t TargetInfo) (PlanRef, error) {
+	rt := config.ResolvedTarget{Name: t.Name, Target: config.Target{
+		Plan:     t.Plan,
+		Server:   t.Server,
+		Branch:   t.Branch,
+		Options:  config.StringListMap(t.Options),
+		Required: t.Required,
+	}}
+	if len(t.Defaults) > 0 {
+		rt.Defaults = config.StringMap{}
+		for _, d := range t.Defaults {
+			rt.Defaults[d.Name] = d.Value
+		}
+	}
+	ref := PlanRef{PlanKey: t.Plan, MasterKey: t.Plan, Target: &rt}
+	if t.Branch == "" {
+		return ref, nil
+	}
+	key, err := s.ResolveBranch(ctx, t.Plan, t.Branch)
+	if err != nil {
+		return PlanRef{}, err
+	}
+	ref.PlanKey, ref.Branch = key, t.Branch
+	return ref, nil
 }

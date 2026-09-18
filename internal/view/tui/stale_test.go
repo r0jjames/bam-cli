@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -122,7 +123,7 @@ func TestBranchSwitchClearsTheBuildsRows(t *testing.T) {
 	require.Positive(t, m.builds.len())
 
 	m, _ = send(m, mkKey("b"))
-	m, _ = send(m, branchesLoadedMsg{MasterKey: "PROJ-PROV", Branches: []provider.Branch{
+	m, _ = send(m, branchesLoadedMsg{Gen: m.pickerGen, MasterKey: "PROJ-PROV", Branches: []provider.Branch{
 		{Key: "PROJ-PROV12", ShortName: "develop", PlanKey: "PROJ-PROV"},
 	}})
 	m, _ = send(m, mkKey("j"))
@@ -171,3 +172,61 @@ func TestResizeReflowsTheLogViewport(t *testing.T) {
 }
 
 func windowSize(w, h int) tea.WindowSizeMsg { return tea.WindowSizeMsg{Width: w, Height: h} }
+
+// TestStaleConnectIsDropped: switching from one server to another before the
+// first handshake returns must not install the server being left.
+func TestStaleConnectIsDropped(t *testing.T) {
+	m := testModel()
+	m.connGen = 4
+	m, _ = send(m, connectedMsg{Gen: 3, Alias: "old", Svc: testService(),
+		Info: provider.ServerInfo{Version: "1.0.0"}})
+	require.Nil(t, m.svc)
+	require.NotEqual(t, "old", m.server)
+	require.NotEqual(t, "1.0.0", m.info.Version)
+}
+
+// TestSwitchingServerAbandonsPlansAndBuildsInFlight: clearing the rows is not
+// enough, because the older request still matches the unchanged generation.
+func TestSwitchingServerAbandonsPlansAndBuildsInFlight(t *testing.T) {
+	m := New(Deps{Servers: []Server{{Alias: "lab"}, {Alias: "work"}}, Initial: "lab",
+		Connect: func(context.Context, string) (*app.Service, error) { return testService(), nil }})
+	m.width, m.height = 80, 24
+	m.svc = testService()
+	plansBefore, buildsBefore := m.plansGen, m.buildsGen
+
+	m, _ = send(m, mkKey("S"))
+	m, _ = send(m, mkKey("j"))
+	m, _ = send(m, mkKey("enter"))
+	require.NotEqual(t, plansBefore, m.plansGen)
+	require.NotEqual(t, buildsBefore, m.buildsGen)
+
+	m, _ = send(m, plansLoadedMsg{Gen: plansBefore, Plans: []provider.Plan{{Key: "OLD-PLAN"}}})
+	require.Equal(t, 0, m.plans.len(), "the old server's plans are dropped")
+}
+
+// TestStaleBuildRefreshIsDropped: r on Main, then a different build opened.
+func TestStaleBuildRefreshIsDropped(t *testing.T) {
+	m := testModel()
+	m.detail = ptr(sampleBuild())
+	m.detailGen = 2
+	other := sampleBuild()
+	other.Key = "PROJ-BUILD-43"
+	m, _ = send(m, buildLoadedMsg{Gen: 1, Build: other})
+	require.Equal(t, "PROJ-BUILD-44", m.detail.Key)
+}
+
+// TestStalePickerResponsesAreDropped: closing and reopening P, or switching
+// server, must not repopulate the picker from the earlier request.
+func TestStalePickerResponsesAreDropped(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.svc = testService()
+	m, _ = send(m, mkKey("P"))
+	stale := m.pickerGen
+	m.pickerGen++
+
+	m, _ = send(m, projectsLoadedMsg{Gen: stale, Projects: []provider.Project{{Key: "OLD"}}})
+	require.Equal(t, 0, m.picker.len())
+
+	m, _ = send(m, branchesLoadedMsg{Gen: stale, MasterKey: "OLD", Branches: nil})
+	require.Equal(t, 0, m.picker.len())
+}

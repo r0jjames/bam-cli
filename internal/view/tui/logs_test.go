@@ -247,3 +247,30 @@ func TestFollowingAJobThatIsNotInTheBuildDoesNothing(t *testing.T) {
 	require.False(t, m.logs.following)
 	require.Nil(t, cmd)
 }
+
+// TestFollowStartsFromTheProviderOffsetNotTheLineCount. app.JobLog.Next is
+// the provider's offset contract; the rendered line count is not, and it is
+// further wrong when several jobs are concatenated with separators.
+func TestFollowStartsFromTheProviderOffsetNotTheLineCount(t *testing.T) {
+	m := logModel()
+	m.logs.offset = 41 // what the server said, not len(lines)
+	require.NotEqual(t, len(m.logs.lines), m.logs.offset)
+
+	m, cmd := send(m, mkKey("f"))
+	require.True(t, m.logs.following)
+	require.NotNil(t, cmd)
+	require.Equal(t, 41, m.followFrom, "FollowLog must resume at the provider's offset")
+	m.stopFollow()
+}
+
+// TestFollowIsRefusedWhileSeveralJobsAreShown: the screen is a concatenation,
+// so there is no single job to resume, and appending to it would interleave
+// one job's output into another's.
+func TestFollowIsRefusedWhileSeveralJobsAreShown(t *testing.T) {
+	m := logModel()
+	m.logs.multi = true
+	m, cmd := send(m, mkKey("f"))
+	require.False(t, m.logs.following)
+	require.Nil(t, cmd)
+	require.Contains(t, m.status, "one job")
+}
