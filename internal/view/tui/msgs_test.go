@@ -73,7 +73,7 @@ func testService() *app.Service {
 func TestConnectCmdReportsServerAndUser(t *testing.T) {
 	svc := testService()
 	d := Deps{Connect: func(context.Context, string) (*app.Service, error) { return svc, nil }}
-	msg := connectCmd(d, "lab", 0)()
+	msg := connectCmd(t.Context(), d, "lab", 0)()
 	got, ok := msg.(connectedMsg)
 	require.True(t, ok, "got %T", msg)
 	require.Equal(t, "lab", got.Alias)
@@ -85,7 +85,7 @@ func TestConnectCmdReportsServerAndUser(t *testing.T) {
 func TestConnectCmdSurfacesFailureAsErrMsg(t *testing.T) {
 	boom := errors.New("no token for https://bamboo.lab.example")
 	d := Deps{Connect: func(context.Context, string) (*app.Service, error) { return nil, boom }}
-	msg := connectCmd(d, "lab", 0)()
+	msg := connectCmd(t.Context(), d, "lab", 0)()
 	got, ok := msg.(errMsg)
 	require.True(t, ok, "got %T", msg)
 	require.ErrorIs(t, got.Err, boom)

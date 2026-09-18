@@ -70,8 +70,14 @@ func (m Model) detailBody(width, height int) string {
 		"",
 	}
 
+	rows := buildTree(b, m.expanded)
+	// Window the tree around the cursor rather than truncating the body: the
+	// cursor can walk past the bottom, and enter or o on a row nobody can see
+	// acts on the wrong thing.
+	start, end := treeWindow(m.treeCursor, len(rows), height-len(lines)-failedTestLines(b))
 	nameWidth := maxNameWidth(width)
-	for i, r := range buildTree(b, m.expanded) {
+	for i := start; i < end; i++ {
+		r := rows[i]
 		indent := ""
 		if r.Kind == rowJob {
 			indent = "  "
@@ -97,6 +103,33 @@ func (m Model) detailBody(width, height int) string {
 		lines = lines[:height]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// failedTestLines is the room the failed-test footer needs, so the window
+// does not claim it.
+func failedTestLines(b provider.Build) int {
+	if len(b.FailedTests) > 0 {
+		return 2
+	}
+	return 0
+}
+
+// treeWindow keeps the cursor inside the rows that are drawn.
+func treeWindow(cursor, n, height int) (int, int) {
+	if height <= 0 || n == 0 {
+		return 0, 0
+	}
+	if height >= n {
+		return 0, n
+	}
+	start := cursor - height + 1
+	if start < 0 {
+		start = 0
+	}
+	if maxStart := n - height; start > maxStart {
+		start = maxStart
+	}
+	return start, start + height
 }
 
 // maxNameWidth leaves room for the cursor, the glyph and the duration, and

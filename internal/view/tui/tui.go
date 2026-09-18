@@ -44,7 +44,7 @@ func Run(ctx context.Context, d Deps) error {
 			WithTry("bam server add work --url https://bamboo.example.com")
 	}
 	m := New(d)
-	switch msg := connectCmd(d, d.Initial, 0)().(type) {
+	switch msg := connectCmd(ctx, d, d.Initial, 0)().(type) {
 	case errMsg:
 		return msg.Err
 	case connectedMsg:

@@ -106,7 +106,7 @@ type Model struct {
 	plansGen, buildsGen, logsGen int
 	watchGen, followGen          int
 	connGen, detailGen           int
-	pickerGen                    int
+	pickerGen, presetsGen        int
 
 	watchCancel context.CancelFunc
 	watchCh     <-chan app.Event
@@ -159,11 +159,6 @@ func (m *Model) loadBuilds(planKey string, clear bool) tea.Cmd {
 	return loadBuildsCmd(context.Background(), m.svc, planKey, buildsPerPlan, m.buildsGen)
 }
 
-func (m *Model) loadLogs(b provider.Build, jobKey string, all bool) tea.Cmd {
-	m.logsGen++
-	return loadLogsCmd(context.Background(), m.svc, b, jobKey, all, m.logsGen)
-}
-
 // connected folds the start-up handshake's result into the model, so Init
 // does not dial a second time.
 func (m Model) connected(msg connectedMsg) Model {
@@ -179,10 +174,10 @@ func (m Model) Init() tea.Cmd {
 		m.plans.loading = true
 		cmds = append(cmds, m.loadPlans())
 	case m.deps.Connect != nil:
-		cmds = append(cmds, connectCmd(m.deps, m.server, m.connGen))
+		cmds = append(cmds, connectCmd(context.Background(), m.deps, m.server, m.connGen))
 	}
 	if m.deps.Targets != nil {
-		cmds = append(cmds, loadPresetsCmd(m.deps))
+		cmds = append(cmds, loadPresetsCmd(m.deps, m.presetsGen))
 	}
 	return tea.Batch(cmds...)
 }
@@ -220,6 +215,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.builds.setItems(msg.Builds)
 		return m, nil
 	case presetsLoadedMsg:
+		if msg.Gen != m.presetsGen {
+			return m, nil
+		}
 		m.presets.setItems(msg.Targets)
 		return m, nil
 	case projectsLoadedMsg:
@@ -466,7 +464,8 @@ func (m Model) refresh() (tea.Model, tea.Cmd) {
 		if m.deps.Targets == nil {
 			return m, nil
 		}
-		return m, loadPresetsCmd(m.deps)
+		m.presetsGen++
+		return m, loadPresetsCmd(m.deps, m.presetsGen)
 	}
 	if m.svc == nil {
 		return m, nil
@@ -521,8 +520,7 @@ func (m Model) chooseOverlay() (tea.Model, tea.Cmd) {
 		return m, m.loadPlans()
 	case overlayBranches:
 		m.overlay = overlayNone
-		m.stopWatch()
-		m.detail, m.expanded, m.treeCursor = nil, nil, 0
+		m.leaveBuild()
 		m.buildsPlan = it.Value
 		m.focus = focusBuilds
 		return m, m.loadBuilds(it.Value, true)
@@ -534,12 +532,15 @@ func (m Model) chooseOverlay() (tea.Model, tea.Cmd) {
 // switchServer drops everything that belonged to the old server: its build,
 // its watch, its panels. Nothing keyed to one origin is shown under another.
 func (m Model) switchServer(alias string) (tea.Model, tea.Cmd) {
-	m.stopWatch()
-	m.server, m.svc, m.detail = alias, nil, nil
-	m.expanded, m.treeCursor = nil, 0
+	m.leaveBuild()
+	m.server, m.svc = alias, nil
 	m.buildsPlan = ""
+	// The project filter names a project of the server being left; keeping it
+	// would hide every plan on the new one.
+	m.project = ""
 	m.plans.setItems(nil)
 	m.builds.setItems(nil)
+	m.presets.setItems(nil)
 	m.err = nil
 	// Clearing the rows is not enough: a request already in flight for the
 	// server being left would still match these generations and repopulate
@@ -548,11 +549,17 @@ func (m Model) switchServer(alias string) (tea.Model, tea.Cmd) {
 	m.buildsGen++
 	m.detailGen++
 	m.logsGen++
-	if m.deps.Connect == nil {
-		return m, nil
+	m.presetsGen++
+
+	cmds := []tea.Cmd{}
+	if m.deps.Targets != nil {
+		cmds = append(cmds, loadPresetsCmd(m.deps, m.presetsGen))
 	}
-	m.connGen++
-	return m, connectCmd(m.deps, alias, m.connGen)
+	if m.deps.Connect != nil {
+		m.connGen++
+		cmds = append(cmds, connectCmd(context.Background(), m.deps, alias, m.connGen))
+	}
+	return m, tea.Batch(cmds...)
 }
 
 // moveFocused moves exactly one cursor: the focused panel's.
@@ -621,6 +628,15 @@ func (m Model) selectedTreeRow() (treeRow, bool) {
 	return rows[m.treeCursor], true
 }
 
+// leaveBuild drops the build the main panel is showing and the watch on it.
+// Every path that changes which plan the Builds panel holds calls it: the
+// open build belongs to the plan being left, and its watch would keep
+// overwriting the main panel while the new plan loads.
+func (m *Model) leaveBuild() {
+	m.stopWatch()
+	m.detail, m.expanded, m.treeCursor = nil, nil, 0
+}
+
 // drill is spec §4.1. Each row moves focus and starts the load its panel needs.
 func (m Model) drill() (tea.Model, tea.Cmd) {
 	switch m.focus {
@@ -630,6 +646,7 @@ func (m Model) drill() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.focus = focusBuilds
+		m.leaveBuild()
 		return m, m.loadBuilds(p.Key, true)
 	case focusBuilds:
 		b, ok := m.builds.selected()
@@ -655,6 +672,7 @@ func (m Model) drill() (tea.Model, tea.Cmd) {
 			}
 		}
 		m.focus = focusBuilds
+		m.leaveBuild()
 		m.buildsGen++
 		m.builds.loading = true
 		m.builds.setItems(nil)
@@ -744,6 +762,10 @@ func (m Model) handleLogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.overlay = overlayError
 		}
 		return m, nil
+	case key.Matches(msg, keys.AllLogs):
+		// The failed-log error advises pressing a, so a has to work here and
+		// not fall through to the viewport.
+		return m.openLogs("", true)
 	case key.Matches(msg, keys.Follow):
 		return m.toggleFollow()
 	case key.Matches(msg, keys.Filter):
@@ -769,7 +791,14 @@ func (m Model) openLogs(jobKey string, all bool) (tea.Model, tea.Cmd) {
 	}
 	m.screen = screenLogs
 	m.logs = logState{all: all}
-	return m, m.loadLogs(b, jobKey, all)
+	m.logsGen++
+	// ListBuilds returns builds without their stage and job tree, so a row
+	// straight from the Builds panel has no job to take a log from. Expand it
+	// first rather than reporting that it has no failed job.
+	if len(b.Stages) == 0 {
+		return m, logsForKeyCmd(context.Background(), m.svc, b.Key, jobKey, all, m.logsGen)
+	}
+	return m, loadLogsCmd(context.Background(), m.svc, b, jobKey, all, m.logsGen)
 }
 
 // copiedMsg says the URL reached the terminal's clipboard.

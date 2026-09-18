@@ -37,7 +37,10 @@ type buildsLoadedMsg struct {
 	Builds  []provider.Build
 }
 
-type presetsLoadedMsg struct{ Targets []app.TargetInfo }
+type presetsLoadedMsg struct {
+	Gen     int
+	Targets []app.TargetInfo
+}
 
 // errMsg is a failure to show, never a failure to exit on. Where names the
 // panel so the status line can say what did not load.
@@ -46,9 +49,8 @@ type errMsg struct {
 	Where string
 }
 
-func connectCmd(d Deps, alias string, gen int) tea.Cmd {
+func connectCmd(ctx context.Context, d Deps, alias string, gen int) tea.Cmd {
 	return func() tea.Msg {
-		ctx := context.Background()
 		svc, err := d.Connect(ctx, alias)
 		if err != nil {
 			return errMsg{Err: err, Where: "connect"}
@@ -100,13 +102,13 @@ func loadBuildsCmd(ctx context.Context, svc *app.Service, planKey string, limit 
 	}
 }
 
-func loadPresetsCmd(d Deps) tea.Cmd {
+func loadPresetsCmd(d Deps, gen int) tea.Cmd {
 	return func() tea.Msg {
 		ts, err := d.Targets()
 		if err != nil {
 			return errMsg{Err: err, Where: "presets"}
 		}
-		return presetsLoadedMsg{Targets: ts}
+		return presetsLoadedMsg{Gen: gen, Targets: ts}
 	}
 }
 
@@ -130,6 +132,12 @@ func loadLogsCmd(ctx context.Context, svc *app.Service, b provider.Build, jobKey
 			return errMsg{Err: err, Where: "logs"}
 		}
 		if len(jobs) == 0 {
+			// Say what is actually missing: advising "press a" when a was
+			// already pressed is worse than saying nothing.
+			if all {
+				return errMsg{Err: errs.Bamboof("%s has no job logs", b.Key).
+					WithWhy("the build has no jobs, or the server kept no log for them"), Where: "logs"}
+			}
 			return errMsg{Err: errs.Bamboof("no failed job in %s", b.Key).
 				WithTry("press a for every job's log"), Where: "logs"}
 		}
@@ -172,14 +180,17 @@ func followCmd(ctx context.Context, svc *app.Service, buildKey string, job provi
 	lines := make(chan []string, 8)
 	done := make(chan error, 1)
 	go func() {
-		defer close(lines)
 		err := svc.FollowLog(ctx, buildKey, job, offset, func(ls []string) {
 			select {
 			case lines <- ls:
 			case <-ctx.Done():
 			}
 		})
+		// The error is published before the channel closes, so a drain that
+		// sees the close always finds the outcome waiting. Closing first
+		// would let a real failure be read as a clean end.
 		done <- err
+		close(lines)
 	}()
 	return lines, done
 }
@@ -217,6 +228,18 @@ func resolveTargetBuildsCmd(ctx context.Context, svc *app.Service, target app.Ta
 			return errMsg{Err: err, Where: "builds"}
 		}
 		return buildsLoadedMsg{Gen: gen, PlanKey: ref.PlanKey, Builds: builds}
+	}
+}
+
+// logsForKeyCmd reads a build in full and then its logs, for a row that came
+// from a listing and therefore carries no stages.
+func logsForKeyCmd(ctx context.Context, svc *app.Service, buildKey, jobKey string, all bool, gen int) tea.Cmd {
+	return func() tea.Msg {
+		b, err := svc.Build(ctx, buildKey)
+		if err != nil {
+			return errMsg{Err: err, Where: "logs"}
+		}
+		return loadLogsCmd(ctx, svc, b, jobKey, all, gen)()
 	}
 }
 
