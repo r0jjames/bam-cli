@@ -183,6 +183,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.picker.setItems(items)
 		m.picker.cursor = indexOf(items, m.buildsPlan)
 		return m, nil
+	case copiedMsg:
+		m.status = "copied to clipboard (osc 52)"
+		return m, nil
 	case logChunkMsg:
 		m.logs.appendLines(msg.Lines)
 		return m, drainFollowCmd(m.followLines, m.followDone)
@@ -256,6 +259,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.logs.nextMatch(1)
 	case key.Matches(msg, keys.PrevMatch):
 		m.logs.nextMatch(-1)
+	case key.Matches(msg, keys.Open):
+		return m.openSelection()
+	case key.Matches(msg, keys.Copy):
+		return m.copySelection()
 	case key.Matches(msg, keys.Logs):
 		return m.openLogs("", false)
 	case key.Matches(msg, keys.AllLogs):
@@ -620,6 +627,10 @@ func (m Model) handleLogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Top):
 		m.logs.vp.GotoTop()
 		return m, nil
+	case key.Matches(msg, keys.Open):
+		return m.openSelection()
+	case key.Matches(msg, keys.Copy):
+		return m.copySelection()
 	case key.Matches(msg, keys.Follow):
 		return m.toggleFollow()
 	case key.Matches(msg, keys.Filter):
@@ -646,6 +657,66 @@ func (m Model) openLogs(jobKey string, all bool) (tea.Model, tea.Cmd) {
 	m.screen = screenLogs
 	m.logs = logState{all: all}
 	return m, loadLogsCmd(context.Background(), m.svc, b, jobKey, all)
+}
+
+// copiedMsg says the URL reached the terminal's clipboard.
+type copiedMsg struct{}
+
+// selectionURL is the Bamboo URL of whatever the focused panel points at, so
+// o and y always act on what the user is looking at.
+func (m Model) selectionURL() string {
+	if m.screen == screenLogs && m.logs.url != "" {
+		return m.logs.url
+	}
+	switch m.focus {
+	case focusPlans:
+		if p, ok := m.plans.selected(); ok {
+			return p.URL
+		}
+	case focusBuilds:
+		if b, ok := m.builds.selected(); ok {
+			return b.URL
+		}
+	case focusMain:
+		// A stage has no URL of its own, so the build's stands in.
+		if row, ok := m.selectedTreeRow(); ok && row.URL != "" {
+			return row.URL
+		}
+		if m.detail != nil {
+			return m.detail.URL
+		}
+	}
+	return ""
+}
+
+// openSelection and copySelection are shared by the columns and the log
+// screen, so o and y mean the same thing on both.
+func (m Model) openSelection() (tea.Model, tea.Cmd) {
+	url := m.selectionURL()
+	if url == "" || m.deps.Open == nil {
+		return m, nil
+	}
+	open := m.deps.Open
+	return m, func() tea.Msg {
+		if err := open(url); err != nil {
+			return errMsg{Err: err, Where: "open"}
+		}
+		return nil
+	}
+}
+
+func (m Model) copySelection() (tea.Model, tea.Cmd) {
+	url := m.selectionURL()
+	if url == "" || m.deps.Clipboard == nil {
+		return m, nil
+	}
+	w := m.deps.Clipboard
+	return m, func() tea.Msg {
+		if err := osc52(w, url); err != nil {
+			return errMsg{Err: err, Where: "copy"}
+		}
+		return copiedMsg{}
+	}
 }
 
 // toggleFollow starts or stops streaming the open job's log. Following polls
