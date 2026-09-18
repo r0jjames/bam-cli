@@ -2,9 +2,11 @@ package tui
 
 import (
 	"context"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/r0jjames/bam-cli/internal/app"
 	"github.com/r0jjames/bam-cli/internal/provider"
 )
@@ -80,6 +82,8 @@ type Model struct {
 
 	watchCancel context.CancelFunc
 
+	now func() time.Time
+
 	err    error
 	status string
 }
@@ -94,6 +98,7 @@ func New(d Deps) Model {
 		plans:   newList(func(p provider.Plan) string { return p.Key + " " + p.Name }),
 		builds:  newList(func(b provider.Build) string { return b.Key + " " + b.Branch + " " + b.Reason }),
 		presets: newList(func(t app.TargetInfo) string { return t.Name + " " + t.Plan }),
+		now:     time.Now,
 	}
 }
 
@@ -208,5 +213,25 @@ func (m *Model) stopWatch() {
 	}
 }
 
-// View is filled in by Task 7.
-func (m Model) View() string { return "" }
+func (m Model) View() string {
+	if m.width < 4 || m.height < 4 {
+		return ""
+	}
+	if m.screen == screenLogs {
+		return m.logsView()
+	}
+	return m.columnsView()
+}
+
+func (m Model) columnsView() string {
+	body := m.height - 1 // the status bar
+	lw := leftWidth(m.width)
+	return lipgloss.JoinVertical(lipgloss.Left,
+		lipgloss.JoinHorizontal(lipgloss.Top,
+			m.leftColumn(lw, body),
+			m.mainPanel(m.width-lw, body)),
+		m.statusBar(m.width))
+}
+
+// logsView is filled in by Task 18.
+func (m Model) logsView() string { return "" }
