@@ -167,3 +167,80 @@ func TestSlashInAPanelFiltersThatPanel(t *testing.T) {
 	sel, _ := m.plans.selected()
 	require.Equal(t, "OPS-NIGHTLY", sel.Key)
 }
+
+// TestDrainFollowDeliversOneChunkPerCall, the same pattern the watch uses.
+func TestDrainFollowDeliversOneChunkPerCall(t *testing.T) {
+	lines := make(chan []string, 2)
+	done := make(chan error, 1)
+	lines <- []string{"12:07:02  still running"}
+	lines <- []string{"12:07:05  done"}
+	close(lines)
+	done <- nil
+
+	first := drainFollowCmd(lines, done)().(logChunkMsg)
+	require.Equal(t, []string{"12:07:02  still running"}, first.Lines)
+
+	second := drainFollowCmd(lines, done)().(logChunkMsg)
+	require.Equal(t, []string{"12:07:05  done"}, second.Lines)
+
+	end := drainFollowCmd(lines, done)()
+	require.IsType(t, followEndedMsg{}, end)
+	require.NoError(t, end.(followEndedMsg).Err)
+}
+
+func TestLogChunkAppendsAndStaysPinnedToTheBottom(t *testing.T) {
+	m := logModel()
+	m.logs.vp.GotoBottom()
+	before := len(m.logs.lines)
+	m, _ = send(m, logChunkMsg{Lines: []string{"12:07:05  done"}})
+	require.Len(t, m.logs.lines, before+1)
+	require.True(t, m.logs.vp.AtBottom())
+}
+
+func TestFToggleStartsAndStopsFollowing(t *testing.T) {
+	m := logModel()
+
+	m, cmd := send(m, mkKey("f"))
+	require.True(t, m.logs.following)
+	require.NotNil(t, cmd)
+	require.NotNil(t, m.followCancel)
+
+	m.followCancel()
+	stopped := false
+	m.followCancel = func() { stopped = true }
+	m, _ = send(m, mkKey("f"))
+	require.False(t, m.logs.following)
+	require.True(t, stopped)
+	require.Nil(t, m.followCancel)
+}
+
+// TestLeavingTheLogScreenStopsFollowing: no goroutine outlives the screen.
+func TestLeavingTheLogScreenStopsFollowing(t *testing.T) {
+	m := logModel()
+	m.logs.following = true
+	stopped := false
+	m.followCancel = func() { stopped = true }
+	m, _ = send(m, mkKey("esc"))
+	require.Equal(t, screenColumns, m.screen)
+	require.True(t, stopped)
+	require.Nil(t, m.followCancel)
+}
+
+func TestFollowEndedShowsAnErrorWithoutQuitting(t *testing.T) {
+	m := logModel()
+	m.logs.following = true
+	m, cmd := send(m, followEndedMsg{Err: errBoom})
+	require.False(t, m.logs.following)
+	require.Error(t, m.err)
+	require.Nil(t, cmd)
+	require.Equal(t, screenLogs, m.screen)
+}
+
+// TestFollowingAJobThatIsNotInTheBuildDoesNothing.
+func TestFollowingAJobThatIsNotInTheBuildDoesNothing(t *testing.T) {
+	m := logModel()
+	m.logs.jobKey = "PROJ-BUILD-GONE-44"
+	m, cmd := send(m, mkKey("f"))
+	require.False(t, m.logs.following)
+	require.Nil(t, cmd)
+}

@@ -138,6 +138,45 @@ func loadLogsCmd(ctx context.Context, svc *app.Service, b provider.Build, jobKey
 	}
 }
 
+type logChunkMsg struct{ Lines []string }
+
+type followEndedMsg struct{ Err error }
+
+// followCmd runs app.FollowLog in its own goroutine and adapts its emit
+// callback into a channel. FollowLog blocks until the job finishes, so this
+// is the one place the UI starts a goroutine, and ending ctx ends it.
+func followCmd(ctx context.Context, svc *app.Service, buildKey string, job provider.Job, offset int) (<-chan []string, <-chan error) {
+	lines := make(chan []string, 8)
+	done := make(chan error, 1)
+	go func() {
+		defer close(lines)
+		err := svc.FollowLog(ctx, buildKey, job, offset, func(ls []string) {
+			select {
+			case lines <- ls:
+			case <-ctx.Done():
+			}
+		})
+		done <- err
+	}()
+	return lines, done
+}
+
+// drainFollowCmd takes one chunk off the channel, or reports the end. The
+// model re-issues it after each chunk, so Update never ranges over a channel.
+func drainFollowCmd(lines <-chan []string, done <-chan error) tea.Cmd {
+	return func() tea.Msg {
+		if ls, ok := <-lines; ok {
+			return logChunkMsg{Lines: ls}
+		}
+		select {
+		case err := <-done:
+			return followEndedMsg{Err: err}
+		default:
+			return followEndedMsg{}
+		}
+	}
+}
+
 type buildLoadedMsg struct{ Build provider.Build }
 
 // reloadBuildCmd re-reads one build. It goes through Service.Build rather

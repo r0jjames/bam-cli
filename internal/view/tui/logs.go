@@ -36,6 +36,17 @@ func (l *logState) setLines(width, height int, lines []string) {
 	l.vp.GotoBottom()
 }
 
+// appendLines adds streamed lines and keeps the view pinned to the bottom
+// only when the reader was already there.
+func (l *logState) appendLines(more []string) {
+	atBottom := l.vp.AtBottom()
+	l.lines = append(l.lines, more...)
+	l.vp.SetContent(strings.Join(l.lines, "\n"))
+	if atBottom {
+		l.vp.GotoBottom()
+	}
+}
+
 // logsView is the whole terminal: a header, the viewport, a key line.
 func (m Model) logsView() string {
 	if m.height < 3 {

@@ -102,6 +102,10 @@ type Model struct {
 	watchCancel context.CancelFunc
 	watchCh     <-chan app.Event
 
+	followCancel context.CancelFunc
+	followLines  <-chan []string
+	followDone   <-chan error
+
 	now func() time.Time
 
 	err    error
@@ -178,6 +182,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.picker.setItems(items)
 		m.picker.cursor = indexOf(items, m.buildsPlan)
+		return m, nil
+	case logChunkMsg:
+		m.logs.appendLines(msg.Lines)
+		return m, drainFollowCmd(m.followLines, m.followDone)
+	case followEndedMsg:
+		m.stopFollow()
+		if msg.Err != nil {
+			m.err = msg.Err
+		}
 		return m, nil
 	case logsLoadedMsg:
 		m.logs.title, m.logs.jobKey, m.logs.url, m.logs.all = msg.Title, msg.JobKey, msg.URL, msg.All
@@ -607,6 +620,8 @@ func (m Model) handleLogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Top):
 		m.logs.vp.GotoTop()
 		return m, nil
+	case key.Matches(msg, keys.Follow):
+		return m.toggleFollow()
 	case key.Matches(msg, keys.Filter):
 		return m.startInput()
 	case key.Matches(msg, keys.NextMatch):
@@ -633,6 +648,48 @@ func (m Model) openLogs(jobKey string, all bool) (tea.Model, tea.Cmd) {
 	return m, loadLogsCmd(context.Background(), m.svc, b, jobKey, all)
 }
 
+// toggleFollow starts or stops streaming the open job's log. Following polls
+// that job only; it never touches the build.
+func (m Model) toggleFollow() (tea.Model, tea.Cmd) {
+	if m.logs.following {
+		m.stopFollow()
+		return m, nil
+	}
+	b, ok := m.currentBuild()
+	if !ok || m.svc == nil || m.logs.jobKey == "" {
+		return m, nil
+	}
+	job, ok := jobByKey(b, m.logs.jobKey)
+	if !ok {
+		return m, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.followCancel = cancel
+	m.logs.following = true
+	m.followLines, m.followDone = followCmd(ctx, m.svc, b.Key, job, len(m.logs.lines))
+	return m, drainFollowCmd(m.followLines, m.followDone)
+}
+
+func (m *Model) stopFollow() {
+	if m.followCancel != nil {
+		m.followCancel()
+		m.followCancel = nil
+	}
+	m.followLines, m.followDone = nil, nil
+	m.logs.following = false
+}
+
+func jobByKey(b provider.Build, key string) (provider.Job, bool) {
+	for _, st := range b.Stages {
+		for _, j := range st.Jobs {
+			if j.Key == key {
+				return j, true
+			}
+		}
+	}
+	return provider.Job{}, false
+}
+
 // currentBuild is the open build when there is one, otherwise whatever the
 // Builds cursor points at.
 func (m Model) currentBuild() (provider.Build, bool) {
@@ -649,6 +706,7 @@ func (m Model) back() (tea.Model, tea.Cmd) {
 		m.overlay = overlayNone
 		return m, nil
 	case m.screen == screenLogs:
+		m.stopFollow()
 		m.screen = screenColumns
 		return m, nil
 	case m.focus != focusPlans:
@@ -662,6 +720,7 @@ func (m Model) back() (tea.Model, tea.Cmd) {
 // build; only bam build cancel does.
 func (m Model) quit() (tea.Model, tea.Cmd) {
 	m.stopWatch()
+	m.stopFollow()
 	return m, tea.Quit
 }
 
