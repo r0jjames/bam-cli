@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/r0jjames/bam-cli/internal/provider"
 	"github.com/stretchr/testify/require"
 )
 
@@ -88,4 +89,68 @@ func TestWindowSizeIsRemembered(t *testing.T) {
 	m, _ := send(testModel(), tea.WindowSizeMsg{Width: 120, Height: 40})
 	require.Equal(t, 120, m.width)
 	require.Equal(t, 40, m.height)
+}
+
+// TestMovementAppliesToTheFocusedPanel: j and k must not move two cursors.
+func TestMovementAppliesToTheFocusedPanel(t *testing.T) {
+	m := testModel()
+	m, _ = send(m, plansLoadedMsg{Plans: []provider.Plan{{Key: "A"}, {Key: "B"}}})
+	m, _ = send(m, buildsLoadedMsg{PlanKey: "A", Builds: []provider.Build{{Key: "A-1"}, {Key: "A-2"}}})
+
+	m, _ = send(m, mkKey("j"))
+	require.Equal(t, 1, m.plans.cursor)
+	require.Equal(t, 0, m.builds.cursor)
+
+	m.focus = focusBuilds
+	m, _ = send(m, mkKey("j"))
+	require.Equal(t, 1, m.plans.cursor, "the plans cursor must not move")
+	require.Equal(t, 1, m.builds.cursor)
+}
+
+func TestGAndShiftGJumpToTheEnds(t *testing.T) {
+	m := testModel()
+	m, _ = send(m, plansLoadedMsg{Plans: []provider.Plan{{Key: "A"}, {Key: "B"}, {Key: "C"}}})
+	m, _ = send(m, mkKey("G"))
+	require.Equal(t, 2, m.plans.cursor)
+	m, _ = send(m, mkKey("g"))
+	require.Equal(t, 0, m.plans.cursor)
+}
+
+// TestEnterOnBuildsOpensDetailAndFocusesMain is spec §4.1's second row.
+func TestEnterOnBuildsOpensDetailAndFocusesMain(t *testing.T) {
+	m := testModel()
+	m.svc = testService()
+	m, _ = send(m, buildsLoadedMsg{PlanKey: "PROJ-BUILD", Builds: []provider.Build{sampleBuild()}})
+	m.focus = focusBuilds
+
+	m, cmd := send(m, mkKey("enter"))
+	require.Equal(t, focusMain, m.focus)
+	require.NotNil(t, m.detail)
+	require.Equal(t, "PROJ-BUILD-44", m.detail.Key)
+	require.True(t, m.expanded["Test"], "the failed stage opens")
+	require.NotNil(t, cmd, "opening a build starts its watch")
+}
+
+func TestEnterOnAStageTogglesIt(t *testing.T) {
+	m := testModel()
+	m.detail, m.expanded, m.focus = ptr(sampleBuild()), map[string]bool{}, focusMain
+	require.Len(t, m.treeRows(), 3)
+
+	m, _ = send(m, mkKey("enter")) // the cursor is on Build
+	require.True(t, m.expanded["Build"])
+	require.Len(t, m.treeRows(), 5)
+
+	m, _ = send(m, mkKey("enter"))
+	require.False(t, m.expanded["Build"])
+	require.Len(t, m.treeRows(), 3)
+}
+
+// TestTreeCursorClampsWhenAStageCollapses: collapsing above the cursor must
+// not leave it pointing past the end.
+func TestTreeCursorClampsWhenAStageCollapses(t *testing.T) {
+	m := testModel()
+	m.detail, m.expanded, m.focus = ptr(sampleBuild()), map[string]bool{"Build": true}, focusMain
+	m.treeCursor = 4 // the last row while Build is open
+	m, _ = send(m, mkKey("enter"))
+	require.Less(t, m.treeCursor, len(m.treeRows()))
 }

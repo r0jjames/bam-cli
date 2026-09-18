@@ -85,6 +85,7 @@ type Model struct {
 	presets listState[app.TargetInfo]
 
 	watchCancel context.CancelFunc
+	watchCh     <-chan app.Event
 
 	now func() time.Time
 
@@ -166,10 +167,84 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.focus = focusBuilds
 	case key.Matches(msg, keys.Panel3):
 		m.focus = focusPresets
+	case key.Matches(msg, keys.Down):
+		m.moveFocused(1)
+	case key.Matches(msg, keys.Up):
+		m.moveFocused(-1)
+	case key.Matches(msg, keys.Top):
+		m.jumpFocused(true)
+	case key.Matches(msg, keys.Bottom):
+		m.jumpFocused(false)
 	case key.Matches(msg, keys.Enter):
 		return m.drill()
 	}
 	return m, nil
+}
+
+// moveFocused moves exactly one cursor: the focused panel's.
+func (m *Model) moveFocused(delta int) {
+	switch m.focus {
+	case focusPlans:
+		m.plans.move(delta)
+	case focusBuilds:
+		m.builds.move(delta)
+	case focusPresets:
+		m.presets.move(delta)
+	case focusMain:
+		m.treeCursor += delta
+		m.clampTree()
+	}
+}
+
+func (m *Model) jumpFocused(top bool) {
+	switch m.focus {
+	case focusPlans:
+		jump(&m.plans, top)
+	case focusBuilds:
+		jump(&m.builds, top)
+	case focusPresets:
+		jump(&m.presets, top)
+	case focusMain:
+		m.treeCursor = 0
+		if !top {
+			m.treeCursor = len(m.treeRows()) - 1
+		}
+		m.clampTree()
+	}
+}
+
+func jump[T any](l *listState[T], top bool) {
+	if top {
+		l.top()
+		return
+	}
+	l.bottom()
+}
+
+func (m *Model) clampTree() {
+	n := len(m.treeRows())
+	if m.treeCursor >= n {
+		m.treeCursor = n - 1
+	}
+	if m.treeCursor < 0 {
+		m.treeCursor = 0
+	}
+}
+
+// treeRows is the stage and job tree of the open build, or nothing.
+func (m Model) treeRows() []treeRow {
+	if m.detail == nil {
+		return nil
+	}
+	return buildTree(*m.detail, m.expanded)
+}
+
+func (m Model) selectedTreeRow() (treeRow, bool) {
+	rows := m.treeRows()
+	if m.treeCursor < 0 || m.treeCursor >= len(rows) {
+		return treeRow{}, false
+	}
+	return rows[m.treeCursor], true
 }
 
 // drill is spec §4.1. Each row moves focus and starts the load its panel needs.
@@ -183,9 +258,50 @@ func (m Model) drill() (tea.Model, tea.Cmd) {
 		m.focus = focusBuilds
 		m.builds.loading = true
 		return m, loadBuildsCmd(context.Background(), m.svc, p.Key, buildsPerPlan)
+	case focusBuilds:
+		b, ok := m.builds.selected()
+		if !ok || m.svc == nil {
+			return m, nil
+		}
+		m.focus = focusMain
+		m.detail = &b
+		m.expanded = defaultExpanded(b)
+		m.treeCursor = 0
+		return m.startWatch(b.Key)
+	case focusMain:
+		row, ok := m.selectedTreeRow()
+		if !ok {
+			return m, nil
+		}
+		if row.Kind == rowStage {
+			if m.expanded == nil {
+				m.expanded = map[string]bool{}
+			}
+			m.expanded[row.Name] = !m.expanded[row.Name]
+			m.clampTree()
+			return m, nil
+		}
+		return m.openLogs(row.Key, false)
 	}
 	return m, nil
 }
+
+// startWatch begins watching key and cancels whatever was being watched
+// before. At most one watch runs, so the UI polls at most one build and
+// inherits app.Watch's own backoff. Ending a watch never stops the build.
+func (m Model) startWatch(key string) (tea.Model, tea.Cmd) {
+	m.stopWatch()
+	if m.svc == nil {
+		return m, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.watchCancel = cancel
+	m.watchCh = m.svc.Watch(ctx, key)
+	return m, watchCmd(m.watchCh)
+}
+
+// openLogs is implemented in Task 18.
+func (m Model) openLogs(string, bool) (tea.Model, tea.Cmd) { return m, nil }
 
 // back pops exactly one level, in the order spec §4.1 fixes.
 func (m Model) back() (tea.Model, tea.Cmd) {
@@ -215,6 +331,7 @@ func (m *Model) stopWatch() {
 		m.watchCancel()
 		m.watchCancel = nil
 	}
+	m.watchCh = nil
 }
 
 func (m Model) View() string {

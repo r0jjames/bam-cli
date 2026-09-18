@@ -98,3 +98,22 @@ func loadPresetsCmd(d Deps) tea.Cmd {
 		return presetsLoadedMsg{Targets: ts}
 	}
 }
+
+type watchEventMsg struct{ Event app.Event }
+
+// watchClosedMsg says the watch channel ended without a done event, which
+// happens when the context was cancelled.
+type watchClosedMsg struct{}
+
+// watchCmd takes exactly one event off the channel. The model re-issues it
+// after each watchEventMsg, which is bubbletea's channel pattern: Update
+// stays pure and nothing ranges over a channel inside it.
+func watchCmd(ch <-chan app.Event) tea.Cmd {
+	return func() tea.Msg {
+		e, ok := <-ch
+		if !ok {
+			return watchClosedMsg{}
+		}
+		return watchEventMsg{Event: e}
+	}
+}
