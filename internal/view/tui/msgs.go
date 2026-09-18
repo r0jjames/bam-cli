@@ -42,26 +42,46 @@ type presetsLoadedMsg struct {
 	Targets []app.TargetInfo
 }
 
+// stream names an asynchronous conversation with the server. Each has its own
+// generation, so a message from one the user has left can be dropped.
+type stream int
+
+const (
+	streamNone stream = iota
+	streamConnect
+	streamPlans
+	streamBuilds
+	streamLogs
+	streamDetail
+	streamPicker
+	streamPresets
+	streamRun
+)
+
 // errMsg is a failure to show, never a failure to exit on. Where names the
-// panel so the status line can say what did not load.
+// panel so the status line can say what did not load; Stream and Gen say
+// which request it belongs to, so a failure from a request the user has
+// abandoned cannot replace the status of the one they are waiting on.
 type errMsg struct {
-	Err   error
-	Where string
+	Err    error
+	Where  string
+	Stream stream
+	Gen    int
 }
 
 func connectCmd(ctx context.Context, d Deps, alias string, gen int) tea.Cmd {
 	return func() tea.Msg {
 		svc, err := d.Connect(ctx, alias)
 		if err != nil {
-			return errMsg{Err: err, Where: "connect"}
+			return errMsg{Err: err, Where: "connect", Stream: streamConnect, Gen: gen}
 		}
 		info, err := svc.P.ServerInfo(ctx)
 		if err != nil {
-			return errMsg{Err: err, Where: "connect"}
+			return errMsg{Err: err, Where: "connect", Stream: streamConnect, Gen: gen}
 		}
 		user, err := svc.P.CurrentUser(ctx)
 		if err != nil {
-			return errMsg{Err: err, Where: "connect"}
+			return errMsg{Err: err, Where: "connect", Stream: streamConnect, Gen: gen}
 		}
 		return connectedMsg{Gen: gen, Alias: alias, Svc: svc, Info: info, User: user}
 	}
@@ -74,7 +94,7 @@ func loadPlansCmd(ctx context.Context, svc *app.Service, project string, gen int
 	return func() tea.Msg {
 		projects, err := svc.P.ListProjects(ctx)
 		if err != nil {
-			return errMsg{Err: err, Where: "plans"}
+			return errMsg{Err: err, Where: "plans", Stream: streamPlans, Gen: gen}
 		}
 		var out []provider.Plan
 		for _, p := range projects {
@@ -83,7 +103,7 @@ func loadPlansCmd(ctx context.Context, svc *app.Service, project string, gen int
 			}
 			plans, err := svc.P.ListPlans(ctx, p.Key)
 			if err != nil {
-				return errMsg{Err: err, Where: "plans"}
+				return errMsg{Err: err, Where: "plans", Stream: streamPlans, Gen: gen}
 			}
 			out = append(out, plans...)
 		}
@@ -96,7 +116,7 @@ func loadBuildsCmd(ctx context.Context, svc *app.Service, planKey string, limit 
 	return func() tea.Msg {
 		builds, err := svc.P.ListBuilds(ctx, planKey, provider.ListOptions{Limit: limit})
 		if err != nil {
-			return errMsg{Err: err, Where: "builds"}
+			return errMsg{Err: err, Where: "builds", Stream: streamBuilds, Gen: gen}
 		}
 		return buildsLoadedMsg{Gen: gen, PlanKey: planKey, Builds: builds}
 	}
@@ -106,7 +126,7 @@ func loadPresetsCmd(d Deps, gen int) tea.Cmd {
 	return func() tea.Msg {
 		ts, err := d.Targets()
 		if err != nil {
-			return errMsg{Err: err, Where: "presets"}
+			return errMsg{Err: err, Where: "presets", Stream: streamPresets, Gen: gen}
 		}
 		return presetsLoadedMsg{Gen: gen, Targets: ts}
 	}
@@ -129,17 +149,19 @@ func loadLogsCmd(ctx context.Context, svc *app.Service, b provider.Build, jobKey
 	return func() tea.Msg {
 		jobs, err := svc.Logs(ctx, b, app.LogsOptions{Failed: !all && jobKey == "", Job: jobKey})
 		if err != nil {
-			return errMsg{Err: err, Where: "logs"}
+			return errMsg{Err: err, Where: "logs", Stream: streamLogs, Gen: gen}
 		}
 		if len(jobs) == 0 {
 			// Say what is actually missing: advising "press a" when a was
 			// already pressed is worse than saying nothing.
 			if all {
 				return errMsg{Err: errs.Bamboof("%s has no job logs", b.Key).
-					WithWhy("the build has no jobs, or the server kept no log for them"), Where: "logs"}
+					WithWhy("the build has no jobs, or the server kept no log for them"),
+					Where: "logs", Stream: streamLogs, Gen: gen}
 			}
 			return errMsg{Err: errs.Bamboof("no failed job in %s", b.Key).
-				WithTry("press a for every job's log"), Where: "logs"}
+				WithTry("press a for every job's log"),
+				Where: "logs", Stream: streamLogs, Gen: gen}
 		}
 		var lines []string
 		for i, j := range jobs {
@@ -221,11 +243,11 @@ func resolveTargetBuildsCmd(ctx context.Context, svc *app.Service, target app.Ta
 		// started, and the service's copy would be the older one.
 		ref, err := svc.RefFromTarget(ctx, target)
 		if err != nil {
-			return errMsg{Err: err, Where: "presets"}
+			return errMsg{Err: err, Where: "presets", Stream: streamPresets, Gen: gen}
 		}
 		builds, err := svc.P.ListBuilds(ctx, ref.PlanKey, provider.ListOptions{Limit: buildsPerPlan})
 		if err != nil {
-			return errMsg{Err: err, Where: "builds"}
+			return errMsg{Err: err, Where: "builds", Stream: streamBuilds, Gen: gen}
 		}
 		return buildsLoadedMsg{Gen: gen, PlanKey: ref.PlanKey, Builds: builds}
 	}
@@ -237,7 +259,7 @@ func logsForKeyCmd(ctx context.Context, svc *app.Service, buildKey, jobKey strin
 	return func() tea.Msg {
 		b, err := svc.Build(ctx, buildKey)
 		if err != nil {
-			return errMsg{Err: err, Where: "logs"}
+			return errMsg{Err: err, Where: "logs", Stream: streamLogs, Gen: gen}
 		}
 		return loadLogsCmd(ctx, svc, b, jobKey, all, gen)()
 	}
@@ -255,7 +277,7 @@ func reloadBuildCmd(ctx context.Context, svc *app.Service, key string, gen int) 
 	return func() tea.Msg {
 		b, err := svc.Build(ctx, key)
 		if err != nil {
-			return errMsg{Err: err, Where: "build"}
+			return errMsg{Err: err, Where: "build", Stream: streamDetail, Gen: gen}
 		}
 		return buildLoadedMsg{Gen: gen, Build: b}
 	}
@@ -270,7 +292,7 @@ func loadProjectsCmd(ctx context.Context, svc *app.Service, gen int) tea.Cmd {
 	return func() tea.Msg {
 		ps, err := svc.P.ListProjects(ctx)
 		if err != nil {
-			return errMsg{Err: err, Where: "projects"}
+			return errMsg{Err: err, Where: "projects", Stream: streamPicker, Gen: gen}
 		}
 		return projectsLoadedMsg{Gen: gen, Projects: ps}
 	}
@@ -286,7 +308,7 @@ func loadBranchesCmd(ctx context.Context, svc *app.Service, masterKey string, ge
 	return func() tea.Msg {
 		bs, err := svc.P.ListBranches(ctx, masterKey)
 		if err != nil {
-			return errMsg{Err: err, Where: "branches"}
+			return errMsg{Err: err, Where: "branches", Stream: streamPicker, Gen: gen}
 		}
 		return branchesLoadedMsg{Gen: gen, MasterKey: masterKey, Branches: bs}
 	}

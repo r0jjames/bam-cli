@@ -387,3 +387,72 @@ func TestTheDetailTreeScrollsWithItsCursor(t *testing.T) {
 	require.Contains(t, m.detailBody(56, 18), last.Name,
 		"the row the cursor is on must be on screen")
 }
+
+// TestPresetsAreKeptToTheConnectedServer: a preset may name a server of its
+// own, and acting on one bound to another alias would resolve its plan
+// against the Bamboo the UI is not connected to.
+func TestPresetsAreKeptToTheConnectedServer(t *testing.T) {
+	m := testModel()
+	m.server = "lab"
+	m, _ = send(m, presetsLoadedMsg{Gen: m.presetsGen, Targets: []app.TargetInfo{
+		{Name: "lab-smoke", Plan: "LAB-SMOKE", Server: "lab"},
+		{Name: "any", Plan: "PROJ-BUILD"},
+		{Name: "work-only", Plan: "OPS-NIGHTLY", Server: "work"},
+	}})
+
+	names := []string{}
+	for _, t := range m.presets.rows() {
+		names = append(names, t.Name)
+	}
+	require.Equal(t, []string{"lab-smoke", "any"}, names)
+}
+
+// TestAStaleErrorDoesNotReplaceTheCurrentStatus.
+func TestAStaleErrorDoesNotReplaceTheCurrentStatus(t *testing.T) {
+	m := testModel()
+	m.plansGen = 5
+	m, _ = send(m, errMsg{Err: errBoom, Where: "plans", Stream: streamPlans, Gen: 4})
+	require.NoError(t, m.err)
+
+	m, _ = send(m, errMsg{Err: errBoom, Where: "plans", Stream: streamPlans, Gen: 5})
+	require.Error(t, m.err, "the current request's failure is shown")
+}
+
+// TestChangingTheProjectDropsTheOldProjectsBuildAndWatch.
+func TestChangingTheProjectDropsTheOldProjectsBuildAndWatch(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.svc = testService()
+	m.detail = ptr(sampleBuild())
+	m.buildsPlan = "PROJ-BUILD"
+	stopped := false
+	m.watchCancel = func() { stopped = true }
+
+	m, _ = send(m, mkKey("P"))
+	m, _ = send(m, projectsLoadedMsg{Gen: m.pickerGen, Projects: []provider.Project{{Key: "OPS"}}})
+	m, _ = send(m, mkKey("j")) // onto OPS
+	m, _ = send(m, mkKey("enter"))
+
+	require.Equal(t, "OPS", m.project)
+	require.True(t, stopped, "the old project's watch stops")
+	require.Nil(t, m.detail)
+	require.Equal(t, 0, m.plans.len(), "the old project's plans are not selectable while the new ones load")
+	require.Equal(t, 0, m.builds.len())
+}
+
+// TestTheWatchIsRootedInTheUIContext: bubbletea can return because its own
+// context was cancelled, without any key reaching quit.
+func TestTheWatchIsRootedInTheUIContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	m := testModel().withContext(ctx)
+	m.svc = testService()
+	m.builds.setItems([]provider.Build{{Key: "PROJ-BUILD-44", PlanKey: "PROJ-BUILD"}})
+	m.focus = focusBuilds
+
+	m, _ = send(m, mkKey("enter"))
+	require.NotNil(t, m.watchCh)
+
+	cancel()
+	// The watch's own channel closes because its parent went away.
+	for range m.watchCh { //nolint:revive // draining until closed is the assertion
+	}
+}

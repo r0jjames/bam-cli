@@ -43,7 +43,7 @@ func Run(ctx context.Context, d Deps) error {
 			WithWhy("bam has no server configured").
 			WithTry("bam server add work --url https://bamboo.example.com")
 	}
-	m := New(d)
+	m := New(d).withContext(ctx)
 	switch msg := connectCmd(ctx, d, d.Initial, 0)().(type) {
 	case errMsg:
 		return msg.Err
