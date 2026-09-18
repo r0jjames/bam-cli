@@ -83,6 +83,7 @@ type Model struct {
 	plans   listState[provider.Plan]
 	builds  listState[provider.Build]
 	presets listState[app.TargetInfo]
+	picker  listState[pickerItem]
 
 	watchCancel context.CancelFunc
 	watchCh     <-chan app.Event
@@ -103,6 +104,7 @@ func New(d Deps) Model {
 		plans:   newList(func(p provider.Plan) string { return p.Key + " " + p.Name }),
 		builds:  newList(func(b provider.Build) string { return b.Key + " " + b.Branch + " " + b.Reason }),
 		presets: newList(func(t app.TargetInfo) string { return t.Name + " " + t.Plan }),
+		picker:  newList(func(p pickerItem) string { return p.Label + " " + p.Detail }),
 		now:     time.Now,
 	}
 }
@@ -157,6 +159,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.overlay != overlayNone {
+		return m.handleOverlayKey(msg)
+	}
 	switch {
 	case key.Matches(msg, keys.Quit):
 		return m.quit()
@@ -182,8 +187,77 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.jumpFocused(false)
 	case key.Matches(msg, keys.Enter):
 		return m.drill()
+	case key.Matches(msg, keys.Server):
+		return m.openServerPicker()
 	}
 	return m, nil
+}
+
+// handleOverlayKey keeps overlay keys from reaching the panels underneath.
+func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, keys.Back):
+		return m.back()
+	case key.Matches(msg, keys.Quit):
+		return m.quit()
+	case key.Matches(msg, keys.Down):
+		m.picker.move(1)
+	case key.Matches(msg, keys.Up):
+		m.picker.move(-1)
+	case key.Matches(msg, keys.Top):
+		m.picker.top()
+	case key.Matches(msg, keys.Bottom):
+		m.picker.bottom()
+	case key.Matches(msg, keys.Enter):
+		return m.chooseOverlay()
+	}
+	return m, nil
+}
+
+func (m Model) openServerPicker() (tea.Model, tea.Cmd) {
+	items := make([]pickerItem, 0, len(m.deps.Servers))
+	for _, s := range m.deps.Servers {
+		items = append(items, pickerItem{Label: s.Alias, Value: s.Alias, Detail: s.URL})
+	}
+	m.overlay = overlayServers
+	m.picker.setQuery("")
+	m.picker.setItems(items)
+	m.picker.cursor = indexOf(items, m.server)
+	return m, nil
+}
+
+func (m Model) chooseOverlay() (tea.Model, tea.Cmd) {
+	it, ok := m.picker.selected()
+	if !ok {
+		m.overlay = overlayNone
+		return m, nil
+	}
+	switch m.overlay {
+	case overlayServers:
+		m.overlay = overlayNone
+		if it.Value == m.server {
+			return m, nil
+		}
+		return m.switchServer(it.Value)
+	}
+	m.overlay = overlayNone
+	return m, nil
+}
+
+// switchServer drops everything that belonged to the old server: its build,
+// its watch, its panels. Nothing keyed to one origin is shown under another.
+func (m Model) switchServer(alias string) (tea.Model, tea.Cmd) {
+	m.stopWatch()
+	m.server, m.svc, m.detail = alias, nil, nil
+	m.expanded, m.treeCursor = nil, 0
+	m.buildsPlan = ""
+	m.plans.setItems(nil)
+	m.builds.setItems(nil)
+	m.err = nil
+	if m.deps.Connect == nil {
+		return m, nil
+	}
+	return m, connectCmd(m.deps, alias)
 }
 
 // moveFocused moves exactly one cursor: the focused panel's.
@@ -392,11 +466,11 @@ func (m Model) View() string {
 func (m Model) columnsView() string {
 	body := m.height - 1 // the status bar
 	lw := leftWidth(m.width)
-	return lipgloss.JoinVertical(lipgloss.Left,
+	return m.overlayView(lipgloss.JoinVertical(lipgloss.Left,
 		lipgloss.JoinHorizontal(lipgloss.Top,
 			m.leftColumn(lw, body),
 			m.mainPanel(m.width-lw, body)),
-		m.statusBar(m.width))
+		m.statusBar(m.width)))
 }
 
 // logsView is filled in by Task 18.
