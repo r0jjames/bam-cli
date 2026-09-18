@@ -152,7 +152,5 @@ func (m *Model) stopWatch() {
 // View is filled in by Task 7.
 func (m Model) View() string { return "" }
 
-// listState and connectCmd arrive in Tasks 5 and 6.
-type listState[T any] struct{ items []T }
-
+// connectCmd arrives in Task 6.
 func connectCmd(Deps, string) tea.Cmd { return nil }
