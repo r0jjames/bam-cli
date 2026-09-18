@@ -329,6 +329,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.logs.title, m.logs.jobKey, m.logs.url, m.logs.all = msg.Title, msg.JobKey, msg.URL, msg.All
 		m.logs.multi, m.logs.offset = msg.Multi, msg.Offset
+		// Keep the build the logs were read from. A row straight from the
+		// Builds panel carries no stages, so without this f could not find
+		// the job it is meant to follow.
+		if msg.Build.Key != "" {
+			b := msg.Build
+			m.logs.build = &b
+		}
 		m.logs.setLines(m.width, m.logHeight(), msg.Lines)
 		return m, nil
 	case buildLoadedMsg:
@@ -710,6 +717,10 @@ func (m Model) selectedTreeRow() (treeRow, bool) {
 // overwriting the main panel while the new plan loads.
 func (m *Model) leaveBuild() {
 	m.stopWatch()
+	// Bump the detail generation too: a Main refresh already in flight would
+	// otherwise be accepted and restore the abandoned build under the new
+	// selection.
+	m.detailGen++
 	m.detail, m.expanded, m.treeCursor = nil, nil, 0
 }
 
@@ -866,6 +877,9 @@ func (m Model) openLogs(jobKey string, all bool) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.screen = screenLogs
+	// Reopening replaces the log state, so an active follow has to end first
+	// or its chunks land in the view that replaced it.
+	m.stopFollow()
 	m.logs = logState{all: all}
 	m.logsGen++
 	// ListBuilds returns builds without their stage and job tree, so a row
@@ -950,7 +964,7 @@ func (m Model) toggleFollow() (tea.Model, tea.Cmd) {
 		m.status = "follow needs one job; press l for the failed job or pick one"
 		return m, nil
 	}
-	b, ok := m.currentBuild()
+	b, ok := m.logBuild()
 	if !ok || m.svc == nil || m.logs.jobKey == "" {
 		return m, nil
 	}
@@ -991,6 +1005,16 @@ func jobByKey(b provider.Build, key string) (provider.Job, bool) {
 
 // currentBuild is the open build when there is one, otherwise whatever the
 // Builds cursor points at.
+// logBuild is the build the open log came from, in full. It is not
+// currentBuild: the Builds cursor may have moved, and a row from a listing
+// carries no stages.
+func (m Model) logBuild() (provider.Build, bool) {
+	if m.logs.build != nil {
+		return *m.logs.build, true
+	}
+	return m.currentBuild()
+}
+
 // currentBuild is what l, a, o, y and f act on. The Builds cursor wins when
 // Builds has focus, because esc leaves the detail open: without this, moving
 // down one row and pressing l would show the previous build's log.

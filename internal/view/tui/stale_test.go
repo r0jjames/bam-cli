@@ -456,3 +456,67 @@ func TestTheWatchIsRootedInTheUIContext(t *testing.T) {
 	for range m.watchCh { //nolint:revive // draining until closed is the assertion
 	}
 }
+
+// TestLeavingABuildInvalidatesAPendingRefresh: leaveBuild cancelled the watch
+// but left detailGen alone, so a refresh already in flight could restore the
+// abandoned build under the new selection.
+func TestLeavingABuildInvalidatesAPendingRefresh(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.svc = testService()
+	m, _ = send(m, plansLoadedMsg{Gen: m.plansGen, Plans: []provider.Plan{{Key: "PROJ-BUILD"}, {Key: "PROJ-PROV"}}})
+	m.detail = ptr(sampleBuild())
+	m.focus = focusMain
+	m, _ = send(m, mkKey("r")) // a Main refresh is now in flight
+	pending := m.detailGen
+
+	m.focus = focusPlans
+	m, _ = send(m, mkKey("j"))
+	m, _ = send(m, mkKey("enter")) // a different plan
+	require.Nil(t, m.detail)
+
+	m, _ = send(m, buildLoadedMsg{Gen: pending, Build: sampleBuild()})
+	require.Nil(t, m.detail, "the abandoned build must not come back")
+}
+
+// TestReopeningTheLogsStopsAnActiveFollow: a on the log screen replaced the
+// log state while the old follow was still running, so its chunks landed in
+// the new view.
+func TestReopeningTheLogsStopsAnActiveFollow(t *testing.T) {
+	m := logModel()
+	m, _ = send(m, mkKey("f"))
+	require.True(t, m.logs.following)
+	stopped := false
+	m.followCancel = func() { stopped = true }
+	staleGen := m.followGen
+
+	m, _ = send(m, mkKey("a"))
+	require.True(t, stopped, "reopening the logs stops the follow")
+	require.False(t, m.logs.following)
+
+	before := len(m.logs.lines)
+	m, _ = send(m, logChunkMsg{Gen: staleGen, Lines: []string{"from the job we left"}})
+	require.Len(t, m.logs.lines, before)
+}
+
+// TestFollowWorksForLogsOpenedFromASummaryRow: the command fetched the full
+// build only into a local variable, so f later found no jobs on the summary
+// the model still held.
+func TestFollowWorksForLogsOpenedFromASummaryRow(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.svc = testService()
+	running := sampleBuild()
+	running.State = provider.StateRunning
+	m.svc.P.(*fake.Provider).History["PROJ-BUILD"] = []provider.Build{running}
+	m.builds.setItems([]provider.Build{{Key: "PROJ-BUILD-44", PlanKey: "PROJ-BUILD", Number: 44}})
+	m.focus = focusBuilds
+
+	m, cmd := send(m, mkKey("l"))
+	require.NotNil(t, cmd)
+	m, _ = send(m, cmd())
+	require.Equal(t, screenLogs, m.screen)
+
+	m, followCmd := send(m, mkKey("f"))
+	require.True(t, m.logs.following, "the full build is in hand, so f can follow")
+	require.NotNil(t, followCmd)
+	m.stopFollow()
+}

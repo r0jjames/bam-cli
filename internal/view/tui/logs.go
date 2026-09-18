@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/r0jjames/bam-cli/internal/provider"
+
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -16,8 +18,9 @@ type logState struct {
 	jobKey    string
 	url       string
 	all       bool
-	multi     bool // several jobs concatenated; there is no single job to follow
-	offset    int  // the provider's next-read offset for the followed job
+	multi     bool            // several jobs concatenated; no single job to follow
+	build     *provider.Build // the build the logs came from, with its jobs
+	offset    int             // the provider's next-read offset for the followed job
 	lines     []string
 	query     string
 	matches   []int
