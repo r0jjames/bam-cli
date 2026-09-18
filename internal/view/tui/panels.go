@@ -36,10 +36,7 @@ func panel(title string, focused bool, width, height int, body string) string {
 	if width < 6 || height < 3 {
 		return ""
 	}
-	edge, color := lipgloss.RoundedBorder(), lipgloss.Color("8")
-	if focused {
-		edge, color = lipgloss.ThickBorder(), lipgloss.Color("4")
-	}
+	edge, color := panelEdge(focused)
 	inner := width - 2
 
 	label := truncate(title, inner-2)
@@ -110,7 +107,7 @@ func (m Model) buildRows(width, height int) string {
 		bd := rows[i]
 		b.WriteString(m.cursorFor(m.focus == focusBuilds, m.builds.cursor == i))
 		b.WriteString(stateStyle(bd.State).Render(stateGlyph(bd.State)))
-		b.WriteString(fmt.Sprintf(" #%d ", bd.Number))
+		fmt.Fprintf(&b, " #%d ", bd.Number)
 		b.WriteString(dimStyle.Render(m.ago(bd.FinishedAt)))
 		b.WriteString("\n")
 	}

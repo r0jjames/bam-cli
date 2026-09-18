@@ -36,6 +36,61 @@ Check that `bam` does not shadow another command on your machine: `type bam`.
 
 A teammate who clones the repository only needs `bam login work`.
 
+## Terminal UI
+
+Running `bam` alone on a terminal opens a lazygit-style UI over the same
+commands. It is read-only in v0.2 part A: it browses, watches and reads logs,
+and nothing in it triggers or cancels a build.
+
+```
+┏━1 Plans━━━━━━━━━━┓╭─PROJ-BUILD-44────────────────────────────────────────────╮
+┃▸ PROJ-BUILD      ┃│✗ failed   #44   branch main   3m12s                      │
+┃  PROJ-DEPLOY     ┃│jdoe · manual                                             │
+┃  OPS-NIGHTLY     ┃│                                                          │
+┗━━━━━━━━━━━━━━━━━━┛│✓ Build       42s                                         │
+╭─2 Builds─────────╮│  ✓ Compile        28s                                    │
+│▸ ✗ #44 3m ago    ││  ✓ Unit tests     14s                                    │
+│  ✓ #43 1h ago    ││✗ Test        2m30s                                       │
+╰──────────────────╯│  ✗ Integration    2m30s                                  │
+╭─3 Presets────────╮│– Deploy                                                  │
+│  provision-lab   ││                                                          │
+│  smoke           ││3 failed tests                                            │
+╰──────────────────╯╰──────────────────────────────────────────────────────────╯
+lab · 9.6.4 · jdoe                      ?help  tab focus  l logs  o open  q quit
+```
+
+`bam ui` opens it explicitly. To keep the UI out of the way, use `--no-tui`,
+set `BAM_NO_TUI=1`, or pipe bam's output — on a pipe, on a dumb terminal, or
+without a terminal, bare `bam` prints help exactly as before.
+
+### Keys
+
+| | Keys | Does |
+| --- | --- | --- |
+| Move | `j` `k` `↑` `↓` | up / down in the focused panel |
+| | `g` `G` | first / last row |
+| | `tab` | next panel |
+| | `shift-tab` | previous panel |
+| | `1` `2` `3` | focus Plans / Builds / Presets |
+| | `enter` | drill in |
+| | `esc` | back out one level, close an overlay |
+| View | `l` | logs for the selection (failed jobs by default) |
+| | `a` | all logs, not only failed |
+| | `f` | follow (log screen) |
+| | `/` | filter the focused list, or search the log |
+| | `n` `N` | next / previous match, or next failure |
+| | `r` | refresh the focused panel |
+| | `e` | expand the current error |
+| Go | `o` | open the selection's Bamboo URL in the browser |
+| | `y` | copy the selection's Bamboo URL |
+| | `S` | switch server |
+| | `P` | filter by project |
+| | `b` | switch plan branch |
+| Meta | `?` | help |
+| | `q` `ctrl-c` | quit |
+
+Leaving the UI never stops a build. Only `bam build cancel` does.
+
 ## Everyday commands
 
 | I want to… | Command |

@@ -36,15 +36,21 @@ func stateCell(s provider.State) string {
 	return stateStyle(s).Render(style.Glyph(s) + " " + style.Label(s))
 }
 
-// The focused panel is drawn with a thick border rather than only a brighter
-// one, so focus is visible on a terminal with no colour and in the goldens,
-// which lipgloss renders without colour.
+// panelEdge is how a panel's border looks. The focused panel is drawn with a
+// thick border rather than only a brighter one, so focus is visible on a
+// terminal with no colour and in the goldens, which lipgloss renders
+// without colour.
+func panelEdge(focused bool) (lipgloss.Border, lipgloss.Color) {
+	if focused {
+		return lipgloss.ThickBorder(), lipgloss.Color("4")
+	}
+	return lipgloss.RoundedBorder(), lipgloss.Color("8")
+}
+
 var (
-	panelBorder        = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("8"))
-	panelBorderFocused = lipgloss.NewStyle().Border(lipgloss.ThickBorder()).BorderForeground(lipgloss.Color("4"))
-	titleStyle         = lipgloss.NewStyle().Bold(true)
-	dimStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	errorStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
-	statusStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	cursorStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("4"))
+	titleStyle  = lipgloss.NewStyle().Bold(true)
+	dimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	errorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
+	statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	cursorStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("4"))
 )

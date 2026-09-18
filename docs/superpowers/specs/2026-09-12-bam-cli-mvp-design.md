@@ -533,7 +533,7 @@ The v0.2 terminal UI is a second view over `app`, living in `internal/view/tui` 
 - Colors and glyphs come only from `internal/view/style`, which the UI maps onto lipgloss styles.
 - `cli` builds dependencies in one function that the UI entry point reuses.
 
-In v0.1, running `bam` with no arguments on a terminal prints help followed by `interactive mode arrives in v0.2`. On a pipe, or with `--help`, it prints help only.
+As of v0.2 part A, running `bam` with no arguments on a terminal opens the UI. On a pipe, with `--help`, with `--no-tui`, with `BAM_NO_TUI=1`, or on a dumb terminal, it prints help only. The UI's own design is [`2026-09-18-bam-v0.2-tui-navigate-design.md`](2026-09-18-bam-v0.2-tui-navigate-design.md).
 
 ## 9. Bamboo adapter
 
@@ -612,7 +612,7 @@ Development is test-driven.
 ## 12. Delivery
 
 - Module `github.com/r0jjames/bam-cli`; binary `bam` built from `cmd/bam`; Go current stable, minimum 1.22.
-- Dependencies are limited to those named in this spec: cobra, yaml.v3, adrg/xdg, go-keyring, x/term, pkg/browser, testify, plus the standard library. Any other dependency needs a stated reason in its pull request.
+- Dependencies are limited to those named in this spec: cobra, yaml.v3, adrg/xdg, go-keyring, x/term, pkg/browser, testify, plus the standard library. v0.2 adds bubbletea, lipgloss and bubbles for the terminal UI, under [`2026-09-18-bam-v0.2-tui-navigate-design.md`](2026-09-18-bam-v0.2-tui-navigate-design.md) §10. Any other dependency needs a stated reason in its pull request.
 - `Makefile` targets: `build`, `test`, `lint`, `e2e`, `record`, `check-fixtures`, `docs`.
 - `golangci-lint` is the lint gate.
 - `goreleaser` builds darwin and linux on amd64 and arm64, plus windows/amd64, attached to a git tag.

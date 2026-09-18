@@ -5,7 +5,7 @@ A terminal remote control for Atlassian Bamboo
 ### Synopsis
 
 bam triggers, watches and diagnoses Bamboo builds from the terminal.
-Run bam alone on a terminal for the interactive UI (coming in v0.2).
+Run bam alone on a terminal for the interactive UI.
 
 ```
 bam [flags]
@@ -18,6 +18,7 @@ bam [flags]
       --debug           log HTTP requests to stderr
   -h, --help            help for bam
       --json            print JSON
+      --no-tui          never open the terminal UI
       --server string   server alias to use
 ```
 
@@ -36,6 +37,7 @@ bam [flags]
 * [bam run](bam_run.md)	 - Trigger a plan or target with variables
 * [bam server](bam_server.md)	 - Manage Bamboo server aliases
 * [bam target](bam_target.md)	 - Run presets: list, show, add
+* [bam ui](bam_ui.md)	 - Open the terminal UI
 * [bam url](bam_url.md)	 - Print the Bamboo URL of a project, plan, build or job
 * [bam version](bam_version.md)	 - Print the bam version
 * [bam watch](bam_watch.md)	 - Follow a build until it finishes; exit 1 if it fails

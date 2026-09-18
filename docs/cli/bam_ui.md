@@ -1,16 +1,15 @@
-## bam login
+## bam ui
 
-Store a verified personal access token for a server
+Open the terminal UI
 
 ```
-bam login <alias> [flags]
+bam ui [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help         help for login
-      --with-token   read the token from stdin instead of prompting
+  -h, --help   help for ui
 ```
 
 ### Options inherited from parent commands
