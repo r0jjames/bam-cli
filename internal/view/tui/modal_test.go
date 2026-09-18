@@ -93,3 +93,100 @@ func TestPickerKeysDoNotLeakToThePanels(t *testing.T) {
 	require.Equal(t, before, m.plans.cursor)
 	require.Equal(t, 1, m.picker.cursor)
 }
+
+func TestPOpensTheProjectPickerWithAnAllRow(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.svc = testService()
+	m, cmd := send(m, mkKey("P"))
+	require.Equal(t, overlayProjects, m.overlay)
+	require.NotNil(t, cmd, "the picker loads the project list")
+
+	m, _ = send(m, cmd().(projectsLoadedMsg))
+	rows := m.picker.rows()
+	require.Equal(t, "all projects", rows[0].Label)
+	require.Equal(t, "", rows[0].Value)
+	require.Equal(t, "PROJ", rows[1].Value)
+}
+
+func TestChoosingAProjectReloadsThePlans(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.svc = testService()
+	m, _ = send(m, mkKey("P"))
+	m, _ = send(m, projectsLoadedMsg{Projects: []provider.Project{{Key: "PROJ"}, {Key: "OPS"}}})
+	m, _ = send(m, mkKey("j")) // onto PROJ
+	m, cmd := send(m, mkKey("enter"))
+	require.Equal(t, "PROJ", m.project)
+	require.Equal(t, overlayNone, m.overlay)
+	require.NotNil(t, cmd)
+	require.IsType(t, plansLoadedMsg{}, cmd())
+}
+
+func TestChoosingAllProjectsClearsTheFilter(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.svc = testService()
+	m.project = "PROJ"
+	m, _ = send(m, mkKey("P"))
+	m, _ = send(m, projectsLoadedMsg{Projects: []provider.Project{{Key: "PROJ"}}})
+	m.picker.top()
+	m, _ = send(m, mkKey("enter"))
+	require.Equal(t, "", m.project)
+}
+
+func TestBOpensTheBranchPickerForTheSelectedPlan(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.svc = testService()
+	m, _ = send(m, plansLoadedMsg{Plans: []provider.Plan{{Key: "PROJ-PROV"}}})
+	m, cmd := send(m, mkKey("b"))
+	require.Equal(t, overlayBranches, m.overlay)
+	require.NotNil(t, cmd)
+
+	m, _ = send(m, branchesLoadedMsg{MasterKey: "PROJ-PROV", Branches: []provider.Branch{
+		{Key: "PROJ-PROV12", ShortName: "develop", PlanKey: "PROJ-PROV"},
+	}})
+	rows := m.picker.rows()
+	require.Equal(t, "default branch", rows[0].Label)
+	require.Equal(t, "PROJ-PROV", rows[0].Value)
+	require.Equal(t, "develop", rows[1].Label)
+	require.Equal(t, "PROJ-PROV12", rows[1].Value)
+}
+
+func TestChoosingABranchLoadsThatBranchPlansBuilds(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.svc = testService()
+	m, _ = send(m, plansLoadedMsg{Plans: []provider.Plan{{Key: "PROJ-PROV"}}})
+	m, _ = send(m, mkKey("b"))
+	m, _ = send(m, branchesLoadedMsg{MasterKey: "PROJ-PROV", Branches: []provider.Branch{
+		{Key: "PROJ-PROV12", ShortName: "develop", PlanKey: "PROJ-PROV"},
+	}})
+	m, _ = send(m, mkKey("j"))
+	m, cmd := send(m, mkKey("enter"))
+	require.Equal(t, overlayNone, m.overlay)
+	require.Equal(t, "PROJ-PROV12", m.buildsPlan)
+	require.NotNil(t, cmd)
+	require.Equal(t, "PROJ-PROV12", cmd().(buildsLoadedMsg).PlanKey)
+}
+
+// TestBranchSwitchCancelsTheWatch: the watched build belongs to the old
+// branch plan.
+func TestBranchSwitchCancelsTheWatch(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.svc = testService()
+	m, _ = send(m, plansLoadedMsg{Plans: []provider.Plan{{Key: "PROJ-PROV"}}})
+	cancelled := false
+	m.watchCancel = func() { cancelled = true }
+	m.detail = ptr(sampleBuild())
+	m, _ = send(m, mkKey("b"))
+	m, _ = send(m, branchesLoadedMsg{MasterKey: "PROJ-PROV", Branches: nil})
+	m, _ = send(m, mkKey("enter"))
+	require.True(t, cancelled)
+	require.Nil(t, m.detail)
+}
+
+func TestBWithNoPlanSelectedDoesNothing(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.svc = testService()
+	m.plans.setItems(nil)
+	m, cmd := send(m, mkKey("b"))
+	require.Equal(t, overlayNone, m.overlay)
+	require.Nil(t, cmd)
+}

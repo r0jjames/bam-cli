@@ -99,6 +99,33 @@ func loadPresetsCmd(d Deps) tea.Cmd {
 	}
 }
 
+type projectsLoadedMsg struct{ Projects []provider.Project }
+
+func loadProjectsCmd(ctx context.Context, svc *app.Service) tea.Cmd {
+	return func() tea.Msg {
+		ps, err := svc.P.ListProjects(ctx)
+		if err != nil {
+			return errMsg{Err: err, Where: "projects"}
+		}
+		return projectsLoadedMsg{Projects: ps}
+	}
+}
+
+type branchesLoadedMsg struct {
+	MasterKey string
+	Branches  []provider.Branch
+}
+
+func loadBranchesCmd(ctx context.Context, svc *app.Service, masterKey string) tea.Cmd {
+	return func() tea.Msg {
+		bs, err := svc.P.ListBranches(ctx, masterKey)
+		if err != nil {
+			return errMsg{Err: err, Where: "branches"}
+		}
+		return branchesLoadedMsg{MasterKey: masterKey, Branches: bs}
+	}
+}
+
 type watchEventMsg struct{ Event app.Event }
 
 // watchClosedMsg says the watch channel ended without a done event, which

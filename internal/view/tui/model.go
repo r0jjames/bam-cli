@@ -144,6 +144,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case presetsLoadedMsg:
 		m.presets.setItems(msg.Targets)
 		return m, nil
+	case projectsLoadedMsg:
+		// The empty value is the "no filter" row, so one list both sets and
+		// clears the filter.
+		items := []pickerItem{{Label: "all projects", Value: ""}}
+		for _, p := range msg.Projects {
+			items = append(items, pickerItem{Label: p.Key, Value: p.Key, Detail: p.Name})
+		}
+		m.picker.setItems(items)
+		m.picker.cursor = indexOf(items, m.project)
+		return m, nil
+	case branchesLoadedMsg:
+		// The first row is the master plan itself, so one list both sets and
+		// clears the branch.
+		items := []pickerItem{{Label: "default branch", Value: msg.MasterKey}}
+		for _, br := range msg.Branches {
+			items = append(items, pickerItem{Label: br.ShortName, Value: br.Key, Detail: br.Name})
+		}
+		m.picker.setItems(items)
+		m.picker.cursor = indexOf(items, m.buildsPlan)
+		return m, nil
 	case watchEventMsg:
 		return m.handleWatchEvent(msg.Event)
 	case watchClosedMsg:
@@ -189,6 +209,23 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.drill()
 	case key.Matches(msg, keys.Server):
 		return m.openServerPicker()
+	case key.Matches(msg, keys.Project):
+		if m.svc == nil {
+			return m, nil
+		}
+		m.overlay = overlayProjects
+		m.picker.setQuery("")
+		m.picker.setItems(nil)
+		return m, loadProjectsCmd(context.Background(), m.svc)
+	case key.Matches(msg, keys.Branch):
+		p, ok := m.plans.selected()
+		if !ok || m.svc == nil {
+			return m, nil
+		}
+		m.overlay = overlayBranches
+		m.picker.setQuery("")
+		m.picker.setItems(nil)
+		return m, loadBranchesCmd(context.Background(), m.svc, p.Key)
 	}
 	return m, nil
 }
@@ -239,6 +276,19 @@ func (m Model) chooseOverlay() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.switchServer(it.Value)
+	case overlayProjects:
+		m.overlay = overlayNone
+		m.project = it.Value
+		m.plans.loading = true
+		return m, loadPlansCmd(context.Background(), m.svc, m.project)
+	case overlayBranches:
+		m.overlay = overlayNone
+		m.stopWatch()
+		m.detail, m.expanded, m.treeCursor = nil, nil, 0
+		m.buildsPlan = it.Value
+		m.builds.loading = true
+		m.focus = focusBuilds
+		return m, loadBuildsCmd(context.Background(), m.svc, it.Value, buildsPerPlan)
 	}
 	m.overlay = overlayNone
 	return m, nil
