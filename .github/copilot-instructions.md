@@ -26,7 +26,8 @@ names and doc examples. `make check-fixtures` only guards the host part of
 ## 2. Package layering
 
 Each package under `internal/` may import only the listed packages from this
-module. An import that crosses this table is a defect, even when it compiles.
+module, and every package under `internal/` has a row. An import that crosses
+this table is a defect, even when it compiles.
 
 | Package | May import |
 | --- | --- |
@@ -35,6 +36,7 @@ module. An import that crosses this table is a defect, even when it compiles.
 | `provider` | `errs` |
 | `credential` | `config`, `errs` |
 | `provider/bamboo` | `provider`, `errs` |
+| `provider/fake` | `provider`, `errs` |
 | `app` | `provider`, `config`, `credential`, `errs` |
 | `view`, `view/style` | `provider`, `app`, `errs` |
 | `toolcfg` | `config`, `credential`, `errs` |
