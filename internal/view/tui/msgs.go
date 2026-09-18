@@ -99,6 +99,21 @@ func loadPresetsCmd(d Deps) tea.Cmd {
 	}
 }
 
+type buildLoadedMsg struct{ Build provider.Build }
+
+// reloadBuildCmd re-reads one build. It goes through Service.Build rather
+// than the provider directly, so a build the server has dropped is forgotten
+// the same way the commands forget it.
+func reloadBuildCmd(ctx context.Context, svc *app.Service, key string) tea.Cmd {
+	return func() tea.Msg {
+		b, err := svc.Build(ctx, key)
+		if err != nil {
+			return errMsg{Err: err, Where: "build"}
+		}
+		return buildLoadedMsg{Build: b}
+	}
+}
+
 type projectsLoadedMsg struct{ Projects []provider.Project }
 
 func loadProjectsCmd(ctx context.Context, svc *app.Service) tea.Cmd {

@@ -195,3 +195,72 @@ func TestNoKeyTriggersAnything(t *testing.T) {
 		require.NotContains(t, row.Desc, "cancel")
 	}
 }
+
+// TestRefreshReloadsTheFocusedPanelOnly, spec §5.
+func TestRefreshReloadsTheFocusedPanelOnly(t *testing.T) {
+	m := testModel()
+	m.svc = testService()
+	m.buildsPlan = "PROJ-BUILD"
+
+	m.focus = focusPlans
+	_, cmd := send(m, mkKey("r"))
+	require.NotNil(t, cmd)
+	require.IsType(t, plansLoadedMsg{}, cmd())
+
+	m.focus = focusBuilds
+	_, cmd = send(m, mkKey("r"))
+	require.NotNil(t, cmd)
+	require.Equal(t, "PROJ-BUILD", cmd().(buildsLoadedMsg).PlanKey)
+}
+
+// TestRefreshOnPresetsRereadsTheProjectFile, so editing .bam.yaml in another
+// window shows up without restarting the UI.
+func TestRefreshOnPresetsRereadsTheProjectFile(t *testing.T) {
+	calls := 0
+	m := New(Deps{Targets: func() ([]app.TargetInfo, error) {
+		calls++
+		return []app.TargetInfo{{Name: "smoke", Plan: "LAB-SMOKE"}}, nil
+	}})
+	m.width, m.height = 80, 24
+	m.focus = focusPresets
+
+	_, cmd := send(m, mkKey("r"))
+	require.NotNil(t, cmd)
+	require.IsType(t, presetsLoadedMsg{}, cmd())
+	require.Equal(t, 1, calls)
+}
+
+func TestRefreshOnMainRefetchesTheBuild(t *testing.T) {
+	m := testModel()
+	m.svc = testService()
+	m.focus = focusMain
+	m.detail = ptr(provider.Build{Key: "PROJ-BUILD-44", PlanKey: "PROJ-BUILD"})
+
+	_, cmd := send(m, mkKey("r"))
+	require.NotNil(t, cmd)
+	require.IsType(t, buildLoadedMsg{}, cmd())
+}
+
+// TestRefreshClearsTheError so r is the documented retry after EventError.
+func TestRefreshClearsTheError(t *testing.T) {
+	m := testModel()
+	m.svc = testService()
+	m.err = errBoom
+	m, _ = send(m, mkKey("r"))
+	require.NoError(t, m.err)
+}
+
+func TestRefreshWithoutAConnectionDoesNothing(t *testing.T) {
+	m := testModel()
+	m.svc = nil
+	_, cmd := send(m, mkKey("r"))
+	require.Nil(t, cmd)
+}
+
+func TestBuildLoadedMsgUpdatesTheDetailWithoutLosingTheTreeCursor(t *testing.T) {
+	m := testModel()
+	m.detail, m.expanded, m.treeCursor = ptr(sampleBuild()), map[string]bool{"Test": true}, 2
+	m, _ = send(m, buildLoadedMsg{Build: sampleBuild()})
+	require.Equal(t, 2, m.treeCursor)
+	require.True(t, m.expanded["Test"], "refreshing must not collapse what the user opened")
+}

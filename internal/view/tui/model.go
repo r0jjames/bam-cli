@@ -164,6 +164,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.picker.setItems(items)
 		m.picker.cursor = indexOf(items, m.buildsPlan)
 		return m, nil
+	case buildLoadedMsg:
+		b := msg.Build
+		m.detail = &b
+		m.clampTree()
+		return m, nil
 	case watchEventMsg:
 		return m.handleWatchEvent(msg.Event)
 	case watchClosedMsg:
@@ -207,6 +212,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.jumpFocused(false)
 	case key.Matches(msg, keys.Enter):
 		return m.drill()
+	case key.Matches(msg, keys.Refresh):
+		return m.refresh()
 	case key.Matches(msg, keys.Server):
 		return m.openServerPicker()
 	case key.Matches(msg, keys.Project):
@@ -247,6 +254,39 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.picker.bottom()
 	case key.Matches(msg, keys.Enter):
 		return m.chooseOverlay()
+	}
+	return m, nil
+}
+
+// refresh reloads whichever panel has focus. It is also the documented retry
+// after a watch error, so it clears the error first. Presets is handled before
+// the connection check, because rereading .bam.yaml needs no server.
+func (m Model) refresh() (tea.Model, tea.Cmd) {
+	m.err = nil
+	if m.focus == focusPresets {
+		if m.deps.Targets == nil {
+			return m, nil
+		}
+		return m, loadPresetsCmd(m.deps)
+	}
+	if m.svc == nil {
+		return m, nil
+	}
+	switch m.focus {
+	case focusPlans:
+		m.plans.loading = true
+		return m, loadPlansCmd(context.Background(), m.svc, m.project)
+	case focusBuilds:
+		if m.buildsPlan == "" {
+			return m, nil
+		}
+		m.builds.loading = true
+		return m, loadBuildsCmd(context.Background(), m.svc, m.buildsPlan, buildsPerPlan)
+	case focusMain:
+		if m.detail == nil {
+			return m, nil
+		}
+		return m, reloadBuildCmd(context.Background(), m.svc, m.detail.Key)
 	}
 	return m, nil
 }
