@@ -59,8 +59,16 @@ func (r *runtime) openUI(ctx context.Context) error {
 			svc, _, err := r.connectServer(s)
 			return svc, err
 		},
+		// Reread the files on every call: the UI's r on the Presets panel is
+		// documented as picking up a preset added while it is open, and the
+		// cached Config holds the .bam.yaml parsed at start-up. The server
+		// connection is untouched by this.
 		Targets: func() ([]app.TargetInfo, error) {
-			return app.DescribeTargets(cfg, r.env.Getenv)
+			fresh, err := r.loadConfig()
+			if err != nil {
+				return nil, err
+			}
+			return app.DescribeTargets(fresh, r.env.Getenv)
 		},
 		Open:      r.env.OpenBrowser,
 		Clipboard: r.env.Stdout,

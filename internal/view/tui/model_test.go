@@ -95,8 +95,8 @@ func TestWindowSizeIsRemembered(t *testing.T) {
 // TestMovementAppliesToTheFocusedPanel: j and k must not move two cursors.
 func TestMovementAppliesToTheFocusedPanel(t *testing.T) {
 	m := testModel()
-	m, _ = send(m, plansLoadedMsg{Plans: []provider.Plan{{Key: "A"}, {Key: "B"}}})
-	m, _ = send(m, buildsLoadedMsg{PlanKey: "A", Builds: []provider.Build{{Key: "A-1"}, {Key: "A-2"}}})
+	m, _ = send(m, plansLoadedMsg{Gen: m.plansGen, Plans: []provider.Plan{{Key: "A"}, {Key: "B"}}})
+	m, _ = send(m, buildsLoadedMsg{Gen: m.buildsGen, PlanKey: "A", Builds: []provider.Build{{Key: "A-1"}, {Key: "A-2"}}})
 
 	m, _ = send(m, mkKey("j"))
 	require.Equal(t, 1, m.plans.cursor)
@@ -110,7 +110,7 @@ func TestMovementAppliesToTheFocusedPanel(t *testing.T) {
 
 func TestGAndShiftGJumpToTheEnds(t *testing.T) {
 	m := testModel()
-	m, _ = send(m, plansLoadedMsg{Plans: []provider.Plan{{Key: "A"}, {Key: "B"}, {Key: "C"}}})
+	m, _ = send(m, plansLoadedMsg{Gen: m.plansGen, Plans: []provider.Plan{{Key: "A"}, {Key: "B"}, {Key: "C"}}})
 	m, _ = send(m, mkKey("G"))
 	require.Equal(t, 2, m.plans.cursor)
 	m, _ = send(m, mkKey("g"))
@@ -121,7 +121,7 @@ func TestGAndShiftGJumpToTheEnds(t *testing.T) {
 func TestEnterOnBuildsOpensDetailAndFocusesMain(t *testing.T) {
 	m := testModel()
 	m.svc = testService()
-	m, _ = send(m, buildsLoadedMsg{PlanKey: "PROJ-BUILD", Builds: []provider.Build{sampleBuild()}})
+	m, _ = send(m, buildsLoadedMsg{Gen: m.buildsGen, PlanKey: "PROJ-BUILD", Builds: []provider.Build{sampleBuild()}})
 	m.focus = focusBuilds
 
 	m, cmd := send(m, mkKey("enter"))
@@ -162,7 +162,7 @@ func TestTreeCursorClampsWhenAStageCollapses(t *testing.T) {
 func TestEnterOnAPresetSelectsItsPlan(t *testing.T) {
 	m := testModel()
 	m.svc = testService()
-	m, _ = send(m, plansLoadedMsg{Plans: []provider.Plan{{Key: "PROJ-BUILD"}, {Key: "PROJ-PROV"}}})
+	m, _ = send(m, plansLoadedMsg{Gen: m.plansGen, Plans: []provider.Plan{{Key: "PROJ-BUILD"}, {Key: "PROJ-PROV"}}})
 	m, _ = send(m, presetsLoadedMsg{Targets: []app.TargetInfo{{Name: "smoke", Plan: "PROJ-PROV"}}})
 	m.focus = focusPresets
 
@@ -170,9 +170,10 @@ func TestEnterOnAPresetSelectsItsPlan(t *testing.T) {
 	require.Equal(t, focusBuilds, m.focus)
 	sel, ok := m.plans.selected()
 	require.True(t, ok)
-	require.Equal(t, "PROJ-PROV", sel.Key)
+	require.Equal(t, "PROJ-PROV", sel.Key, "the Plans cursor lands on the master plan")
 	require.NotNil(t, cmd)
-	require.Equal(t, "PROJ-PROV", cmd().(buildsLoadedMsg).PlanKey)
+	// smoke names branch develop, so its builds come from the branch plan.
+	require.Equal(t, "PROJ-PROV12", cmd().(buildsLoadedMsg).PlanKey)
 }
 
 // TestEnterOnAPresetWhosePlanIsNotListedStillLoadsIt: a preset may name a
@@ -180,11 +181,11 @@ func TestEnterOnAPresetSelectsItsPlan(t *testing.T) {
 func TestEnterOnAPresetWhosePlanIsNotListedStillLoadsIt(t *testing.T) {
 	m := testModel()
 	m.svc = testService()
-	m, _ = send(m, presetsLoadedMsg{Targets: []app.TargetInfo{{Name: "smoke", Plan: "LAB-SMOKE"}}})
+	m, _ = send(m, presetsLoadedMsg{Targets: []app.TargetInfo{{Name: "build", Plan: "PROJ-BUILD"}}})
 	m.focus = focusPresets
 	m, cmd := send(m, mkKey("enter"))
 	require.NotNil(t, cmd)
-	require.Equal(t, "LAB-SMOKE", cmd().(buildsLoadedMsg).PlanKey)
+	require.Equal(t, "PROJ-BUILD", cmd().(buildsLoadedMsg).PlanKey)
 	require.Equal(t, focusBuilds, m.focus)
 }
 
@@ -263,4 +264,17 @@ func TestBuildLoadedMsgUpdatesTheDetailWithoutLosingTheTreeCursor(t *testing.T) 
 	m, _ = send(m, buildLoadedMsg{Build: sampleBuild()})
 	require.Equal(t, 2, m.treeCursor)
 	require.True(t, m.expanded["Test"], "refreshing must not collapse what the user opened")
+}
+
+// TestPresetRowShowsNamePlanAndBranch, spec §7. Two presets on one plan are
+// otherwise indistinguishable.
+func TestPresetRowShowsNamePlanAndBranch(t *testing.T) {
+	m := goldenModel(120, 40)
+	m, _ = send(m, presetsLoadedMsg{Targets: []app.TargetInfo{
+		{Name: "smoke", Plan: "PROJ-PROV", Branch: "develop"},
+	}})
+	rows := m.presetRows(40, 4)
+	require.Contains(t, rows, "smoke")
+	require.Contains(t, rows, "PROJ-PROV")
+	require.Contains(t, rows, "develop")
 }

@@ -43,12 +43,19 @@ func (r *runtime) config() (*config.Config, error) {
 	if r.cfg != nil {
 		return r.cfg, nil
 	}
-	cfg, err := config.Load(config.LoadOptions{WorkDir: r.env.WorkDir, Home: r.env.Home, MachineFile: r.env.Paths.MachineConfig, Getenv: r.env.Getenv})
+	cfg, err := r.loadConfig()
 	if err != nil {
 		return nil, err
 	}
 	r.cfg = cfg
 	return cfg, nil
+}
+
+// loadConfig reads the configuration files afresh, bypassing the cache. The
+// terminal UI uses it so refreshing its Presets panel shows an edit made to
+// .bam.yaml while the UI is open.
+func (r *runtime) loadConfig() (*config.Config, error) {
+	return config.Load(config.LoadOptions{WorkDir: r.env.WorkDir, Home: r.env.Home, MachineFile: r.env.Paths.MachineConfig, Getenv: r.env.Getenv})
 }
 
 func (r *runtime) out() (view.Out, error) {

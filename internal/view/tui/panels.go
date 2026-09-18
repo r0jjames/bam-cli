@@ -129,9 +129,15 @@ func (m Model) presetRows(width, height int) string {
 	for i := start; i < end; i++ {
 		t := rows[i]
 		b.WriteString(m.cursorFor(m.focus == focusPresets, m.presets.cursor == i))
+		// Name, plan and branch: without the branch, two presets on the same
+		// plan look identical and the user cannot tell what enter will open.
+		detail := t.Plan
+		if t.Branch != "" {
+			detail += " @" + t.Branch
+		}
 		label := t.Name
-		if w := width - 6 - lipgloss.Width(label); w > 6 && t.Plan != "" {
-			label += dimStyle.Render("  " + truncate(t.Plan, w))
+		if w := width - 6 - lipgloss.Width(label); w > 6 && detail != "" {
+			label += dimStyle.Render("  " + truncate(detail, w))
 		}
 		b.WriteString(truncate(label, width-4))
 		b.WriteString("\n")

@@ -22,7 +22,7 @@ func logModel() Model {
 	m := goldenModel(80, 24)
 	m.svc = testService()
 	m.detail = ptr(sampleBuild())
-	m, _ = send(m, logsLoadedMsg{JobKey: "PROJ-BUILD-INT-44", Title: "PROJ-BUILD-INT-44",
+	m, _ = send(m, logsLoadedMsg{Gen: m.logsGen, JobKey: "PROJ-BUILD-INT-44", Title: "PROJ-BUILD-INT-44",
 		URL: labOrigin + "/browse/PROJ-BUILD-INT-44", Lines: logLines()})
 	m.screen = screenLogs
 	return m
@@ -32,13 +32,14 @@ func logModel() Model {
 func TestLOpensTheLogScreenFullWidth(t *testing.T) {
 	m := goldenModel(80, 24)
 	m.svc = testService()
+	m.builds.setItems([]provider.Build{sampleBuild()})
 	m.detail = ptr(sampleBuild())
 	m.focus = focusBuilds
 	m, cmd := send(m, mkKey("l"))
 	require.Equal(t, screenLogs, m.screen)
 	require.NotNil(t, cmd)
 
-	m, _ = send(m, logsLoadedMsg{JobKey: "PROJ-BUILD-INT-44", Title: "PROJ-BUILD-INT-44", Lines: logLines()})
+	m, _ = send(m, logsLoadedMsg{Gen: m.logsGen, JobKey: "PROJ-BUILD-INT-44", Title: "PROJ-BUILD-INT-44", Lines: logLines()})
 	v := m.View()
 	require.NotContains(t, v, "1 Plans", "the left column is hidden")
 	require.Contains(t, v, "ConnectionRefused")
@@ -48,6 +49,7 @@ func TestLOpensTheLogScreenFullWidth(t *testing.T) {
 func TestLDefaultsToTheFailedJobs(t *testing.T) {
 	m := goldenModel(80, 24)
 	m.svc = testService()
+	m.builds.setItems([]provider.Build{sampleBuild()})
 	m.detail = ptr(sampleBuild())
 	m.focus = focusBuilds
 	_, cmd := send(m, mkKey("l"))
@@ -60,6 +62,7 @@ func TestLDefaultsToTheFailedJobs(t *testing.T) {
 func TestAOpensEveryJobsLog(t *testing.T) {
 	m := goldenModel(80, 24)
 	m.svc = testService()
+	m.builds.setItems([]provider.Build{sampleBuild()})
 	m.detail = ptr(sampleBuild())
 	m.focus = focusBuilds
 	_, cmd := send(m, mkKey("a"))
@@ -177,13 +180,13 @@ func TestDrainFollowDeliversOneChunkPerCall(t *testing.T) {
 	close(lines)
 	done <- nil
 
-	first := drainFollowCmd(lines, done)().(logChunkMsg)
+	first := drainFollowCmd(lines, done, 0)().(logChunkMsg)
 	require.Equal(t, []string{"12:07:02  still running"}, first.Lines)
 
-	second := drainFollowCmd(lines, done)().(logChunkMsg)
+	second := drainFollowCmd(lines, done, 0)().(logChunkMsg)
 	require.Equal(t, []string{"12:07:05  done"}, second.Lines)
 
-	end := drainFollowCmd(lines, done)()
+	end := drainFollowCmd(lines, done, 0)()
 	require.IsType(t, followEndedMsg{}, end)
 	require.NoError(t, end.(followEndedMsg).Err)
 }

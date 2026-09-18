@@ -18,14 +18,14 @@ func TestWatchCmdDeliversOneEventPerCall(t *testing.T) {
 	ch <- app.Event{Type: app.EventDone, State: provider.StateFailed}
 	close(ch)
 
-	first, ok := watchCmd(ch)().(watchEventMsg)
+	first, ok := watchCmd(ch, 0)().(watchEventMsg)
 	require.True(t, ok)
 	require.Equal(t, app.EventStage, first.Event.Type)
 
-	second := watchCmd(ch)().(watchEventMsg)
+	second := watchCmd(ch, 0)().(watchEventMsg)
 	require.Equal(t, app.EventDone, second.Event.Type)
 
-	require.IsType(t, watchClosedMsg{}, watchCmd(ch)(), "a closed channel ends the loop")
+	require.IsType(t, watchClosedMsg{}, watchCmd(ch, 0)(), "a closed channel ends the loop")
 }
 
 // TestWatchEventUpdatesTheDetail: the tree must follow the build.
@@ -78,7 +78,7 @@ func TestEventErrorShowsAndStopsWithoutQuitting(t *testing.T) {
 func TestSelectingAnotherBuildCancelsTheFirstWatch(t *testing.T) {
 	m := testModel()
 	m.svc = testService()
-	m, _ = send(m, buildsLoadedMsg{PlanKey: "PROJ-BUILD", Builds: []provider.Build{
+	m, _ = send(m, buildsLoadedMsg{Gen: m.buildsGen, PlanKey: "PROJ-BUILD", Builds: []provider.Build{
 		{Key: "PROJ-BUILD-44", Number: 44}, {Key: "PROJ-BUILD-43", Number: 43},
 	}})
 	m.focus = focusBuilds

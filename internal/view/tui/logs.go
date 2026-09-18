@@ -36,6 +36,15 @@ func (l *logState) setLines(width, height int, lines []string) {
 	l.vp.GotoBottom()
 }
 
+// resize reflows an already-loaded log for a new terminal size.
+func (l *logState) resize(width, height int) {
+	if !l.ready {
+		return
+	}
+	l.vp.Width, l.vp.Height = width, height
+	l.vp.SetContent(strings.Join(l.lines, "\n"))
+}
+
 // appendLines adds streamed lines and keeps the view pinned to the bottom
 // only when the reader was already there.
 func (l *logState) appendLines(more []string) {

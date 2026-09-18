@@ -99,6 +99,13 @@ type Model struct {
 	input    textinput.Model
 	inputFor inputMode
 
+	// One generation per asynchronous stream. Bumping a stream's generation
+	// abandons every request already in flight on it, so a slow response for
+	// a server, project, branch, build or job the user has left cannot land
+	// on the one they are looking at now.
+	plansGen, buildsGen, logsGen int
+	watchGen, followGen          int
+
 	watchCancel context.CancelFunc
 	watchCh     <-chan app.Event
 
@@ -128,9 +135,47 @@ func New(d Deps) Model {
 	}
 }
 
+// loadPlans, loadBuilds and loadLogs own their stream's generation bump, so
+// no call site can issue a request without invalidating the older ones.
+func (m *Model) loadPlans() tea.Cmd {
+	m.plansGen++
+	m.plans.loading = true
+	return loadPlansCmd(context.Background(), m.svc, m.project, m.plansGen)
+}
+
+// clear empties the panel first, for a switch to a different plan or branch:
+// the rows on screen belong to what is being left, and Enter on one of them
+// would open a build from the wrong plan. A plain refresh keeps them, so the
+// cursor does not jump.
+func (m *Model) loadBuilds(planKey string, clear bool) tea.Cmd {
+	m.buildsGen++
+	m.builds.loading = true
+	if clear {
+		m.builds.setItems(nil)
+	}
+	return loadBuildsCmd(context.Background(), m.svc, planKey, buildsPerPlan, m.buildsGen)
+}
+
+func (m *Model) loadLogs(b provider.Build, jobKey string, all bool) tea.Cmd {
+	m.logsGen++
+	return loadLogsCmd(context.Background(), m.svc, b, jobKey, all, m.logsGen)
+}
+
+// connected folds the start-up handshake's result into the model, so Init
+// does not dial a second time.
+func (m Model) connected(msg connectedMsg) Model {
+	m.svc, m.info, m.user, m.server = msg.Svc, msg.Info, msg.User, msg.Alias
+	return m
+}
+
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{}
-	if m.deps.Connect != nil {
+	switch {
+	case m.svc != nil:
+		// Run's handshake already connected; go straight to the panels.
+		m.plans.loading = true
+		cmds = append(cmds, m.loadPlans())
+	case m.deps.Connect != nil:
 		cmds = append(cmds, connectCmd(m.deps, m.server))
 	}
 	if m.deps.Targets != nil {
@@ -143,19 +188,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		// The viewport holds its own width and height, so a resize has to
+		// reach it or the log stays wrapped for the old terminal.
+		m.logs.resize(m.width, m.logHeight())
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	case connectedMsg:
 		m.svc, m.info, m.user, m.server = msg.Svc, msg.Info, msg.User, msg.Alias
 		m.err = nil
-		m.plans.loading = true
-		return m, loadPlansCmd(context.Background(), m.svc, m.project)
+		return m, m.loadPlans()
 	case plansLoadedMsg:
+		if msg.Gen != m.plansGen {
+			return m, nil
+		}
 		m.plans.loading = false
 		m.plans.setItems(msg.Plans)
 		return m, nil
 	case buildsLoadedMsg:
+		if msg.Gen != m.buildsGen {
+			return m, nil
+		}
 		m.builds.loading = false
 		m.buildsPlan = msg.PlanKey
 		m.builds.setItems(msg.Builds)
@@ -187,15 +240,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "copied to clipboard (osc 52)"
 		return m, nil
 	case logChunkMsg:
+		if msg.Gen != m.followGen {
+			return m, nil
+		}
 		m.logs.appendLines(msg.Lines)
-		return m, drainFollowCmd(m.followLines, m.followDone)
+		return m, drainFollowCmd(m.followLines, m.followDone, m.followGen)
 	case followEndedMsg:
+		if msg.Gen != m.followGen {
+			return m, nil
+		}
 		m.stopFollow()
 		if msg.Err != nil {
 			m.err = msg.Err
 		}
 		return m, nil
 	case logsLoadedMsg:
+		if msg.Gen != m.logsGen {
+			return m, nil
+		}
 		m.logs.title, m.logs.jobKey, m.logs.url, m.logs.all = msg.Title, msg.JobKey, msg.URL, msg.All
 		m.logs.setLines(m.width, m.logHeight(), msg.Lines)
 		return m, nil
@@ -205,8 +267,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clampTree()
 		return m, nil
 	case watchEventMsg:
+		if msg.Gen != m.watchGen {
+			return m, nil
+		}
 		return m.handleWatchEvent(msg.Event)
 	case watchClosedMsg:
+		// A closed channel from an abandoned watch must not stop the current
+		// one: that is a different watch, on a different build.
+		if msg.Gen != m.watchGen {
+			return m, nil
+		}
 		m.stopWatch()
 		return m, nil
 	case errMsg:
@@ -385,14 +455,12 @@ func (m Model) refresh() (tea.Model, tea.Cmd) {
 	}
 	switch m.focus {
 	case focusPlans:
-		m.plans.loading = true
-		return m, loadPlansCmd(context.Background(), m.svc, m.project)
+		return m, m.loadPlans()
 	case focusBuilds:
 		if m.buildsPlan == "" {
 			return m, nil
 		}
-		m.builds.loading = true
-		return m, loadBuildsCmd(context.Background(), m.svc, m.buildsPlan, buildsPerPlan)
+		return m, m.loadBuilds(m.buildsPlan, false)
 	case focusMain:
 		if m.detail == nil {
 			return m, nil
@@ -430,16 +498,14 @@ func (m Model) chooseOverlay() (tea.Model, tea.Cmd) {
 	case overlayProjects:
 		m.overlay = overlayNone
 		m.project = it.Value
-		m.plans.loading = true
-		return m, loadPlansCmd(context.Background(), m.svc, m.project)
+		return m, m.loadPlans()
 	case overlayBranches:
 		m.overlay = overlayNone
 		m.stopWatch()
 		m.detail, m.expanded, m.treeCursor = nil, nil, 0
 		m.buildsPlan = it.Value
-		m.builds.loading = true
 		m.focus = focusBuilds
-		return m, loadBuildsCmd(context.Background(), m.svc, it.Value, buildsPerPlan)
+		return m, m.loadBuilds(it.Value, true)
 	}
 	m.overlay = overlayNone
 	return m, nil
@@ -536,8 +602,7 @@ func (m Model) drill() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.focus = focusBuilds
-		m.builds.loading = true
-		return m, loadBuildsCmd(context.Background(), m.svc, p.Key, buildsPerPlan)
+		return m, m.loadBuilds(p.Key, true)
 	case focusBuilds:
 		b, ok := m.builds.selected()
 		if !ok || m.svc == nil {
@@ -562,8 +627,13 @@ func (m Model) drill() (tea.Model, tea.Cmd) {
 			}
 		}
 		m.focus = focusBuilds
+		m.buildsGen++
 		m.builds.loading = true
-		return m, loadBuildsCmd(context.Background(), m.svc, t.Plan, buildsPerPlan)
+		m.builds.setItems(nil)
+		// A preset may name a branch, and its builds live under the branch
+		// plan, not the master. ResolvePlan is what turns the two into a plan
+		// key, exactly as bam run does it.
+		return m, resolveTargetBuildsCmd(context.Background(), m.svc, t.Name, m.buildsGen)
 	case focusMain:
 		row, ok := m.selectedTreeRow()
 		if !ok {
@@ -599,11 +669,11 @@ func (m Model) handleWatchEvent(e app.Event) (tea.Model, tea.Cmd) {
 	case app.EventDone:
 		m.stopWatch()
 		if m.svc != nil && m.buildsPlan != "" {
-			return m, loadBuildsCmd(context.Background(), m.svc, m.buildsPlan, buildsPerPlan)
+			return m, m.loadBuilds(m.buildsPlan, false)
 		}
 		return m, nil
 	}
-	return m, watchCmd(m.watchCh)
+	return m, watchCmd(m.watchCh, m.watchGen)
 }
 
 // startWatch begins watching key and cancels whatever was being watched
@@ -617,7 +687,7 @@ func (m Model) startWatch(key string) (tea.Model, tea.Cmd) {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.watchCancel = cancel
 	m.watchCh = m.svc.Watch(ctx, key)
-	return m, watchCmd(m.watchCh)
+	return m, watchCmd(m.watchCh, m.watchGen)
 }
 
 // handleLogKey owns the keys while the log screen fills the terminal; the
@@ -671,7 +741,7 @@ func (m Model) openLogs(jobKey string, all bool) (tea.Model, tea.Cmd) {
 	}
 	m.screen = screenLogs
 	m.logs = logState{all: all}
-	return m, loadLogsCmd(context.Background(), m.svc, b, jobKey, all)
+	return m, m.loadLogs(b, jobKey, all)
 }
 
 // copiedMsg says the URL reached the terminal's clipboard.
@@ -753,7 +823,7 @@ func (m Model) toggleFollow() (tea.Model, tea.Cmd) {
 	m.followCancel = cancel
 	m.logs.following = true
 	m.followLines, m.followDone = followCmd(ctx, m.svc, b.Key, job, len(m.logs.lines))
-	return m, drainFollowCmd(m.followLines, m.followDone)
+	return m, drainFollowCmd(m.followLines, m.followDone, m.followGen)
 }
 
 func (m *Model) stopFollow() {
@@ -763,6 +833,7 @@ func (m *Model) stopFollow() {
 	}
 	m.followLines, m.followDone = nil, nil
 	m.logs.following = false
+	m.followGen++
 }
 
 func jobByKey(b provider.Build, key string) (provider.Job, bool) {
@@ -778,7 +849,15 @@ func jobByKey(b provider.Build, key string) (provider.Job, bool) {
 
 // currentBuild is the open build when there is one, otherwise whatever the
 // Builds cursor points at.
+// currentBuild is what l, a, o, y and f act on. The Builds cursor wins when
+// Builds has focus, because esc leaves the detail open: without this, moving
+// down one row and pressing l would show the previous build's log.
 func (m Model) currentBuild() (provider.Build, bool) {
+	if m.focus == focusBuilds {
+		if b, ok := m.builds.selected(); ok {
+			return b, true
+		}
+	}
 	if m.detail != nil {
 		return *m.detail, true
 	}
@@ -820,6 +899,7 @@ func (m *Model) stopWatch() {
 		m.watchCancel = nil
 	}
 	m.watchCh = nil
+	m.watchGen++
 }
 
 func (m Model) View() string {

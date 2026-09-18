@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/r0jjames/bam-cli/internal/app"
+	"github.com/r0jjames/bam-cli/internal/errs"
 )
 
 // Server is one entry of the server registry, as the UI needs it.
@@ -31,11 +32,29 @@ type Deps struct {
 
 // Run opens the UI and returns when the user quits. Ending ctx closes the UI;
 // it never stops a running build.
+//
+// The first connect happens here, before the program loop, because a failure
+// to start is an exit code: no configured server, no token, an unreachable
+// server. Once the UI is up, every later failure belongs in its status bar
+// instead (spec §6).
 func Run(ctx context.Context, d Deps) error {
+	if d.Connect == nil {
+		return errs.Configf("no server to open").
+			WithWhy("bam has no server configured").
+			WithTry("bam server add work --url https://bamboo.example.com")
+	}
+	m := New(d)
+	switch msg := connectCmd(d, d.Initial)().(type) {
+	case errMsg:
+		return msg.Err
+	case connectedMsg:
+		m = m.connected(msg)
+	}
+
 	opts := []tea.ProgramOption{tea.WithAltScreen(), tea.WithContext(ctx)}
 	if d.Output != nil {
 		opts = append(opts, tea.WithOutput(d.Output))
 	}
-	_, err := tea.NewProgram(New(d), opts...).Run()
+	_, err := tea.NewProgram(m, opts...).Run()
 	return err
 }

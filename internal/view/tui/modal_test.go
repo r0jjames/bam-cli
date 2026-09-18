@@ -87,7 +87,7 @@ func TestOverlayStaysInsideTheTerminal(t *testing.T) {
 func TestPickerKeysDoNotLeakToThePanels(t *testing.T) {
 	m := goldenModel(80, 24)
 	m.deps.Servers = append(m.deps.Servers, Server{Alias: "work", URL: "https://bamboo.example.com"})
-	m, _ = send(m, plansLoadedMsg{Plans: []provider.Plan{{Key: "A"}, {Key: "B"}}})
+	m, _ = send(m, plansLoadedMsg{Gen: m.plansGen, Plans: []provider.Plan{{Key: "A"}, {Key: "B"}}})
 	m, _ = send(m, mkKey("S"))
 	before := m.plans.cursor
 	m, _ = send(m, mkKey("j"))
@@ -136,7 +136,7 @@ func TestChoosingAllProjectsClearsTheFilter(t *testing.T) {
 func TestBOpensTheBranchPickerForTheSelectedPlan(t *testing.T) {
 	m := goldenModel(80, 24)
 	m.svc = testService()
-	m, _ = send(m, plansLoadedMsg{Plans: []provider.Plan{{Key: "PROJ-PROV"}}})
+	m, _ = send(m, plansLoadedMsg{Gen: m.plansGen, Plans: []provider.Plan{{Key: "PROJ-PROV"}}})
 	m, cmd := send(m, mkKey("b"))
 	require.Equal(t, overlayBranches, m.overlay)
 	require.NotNil(t, cmd)
@@ -154,7 +154,7 @@ func TestBOpensTheBranchPickerForTheSelectedPlan(t *testing.T) {
 func TestChoosingABranchLoadsThatBranchPlansBuilds(t *testing.T) {
 	m := goldenModel(80, 24)
 	m.svc = testService()
-	m, _ = send(m, plansLoadedMsg{Plans: []provider.Plan{{Key: "PROJ-PROV"}}})
+	m, _ = send(m, plansLoadedMsg{Gen: m.plansGen, Plans: []provider.Plan{{Key: "PROJ-PROV"}}})
 	m, _ = send(m, mkKey("b"))
 	m, _ = send(m, branchesLoadedMsg{MasterKey: "PROJ-PROV", Branches: []provider.Branch{
 		{Key: "PROJ-PROV12", ShortName: "develop", PlanKey: "PROJ-PROV"},
@@ -172,7 +172,7 @@ func TestChoosingABranchLoadsThatBranchPlansBuilds(t *testing.T) {
 func TestBranchSwitchCancelsTheWatch(t *testing.T) {
 	m := goldenModel(80, 24)
 	m.svc = testService()
-	m, _ = send(m, plansLoadedMsg{Plans: []provider.Plan{{Key: "PROJ-PROV"}}})
+	m, _ = send(m, plansLoadedMsg{Gen: m.plansGen, Plans: []provider.Plan{{Key: "PROJ-PROV"}}})
 	cancelled := false
 	m.watchCancel = func() { cancelled = true }
 	m.detail = ptr(sampleBuild())

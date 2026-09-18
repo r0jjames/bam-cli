@@ -20,9 +20,18 @@ type connectedMsg struct {
 	User  provider.User
 }
 
-type plansLoadedMsg struct{ Plans []provider.Plan }
+// Every asynchronous load carries the generation of the request that started
+// it. The model bumps a stream's generation whenever it issues a new request
+// or abandons one, and drops any message from an older generation: otherwise
+// a slow response for the server, project, branch or build the user has just
+// left lands on the one they are now looking at.
+type plansLoadedMsg struct {
+	Gen   int
+	Plans []provider.Plan
+}
 
 type buildsLoadedMsg struct {
+	Gen     int
 	PlanKey string
 	Builds  []provider.Build
 }
@@ -58,7 +67,7 @@ func connectCmd(d Deps, alias string) tea.Cmd {
 // loadPlansCmd flattens every project's plans into one list, because the
 // Plans panel is flat and filtered rather than nested (spec §3). An empty
 // project means every project.
-func loadPlansCmd(ctx context.Context, svc *app.Service, project string) tea.Cmd {
+func loadPlansCmd(ctx context.Context, svc *app.Service, project string, gen int) tea.Cmd {
 	return func() tea.Msg {
 		projects, err := svc.P.ListProjects(ctx)
 		if err != nil {
@@ -76,17 +85,17 @@ func loadPlansCmd(ctx context.Context, svc *app.Service, project string) tea.Cmd
 			out = append(out, plans...)
 		}
 		sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
-		return plansLoadedMsg{Plans: out}
+		return plansLoadedMsg{Gen: gen, Plans: out}
 	}
 }
 
-func loadBuildsCmd(ctx context.Context, svc *app.Service, planKey string, limit int) tea.Cmd {
+func loadBuildsCmd(ctx context.Context, svc *app.Service, planKey string, limit int, gen int) tea.Cmd {
 	return func() tea.Msg {
 		builds, err := svc.P.ListBuilds(ctx, planKey, provider.ListOptions{Limit: limit})
 		if err != nil {
 			return errMsg{Err: err, Where: "builds"}
 		}
-		return buildsLoadedMsg{PlanKey: planKey, Builds: builds}
+		return buildsLoadedMsg{Gen: gen, PlanKey: planKey, Builds: builds}
 	}
 }
 
@@ -101,6 +110,7 @@ func loadPresetsCmd(d Deps) tea.Cmd {
 }
 
 type logsLoadedMsg struct {
+	Gen    int
 	JobKey string
 	Title  string
 	URL    string
@@ -110,7 +120,7 @@ type logsLoadedMsg struct {
 
 // loadLogsCmd reads one build's logs. An empty jobKey with all=false means the
 // failed jobs, which is what bam logs --last --failed prints.
-func loadLogsCmd(ctx context.Context, svc *app.Service, b provider.Build, jobKey string, all bool) tea.Cmd {
+func loadLogsCmd(ctx context.Context, svc *app.Service, b provider.Build, jobKey string, all bool, gen int) tea.Cmd {
 	return func() tea.Msg {
 		jobs, err := svc.Logs(ctx, b, app.LogsOptions{Failed: !all && jobKey == "", Job: jobKey})
 		if err != nil {
@@ -134,13 +144,19 @@ func loadLogsCmd(ctx context.Context, svc *app.Service, b provider.Build, jobKey
 		if len(jobs) > 1 {
 			title = b.Key
 		}
-		return logsLoadedMsg{JobKey: jobs[0].Job.Key, Title: title, URL: jobs[0].Job.URL, Lines: lines, All: all}
+		return logsLoadedMsg{Gen: gen, JobKey: jobs[0].Job.Key, Title: title, URL: jobs[0].Job.URL, Lines: lines, All: all}
 	}
 }
 
-type logChunkMsg struct{ Lines []string }
+type logChunkMsg struct {
+	Gen   int
+	Lines []string
+}
 
-type followEndedMsg struct{ Err error }
+type followEndedMsg struct {
+	Gen int
+	Err error
+}
 
 // followCmd runs app.FollowLog in its own goroutine and adapts its emit
 // callback into a channel. FollowLog blocks until the job finishes, so this
@@ -163,17 +179,34 @@ func followCmd(ctx context.Context, svc *app.Service, buildKey string, job provi
 
 // drainFollowCmd takes one chunk off the channel, or reports the end. The
 // model re-issues it after each chunk, so Update never ranges over a channel.
-func drainFollowCmd(lines <-chan []string, done <-chan error) tea.Cmd {
+func drainFollowCmd(lines <-chan []string, done <-chan error, gen int) tea.Cmd {
 	return func() tea.Msg {
 		if ls, ok := <-lines; ok {
-			return logChunkMsg{Lines: ls}
+			return logChunkMsg{Gen: gen, Lines: ls}
 		}
 		select {
 		case err := <-done:
-			return followEndedMsg{Err: err}
+			return followEndedMsg{Gen: gen, Err: err}
 		default:
-			return followEndedMsg{}
+			return followEndedMsg{Gen: gen}
 		}
+	}
+}
+
+// resolveTargetBuildsCmd resolves a preset to its plan, honouring the branch
+// the preset names, and then lists that plan's builds. It is one command so
+// the two requests share a generation.
+func resolveTargetBuildsCmd(ctx context.Context, svc *app.Service, target string, gen int) tea.Cmd {
+	return func() tea.Msg {
+		ref, err := svc.ResolvePlan(ctx, target, "")
+		if err != nil {
+			return errMsg{Err: err, Where: "presets"}
+		}
+		builds, err := svc.P.ListBuilds(ctx, ref.PlanKey, provider.ListOptions{Limit: buildsPerPlan})
+		if err != nil {
+			return errMsg{Err: err, Where: "builds"}
+		}
+		return buildsLoadedMsg{Gen: gen, PlanKey: ref.PlanKey, Builds: builds}
 	}
 }
 
@@ -219,21 +252,24 @@ func loadBranchesCmd(ctx context.Context, svc *app.Service, masterKey string) te
 	}
 }
 
-type watchEventMsg struct{ Event app.Event }
+type watchEventMsg struct {
+	Gen   int
+	Event app.Event
+}
 
 // watchClosedMsg says the watch channel ended without a done event, which
 // happens when the context was cancelled.
-type watchClosedMsg struct{}
+type watchClosedMsg struct{ Gen int }
 
 // watchCmd takes exactly one event off the channel. The model re-issues it
 // after each watchEventMsg, which is bubbletea's channel pattern: Update
 // stays pure and nothing ranges over a channel inside it.
-func watchCmd(ch <-chan app.Event) tea.Cmd {
+func watchCmd(ch <-chan app.Event, gen int) tea.Cmd {
 	return func() tea.Msg {
 		e, ok := <-ch
 		if !ok {
-			return watchClosedMsg{}
+			return watchClosedMsg{Gen: gen}
 		}
-		return watchEventMsg{Event: e}
+		return watchEventMsg{Gen: gen, Event: e}
 	}
 }

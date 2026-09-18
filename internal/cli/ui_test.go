@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/r0jjames/bam-cli/internal/app"
 	"github.com/stretchr/testify/require"
 )
 
@@ -97,4 +100,33 @@ func TestUIConnectClosureUsesTheAliasAskedFor(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, svc)
 	require.Equal(t, "work", svc.Server.Alias)
+}
+
+// TestUITargetsRereadsTheProjectFile: r on the Presets panel is documented as
+// picking up an edit made while the UI is open, so the closure cannot serve
+// the configuration loaded at start-up.
+func TestUITargetsRereadsTheProjectFile(t *testing.T) {
+	h := newHarness(t)
+	h.tty = true
+	require.Equal(t, 0, h.run())
+	targets := h.tuiRuns[0].Targets
+
+	first, err := targets()
+	require.NoError(t, err)
+	require.NotContains(t, targetNames(first), "nightly")
+
+	require.NoError(t, os.WriteFile(filepath.Join(h.root, ".bam.yaml"),
+		[]byte(projectYAML+"  nightly:\n    plan: OPS-NIGHTLY\n"), 0o644))
+
+	second, err := targets()
+	require.NoError(t, err)
+	require.Contains(t, targetNames(second), "nightly", "the edit must be visible without restarting")
+}
+
+func targetNames(ts []app.TargetInfo) []string {
+	out := make([]string, 0, len(ts))
+	for _, t := range ts {
+		out = append(out, t.Name)
+	}
+	return out
 }
