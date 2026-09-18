@@ -1,0 +1,100 @@
+package tui
+
+import (
+	"context"
+	"sort"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/r0jjames/bam-cli/internal/app"
+	"github.com/r0jjames/bam-cli/internal/provider"
+)
+
+// buildsPerPlan is how many builds the Builds panel asks for.
+const buildsPerPlan = 25
+
+type connectedMsg struct {
+	Alias string
+	Svc   *app.Service
+	Info  provider.ServerInfo
+	User  provider.User
+}
+
+type plansLoadedMsg struct{ Plans []provider.Plan }
+
+type buildsLoadedMsg struct {
+	PlanKey string
+	Builds  []provider.Build
+}
+
+type presetsLoadedMsg struct{ Targets []app.TargetInfo }
+
+// errMsg is a failure to show, never a failure to exit on. Where names the
+// panel so the status line can say what did not load.
+type errMsg struct {
+	Err   error
+	Where string
+}
+
+func connectCmd(d Deps, alias string) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		svc, err := d.Connect(ctx, alias)
+		if err != nil {
+			return errMsg{Err: err, Where: "connect"}
+		}
+		info, err := svc.P.ServerInfo(ctx)
+		if err != nil {
+			return errMsg{Err: err, Where: "connect"}
+		}
+		user, err := svc.P.CurrentUser(ctx)
+		if err != nil {
+			return errMsg{Err: err, Where: "connect"}
+		}
+		return connectedMsg{Alias: alias, Svc: svc, Info: info, User: user}
+	}
+}
+
+// loadPlansCmd flattens every project's plans into one list, because the
+// Plans panel is flat and filtered rather than nested (spec §3). An empty
+// project means every project.
+func loadPlansCmd(ctx context.Context, svc *app.Service, project string) tea.Cmd {
+	return func() tea.Msg {
+		projects, err := svc.P.ListProjects(ctx)
+		if err != nil {
+			return errMsg{Err: err, Where: "plans"}
+		}
+		var out []provider.Plan
+		for _, p := range projects {
+			if project != "" && p.Key != project {
+				continue
+			}
+			plans, err := svc.P.ListPlans(ctx, p.Key)
+			if err != nil {
+				return errMsg{Err: err, Where: "plans"}
+			}
+			out = append(out, plans...)
+		}
+		sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+		return plansLoadedMsg{Plans: out}
+	}
+}
+
+func loadBuildsCmd(ctx context.Context, svc *app.Service, planKey string, limit int) tea.Cmd {
+	return func() tea.Msg {
+		builds, err := svc.P.ListBuilds(ctx, planKey, provider.ListOptions{Limit: limit})
+		if err != nil {
+			return errMsg{Err: err, Where: "builds"}
+		}
+		return buildsLoadedMsg{PlanKey: planKey, Builds: builds}
+	}
+}
+
+func loadPresetsCmd(d Deps) tea.Cmd {
+	return func() tea.Msg {
+		ts, err := d.Targets()
+		if err != nil {
+			return errMsg{Err: err, Where: "presets"}
+		}
+		return presetsLoadedMsg{Targets: ts}
+	}
+}

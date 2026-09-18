@@ -71,6 +71,9 @@ type Model struct {
 	user   provider.User
 	svc    *app.Service
 
+	project    string // the project filter; empty means every project
+	buildsPlan string // the plan (or branch plan) the Builds panel holds
+
 	plans   listState[provider.Plan]
 	builds  listState[provider.Build]
 	presets listState[app.TargetInfo]
@@ -83,10 +86,27 @@ type Model struct {
 
 // New builds the initial model. It starts no work; Init does that.
 func New(d Deps) Model {
-	return Model{deps: d, server: d.Initial, screen: screenColumns, focus: focusPlans}
+	return Model{
+		deps:    d,
+		server:  d.Initial,
+		screen:  screenColumns,
+		focus:   focusPlans,
+		plans:   newList(func(p provider.Plan) string { return p.Key + " " + p.Name }),
+		builds:  newList(func(b provider.Build) string { return b.Key + " " + b.Branch + " " + b.Reason }),
+		presets: newList(func(t app.TargetInfo) string { return t.Name + " " + t.Plan }),
+	}
 }
 
-func (m Model) Init() tea.Cmd { return connectCmd(m.deps, m.server) }
+func (m Model) Init() tea.Cmd {
+	cmds := []tea.Cmd{}
+	if m.deps.Connect != nil {
+		cmds = append(cmds, connectCmd(m.deps, m.server))
+	}
+	if m.deps.Targets != nil {
+		cmds = append(cmds, loadPresetsCmd(m.deps))
+	}
+	return tea.Batch(cmds...)
+}
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -95,6 +115,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+	case connectedMsg:
+		m.svc, m.info, m.user, m.server = msg.Svc, msg.Info, msg.User, msg.Alias
+		m.err = nil
+		m.plans.loading = true
+		return m, loadPlansCmd(context.Background(), m.svc, m.project)
+	case plansLoadedMsg:
+		m.plans.loading = false
+		m.plans.setItems(msg.Plans)
+		return m, nil
+	case buildsLoadedMsg:
+		m.builds.loading = false
+		m.buildsPlan = msg.PlanKey
+		m.builds.setItems(msg.Builds)
+		return m, nil
+	case presetsLoadedMsg:
+		m.presets.setItems(msg.Targets)
+		return m, nil
+	case errMsg:
+		m.err = msg.Err
+		m.status = ""
+		m.plans.loading, m.builds.loading = false, false
+		return m, nil
 	}
 	return m, nil
 }
@@ -115,6 +157,23 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.focus = focusBuilds
 	case key.Matches(msg, keys.Panel3):
 		m.focus = focusPresets
+	case key.Matches(msg, keys.Enter):
+		return m.drill()
+	}
+	return m, nil
+}
+
+// drill is spec §4.1. Each row moves focus and starts the load its panel needs.
+func (m Model) drill() (tea.Model, tea.Cmd) {
+	switch m.focus {
+	case focusPlans:
+		p, ok := m.plans.selected()
+		if !ok || m.svc == nil {
+			return m, nil
+		}
+		m.focus = focusBuilds
+		m.builds.loading = true
+		return m, loadBuildsCmd(context.Background(), m.svc, p.Key, buildsPerPlan)
 	}
 	return m, nil
 }
@@ -151,6 +210,3 @@ func (m *Model) stopWatch() {
 
 // View is filled in by Task 7.
 func (m Model) View() string { return "" }
-
-// connectCmd arrives in Task 6.
-func connectCmd(Deps, string) tea.Cmd { return nil }
