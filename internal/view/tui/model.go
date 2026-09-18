@@ -338,6 +338,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.logs.title, m.logs.jobKey, m.logs.url, m.logs.all = msg.Title, msg.JobKey, msg.URL, msg.All
 		m.logs.multi, m.logs.offset = msg.Multi, msg.Offset
+		// Keep the build the logs were read from. A row straight from the
+		// Builds panel carries no stages, so without this f could not find
+		// the job it is meant to follow.
+		if msg.Build.Key != "" {
+			b := msg.Build
+			m.logs.build = &b
+		}
 		m.logs.setLines(m.width, m.logHeight(), msg.Lines)
 		return m, nil
 	case formLoadedMsg:
@@ -807,6 +814,10 @@ func (m Model) selectedTreeRow() (treeRow, bool) {
 // overwriting the main panel while the new plan loads.
 func (m *Model) leaveBuild() {
 	m.stopWatch()
+	// Bump the detail generation too: a Main refresh already in flight would
+	// otherwise be accepted and restore the abandoned build under the new
+	// selection.
+	m.detailGen++
 	m.detail, m.expanded, m.treeCursor = nil, nil, 0
 }
 
@@ -962,6 +973,9 @@ func (m Model) openLogs(jobKey string, all bool) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.screen = screenLogs
+	// Reopening replaces the log state, so an active follow has to end first
+	// or its chunks land in the view that replaced it.
+	m.stopFollow()
 	m.logs = logState{all: all}
 	m.logsGen++
 	// ListBuilds returns builds without their stage and job tree, so a row
@@ -1046,7 +1060,7 @@ func (m Model) toggleFollow() (tea.Model, tea.Cmd) {
 		m.status = "follow needs one job; press l for the failed job or pick one"
 		return m, nil
 	}
-	b, ok := m.currentBuild()
+	b, ok := m.logBuild()
 	if !ok || m.svc == nil || m.logs.jobKey == "" {
 		return m, nil
 	}
@@ -1157,7 +1171,7 @@ func (m Model) trigger() (tea.Model, tea.Cmd) {
 		m.form.err = err
 		return m, nil
 	}
-	return m, runCmd(context.Background(), m.svc, m.form.ref, m.form.stripUntypedMasks(vs), m.formGen)
+	return m, runCmd(m.baseCtx(), m.svc, m.form.ref, m.form.stripUntypedMasks(vs), m.formGen)
 }
 
 // askCancel confirms before stopping a build. Cancelling is the one action
@@ -1173,7 +1187,7 @@ func (m Model) askCancel() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m.ask("Cancel "+b.Key+"?", func(m Model) (tea.Model, tea.Cmd) {
-		return m, cancelCmd(context.Background(), m.svc, b.Key)
+		return m, cancelCmd(m.baseCtx(), m.svc, b.Key)
 	})
 }
 
@@ -1242,7 +1256,17 @@ func (m Model) openForm() (tea.Model, tea.Cmd) {
 	m.screen = screenForm
 	m.formGen++
 	m.form = formState{loading: true}
-	return m, openFormCmd(context.Background(), m.svc, planKey, target, from, m.formGen)
+	return m, openFormCmd(m.baseCtx(), m.svc, planKey, target, from, m.formGen)
+}
+
+// logBuild is the build the open log came from, in full. It is not
+// currentBuild: the Builds cursor may have moved, and a row from a listing
+// carries no stages.
+func (m Model) logBuild() (provider.Build, bool) {
+	if m.logs.build != nil {
+		return *m.logs.build, true
+	}
+	return m.currentBuild()
 }
 
 // currentBuild is what l, a, o, y and f act on. The Builds cursor wins when

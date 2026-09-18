@@ -139,8 +139,9 @@ type logsLoadedMsg struct {
 	URL    string
 	Lines  []string
 	All    bool
-	Multi  bool // several jobs are concatenated in Lines
-	Offset int  // the provider's next-read offset, for follow
+	Multi  bool           // several jobs are concatenated in Lines
+	Offset int            // the provider's next-read offset, for follow
+	Build  provider.Build // the build the logs were read from, with its jobs
 }
 
 // loadLogsCmd reads one build's logs. An empty jobKey with all=false means the
@@ -181,7 +182,7 @@ func loadLogsCmd(ctx context.Context, svc *app.Service, b provider.Build, jobKey
 		// meaningful only for a single job: a concatenation of several has no
 		// one offset to resume from.
 		return logsLoadedMsg{Gen: gen, JobKey: jobs[0].Job.Key, Title: title, URL: jobs[0].Job.URL,
-			Lines: lines, All: all, Multi: len(jobs) > 1, Offset: jobs[0].Next}
+			Lines: lines, All: all, Multi: len(jobs) > 1, Offset: jobs[0].Next, Build: b}
 	}
 }
 
