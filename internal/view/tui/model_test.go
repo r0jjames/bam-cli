@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/r0jjames/bam-cli/internal/app"
 	"github.com/r0jjames/bam-cli/internal/provider"
 	"github.com/stretchr/testify/require"
 )
@@ -153,4 +154,44 @@ func TestTreeCursorClampsWhenAStageCollapses(t *testing.T) {
 	m.treeCursor = 4 // the last row while Build is open
 	m, _ = send(m, mkKey("enter"))
 	require.Less(t, m.treeCursor, len(m.treeRows()))
+}
+
+// TestEnterOnAPresetSelectsItsPlan, spec §4.1's last row. A preset is a
+// shortcut to a plan, so it moves the Plans cursor and loads that plan's
+// builds. It does not run anything: part A is read-only.
+func TestEnterOnAPresetSelectsItsPlan(t *testing.T) {
+	m := testModel()
+	m.svc = testService()
+	m, _ = send(m, plansLoadedMsg{Plans: []provider.Plan{{Key: "PROJ-BUILD"}, {Key: "PROJ-PROV"}}})
+	m, _ = send(m, presetsLoadedMsg{Targets: []app.TargetInfo{{Name: "smoke", Plan: "PROJ-PROV"}}})
+	m.focus = focusPresets
+
+	m, cmd := send(m, mkKey("enter"))
+	require.Equal(t, focusBuilds, m.focus)
+	sel, ok := m.plans.selected()
+	require.True(t, ok)
+	require.Equal(t, "PROJ-PROV", sel.Key)
+	require.NotNil(t, cmd)
+	require.Equal(t, "PROJ-PROV", cmd().(buildsLoadedMsg).PlanKey)
+}
+
+// TestEnterOnAPresetWhosePlanIsNotListedStillLoadsIt: a preset may name a
+// plan in a project the current filter hides.
+func TestEnterOnAPresetWhosePlanIsNotListedStillLoadsIt(t *testing.T) {
+	m := testModel()
+	m.svc = testService()
+	m, _ = send(m, presetsLoadedMsg{Targets: []app.TargetInfo{{Name: "smoke", Plan: "LAB-SMOKE"}}})
+	m.focus = focusPresets
+	m, cmd := send(m, mkKey("enter"))
+	require.NotNil(t, cmd)
+	require.Equal(t, "LAB-SMOKE", cmd().(buildsLoadedMsg).PlanKey)
+	require.Equal(t, focusBuilds, m.focus)
+}
+
+// TestNoKeyTriggersAnything keeps part A read-only.
+func TestNoKeyTriggersAnything(t *testing.T) {
+	for _, row := range keys.helpRows() {
+		require.NotContains(t, row.Desc, "run ")
+		require.NotContains(t, row.Desc, "cancel")
+	}
 }

@@ -273,6 +273,22 @@ func (m Model) drill() (tea.Model, tea.Cmd) {
 		m.expanded = defaultExpanded(b)
 		m.treeCursor = 0
 		return m.startWatch(b.Key)
+	case focusPresets:
+		t, ok := m.presets.selected()
+		if !ok || m.svc == nil || t.Plan == "" {
+			return m, nil
+		}
+		// Move the Plans cursor onto the preset's plan when it is listed, so
+		// the panels agree about what the main panel is showing.
+		for i, p := range m.plans.rows() {
+			if p.Key == t.Plan {
+				m.plans.cursor = i
+				break
+			}
+		}
+		m.focus = focusBuilds
+		m.builds.loading = true
+		return m, loadBuildsCmd(context.Background(), m.svc, t.Plan, buildsPerPlan)
 	case focusMain:
 		row, ok := m.selectedTreeRow()
 		if !ok {
