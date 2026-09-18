@@ -142,6 +142,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case presetsLoadedMsg:
 		m.presets.setItems(msg.Targets)
 		return m, nil
+	case watchEventMsg:
+		return m.handleWatchEvent(msg.Event)
+	case watchClosedMsg:
+		m.stopWatch()
+		return m, nil
 	case errMsg:
 		m.err = msg.Err
 		m.status = ""
@@ -284,6 +289,30 @@ func (m Model) drill() (tea.Model, tea.Cmd) {
 		return m.openLogs(row.Key, false)
 	}
 	return m, nil
+}
+
+// handleWatchEvent folds one app.Event into the open build. The build in the
+// event is the whole snapshot of that poll, so the tree follows it without a
+// second request.
+func (m Model) handleWatchEvent(e app.Event) (tea.Model, tea.Cmd) {
+	if e.Build.Key != "" {
+		b := e.Build
+		m.detail = &b
+		m.clampTree()
+	}
+	switch e.Type {
+	case app.EventError:
+		m.err = e.Err
+		m.stopWatch()
+		return m, nil
+	case app.EventDone:
+		m.stopWatch()
+		if m.svc != nil && m.buildsPlan != "" {
+			return m, loadBuildsCmd(context.Background(), m.svc, m.buildsPlan, buildsPerPlan)
+		}
+		return m, nil
+	}
+	return m, watchCmd(m.watchCh)
 }
 
 // startWatch begins watching key and cancels whatever was being watched
