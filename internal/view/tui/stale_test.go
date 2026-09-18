@@ -520,3 +520,24 @@ func TestFollowWorksForLogsOpenedFromASummaryRow(t *testing.T) {
 	require.NotNil(t, followCmd)
 	m.stopFollow()
 }
+
+// TestAPresetResolutionFailureIsShown: the command runs on the builds stream,
+// so tagging its first failure as a presets failure had Update compare the
+// generation against the wrong counter and drop a real error silently.
+func TestAPresetResolutionFailureIsShown(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.svc = testService()
+	m, _ = send(m, presetsLoadedMsg{Gen: m.presetsGen,
+		Targets: []app.TargetInfo{{Name: "gone", Plan: "PROJ-PROV", Branch: "no-such-branch"}}})
+	m.focus = focusPresets
+
+	m, cmd := send(m, mkKey("enter"))
+	require.NotNil(t, cmd)
+	msg, ok := cmd().(errMsg)
+	require.True(t, ok, "got %T", cmd())
+	require.Equal(t, streamBuilds, msg.Stream, "the command is a builds load")
+	require.Equal(t, m.buildsGen, msg.Gen)
+
+	m, _ = send(m, msg)
+	require.Error(t, m.err, "the failure must reach the status bar, not be dropped as stale")
+}

@@ -244,7 +244,11 @@ func resolveTargetBuildsCmd(ctx context.Context, svc *app.Service, target app.Ta
 		// started, and the service's copy would be the older one.
 		ref, err := svc.RefFromTarget(ctx, target)
 		if err != nil {
-			return errMsg{Err: err, Where: "presets", Stream: streamPresets, Gen: gen}
+			// gen is the builds generation: this command is a builds load,
+			// whichever of its two steps fails. Tagging it as a presets
+			// failure would have Update check it against presetsGen and drop
+			// a real error as stale.
+			return errMsg{Err: err, Where: "presets", Stream: streamBuilds, Gen: gen}
 		}
 		builds, err := svc.P.ListBuilds(ctx, ref.PlanKey, provider.ListOptions{Limit: buildsPerPlan})
 		if err != nil {
