@@ -15,6 +15,11 @@ import (
 // MaskedDisplay replaces every secret value in output.
 const MaskedDisplay = "********"
 
+// IsSecretName reports whether a variable of this name must be masked. It is
+// config.IsMaskedName re-exported, because the terminal UI must classify a
+// name the plan never declared and may not import config.
+func IsSecretName(name string) bool { return config.IsMaskedName(name) }
+
 // ResolvedVar is one variable after every source has been applied.
 type ResolvedVar struct {
 	Name      string
@@ -142,6 +147,12 @@ func (s *Service) VarBase(ctx context.Context, ref PlanRef, from string) (VarSet
 		for name, val := range t.Defaults {
 			v := get(name)
 			v.Value, v.Source = val, "target"
+			// A ${ENV} default is secret whatever the name looks like:
+			// ValidateVars will mark it when it resolves it, and the run
+			// form builds its fields from this base, before that happens.
+			if _, ok := config.EnvRef(val); ok {
+				v.Secret = true
+			}
 		}
 	}
 

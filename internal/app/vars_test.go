@@ -246,3 +246,34 @@ func TestVarBaseAndValidateVarsComposeToResolveVars(t *testing.T) {
 	assert.Equal(t, want.Secret(), got.Secret())
 	assert.Equal(t, want.FromBuild, got.FromBuild)
 }
+
+// TestVarBaseMarksAnEnvRefTargetDefaultSecret pins the rule for a name the
+// heuristic does not catch. The run form builds its fields from VarBase,
+// before ValidateVars resolves anything, so a base that leaves token's
+// ${LAB_TOKEN} non-secret puts the reference on screen and then echoes what
+// is typed over it.
+func TestVarBaseMarksAnEnvRefTargetDefaultSecret(t *testing.T) {
+	s := newService(t, fakeBamboo())
+	withEnv(s, map[string]string{"LAB_TOKEN": "shhh"})
+	ref := PlanRef{PlanKey: "PROJ-PROV", MasterKey: "PROJ-PROV", Target: &config.ResolvedTarget{
+		Name: "lab",
+		Target: config.Target{Plan: "PROJ-PROV", Defaults: config.StringMap{
+			"token":        "${LAB_TOKEN}",
+			"cluster_type": "dcos",
+		}},
+	}}
+
+	base, err := s.VarBase(bg, ref, "")
+	require.NoError(t, err)
+
+	tok, ok := base.Get("token")
+	require.True(t, ok)
+	assert.True(t, tok.Secret, "an ${ENV} target default is secret whatever its name looks like")
+	assert.Equal(t, MaskedDisplay, tok.Display())
+
+	// A plain literal default with an innocent name stays visible.
+	ct, ok := base.Get("cluster_type")
+	require.True(t, ok)
+	assert.False(t, ct.Secret)
+	assert.Equal(t, "dcos", ct.Display())
+}
