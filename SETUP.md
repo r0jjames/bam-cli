@@ -11,7 +11,7 @@ Windows is not covered here.
 | Git | source control | yes |
 | Go (latest stable, 1.26 or newer) | build and test | yes |
 | GNU make (3.81 or newer) | `make build`, `make test`, `make lint` … | yes |
-| golangci-lint v2 | the lint gate (`make lint`) | yes |
+| golangci-lint v2 (CI pins v2.13.2) | the lint gate (`make lint`) | yes |
 | curl | downloads in this guide | yes |
 | gopls | Go language server for your editor | recommended |
 | goreleaser v2 | release builds (`goreleaser build --snapshot`) | only for release work |
@@ -45,21 +45,35 @@ brew install goreleaser gh      # optional
 go install golang.org/x/tools/gopls@latest
 ```
 
+`golangci-lint` depends on the Homebrew `go` formula, so Homebrew installs Go
+even if you leave `go` out of the command.
+
+If Go is already installed from a go.dev tarball in `/usr/local/go`, the
+Homebrew copy wins after this step, because `/opt/homebrew/bin` comes earlier on
+PATH. Run `command -v go && go version` to see which one you get. Keep one Go
+only: either remove the tarball with `sudo rm -rf /usr/local/go`, or skip
+`brew install go` and install golangci-lint with
+`go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest`.
+
 ### 3. PATH
 
 Homebrew already puts `go` and `golangci-lint` on your PATH. Tools installed with `go install` land in `$(go env GOPATH)/bin`, usually `~/go/bin`. Add it to your shell profile (`~/.zshrc` for the default zsh):
 
 ```bash
-echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.zshrc
+grep -q 'go/bin' ~/.zshrc || echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
+
+The `grep` guard keeps the line unique if you run this guide again.
 
 ### 4. Check
 
 ```bash
+command -v go              # which Go you actually run
 go version                 # go1.26 or newer
 golangci-lint version      # must say "version 2."
 gopls version
+make --version | head -1   # GNU Make 3.81 or newer
 ```
 
 ### Keychain
@@ -104,7 +118,8 @@ To upgrade Go later, run the same block again.
 Add Go and the Go tool directory to your shell profile (`~/.bashrc` for bash, `~/.zshrc` for zsh):
 
 ```bash
-echo 'export PATH="$HOME/.local/go/bin:$HOME/go/bin:$PATH"' >> ~/.zshrc
+grep -q '.local/go/bin' ~/.zshrc || \
+  echo 'export PATH="$HOME/.local/go/bin:$HOME/go/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
@@ -169,8 +184,6 @@ The product design lives in `docs/`:
 
 ## Build and test
 
-Until implementation task 1 is done, the repository holds only documents, so there is nothing to build yet. After task 1:
-
 ```bash
 make build        # bin/bam
 make test         # go test ./...
@@ -182,17 +195,34 @@ Also used later:
 
 | Command | What it does |
 | --- | --- |
-| `make check-fixtures` | fails if any test fixture names a real host |
-| `make record ARGS='-target provision'` | records scrubbed fixtures from your own Bamboo (see below) |
-| `make docs` | regenerates the command reference in `docs/cli/` |
-| `make e2e ARGS='-target smoke'` | end-to-end test against a real Bamboo |
+| `gofmt -l .` | prints files that need formatting; CI fails if the list is not empty |
+| `go vet ./...` | the vet gate CI runs |
 | `go test -race ./...` | tests with the race detector |
+| `make check-fixtures` | fails if any test fixture names a real host |
+| `make docs` | regenerates the command reference in `docs/cli/`; CI fails if it is stale |
+| `make record ARGS='-target provision'` | records scrubbed fixtures from your own Bamboo (see below) |
+| `make e2e ARGS='-target smoke'` | end-to-end test against a real Bamboo |
+| `goreleaser build --snapshot --clean` | cross-platform release build into `dist/`; release work only |
+
+### Before you push
+
+CI (`.github/workflows/ci.yml`) runs more than `make test` and `make lint`. Run
+the same gate locally, in this order:
+
+```bash
+gofmt -l .                                  # must print nothing
+go vet ./...
+go test -race ./...
+make docs && git diff --exit-code docs/cli  # docs/cli must be up to date
+make check-fixtures
+make lint
+```
 
 ## Your Bamboo for development
 
-Implementation task 9 records real Bamboo responses to test against. It needs a Bamboo Data Center 9.x or newer server that you own (the personal Forge-Lab server). Never use a work server for recordings, because this repository is public.
+The fixtures in `internal/provider/bamboo/testdata/recorded/` are real Bamboo responses, scrubbed. You only need your own Bamboo to record new ones or to run `make e2e`; the unit tests replay what is already committed. Recording needs a Bamboo Data Center 9.x or newer server that you own (the personal Forge-Lab server). Never use a work server for recordings, because this repository is public.
 
-Prepare before task 9:
+Prepare before you record:
 
 1. Open your Bamboo in a browser and confirm it responds.
 2. Create a personal access token: your profile → Personal access tokens → Create token.
@@ -236,3 +266,7 @@ Prepare before task 9:
 | Homebrew commands not found on Apple Silicon | run `eval "$(/opt/homebrew/bin/brew shellenv)"` and add it to `~/.zprofile` |
 | `go` downloads fail behind a proxy | set `HTTPS_PROXY`, or `GOPROXY=direct` if your network blocks proxy.golang.org |
 | `make` reports "missing separator" | a Makefile recipe line lost its leading tab; recipe lines must start with a tab, not spaces |
+| `go version` shows a different Go than you installed | two Go installs; `command -v go` tells you which one wins, and PATH order decides. Remove the one you do not want |
+| CI fails on `git diff --exit-code docs/cli` | the command reference is stale; run `make docs` and commit the result |
+| `gh` asks for credentials | run `gh auth login` once per machine |
+| `goreleaser` leaves a `dist/` directory | expected; `dist/` is in `.gitignore`. `--clean` rebuilds it from scratch |
