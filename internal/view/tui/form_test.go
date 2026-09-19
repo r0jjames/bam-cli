@@ -7,6 +7,7 @@ import (
 
 	"github.com/r0jjames/bam-cli/internal/app"
 	"github.com/r0jjames/bam-cli/internal/config"
+	"github.com/r0jjames/bam-cli/internal/errs"
 	"github.com/r0jjames/bam-cli/internal/provider"
 	"github.com/r0jjames/bam-cli/internal/provider/fake"
 	"github.com/stretchr/testify/require"
@@ -686,4 +687,267 @@ func TestAStaleFormErrorIsDropped(t *testing.T) {
 
 	m, _ = send(m, errMsg{Err: errBoom, Where: "run", Stream: streamRun, Gen: m.formGen})
 	require.Error(t, m.err)
+}
+
+// TestASynthesizedRequiredSecretIsMasked covers a required name the plan does
+// not declare. It is added as an empty row, and it must still obey the name
+// heuristic: without it db_password echoes what is typed.
+func TestASynthesizedRequiredSecretIsMasked(t *testing.T) {
+	ref := sampleRef()
+	ref.Target.Required = []string{"db_password", "cluster_name"}
+
+	fs := buildFields(sampleBase(), ref)
+	var pw formField
+	for _, f := range fs {
+		if f.Name == "db_password" {
+			pw = f
+		}
+	}
+	require.Equal(t, "db_password", pw.Name, "the required name the plan does not declare is still a row")
+	require.True(t, pw.Secret)
+
+	m := formModel()
+	m.form.ref = ref
+	m.form.fields = fs
+	for i := range m.form.fields {
+		if m.form.fields[i].Name == "db_password" {
+			m.form.fields[i].Value, m.form.fields[i].Touched = "hunter2", true
+		}
+	}
+	require.NotContains(t, m.View(), "hunter2")
+}
+
+// TestTheFooterCountsWhatWouldBeSent, not what was touched. Typing a value
+// back to the plan's own sends nothing, so it is not a change.
+func TestTheFooterCountsWhatWouldBeSent(t *testing.T) {
+	m := formModel()
+	// cluster_type is the plan's k8s; typing it again changes nothing.
+	for i := range m.form.fields {
+		if m.form.fields[i].Name == "cluster_type" {
+			m.form.fields[i].Value, m.form.fields[i].Touched = "k8s", true
+		}
+	}
+	require.Contains(t, m.View(), "1 of 3 changed", "two fields are touched, one differs")
+}
+
+// TestTheFooterCountsAnUntouchedPresetDefault: a preset default that differs
+// from the plan's value is sent even though nobody typed it, so the footer
+// must count it.
+func TestTheFooterCountsAnUntouchedPresetDefault(t *testing.T) {
+	base := sampleBase()
+	base.Vars[1].PlanValue = "dcos" // the preset's k8s now differs from the plan
+	m := formModel()
+	m.form.base = base
+	m.form.fields = buildFields(base, sampleRef())
+	// Fill the required field, or no set can be sent at all.
+	m.form.fields[0].Value, m.form.fields[0].Touched = "beta", true
+
+	require.Contains(t, m.View(), "2 of 3 changed",
+		"the typed cluster_name and the untouched cluster_type both go to Bamboo")
+}
+
+// TestTheFooterFallsBackWhileAValueIsInvalid: nothing can be sent while a
+// rule is broken, so the count reports what the user has touched instead.
+func TestTheFooterFallsBackWhileAValueIsInvalid(t *testing.T) {
+	m := formModel() // cluster_name is required and formModel types it
+	require.Contains(t, m.View(), "1 of 3 changed")
+
+	m.form.fields[0].Value = "" // required, now empty: ValidateVars refuses
+	require.Contains(t, m.View(), "1 of 3 changed")
+}
+
+// TestSpaceCyclesAnOptionsField is the second control the actions design
+// documents beside enter.
+func TestSpaceCyclesAnOptionsField(t *testing.T) {
+	m := formModel()
+	m.form.cursor = 1
+	m, _ = send(m, mkKey(" "))
+	require.False(t, m.form.editing)
+	require.Equal(t, "dcos", m.form.fields[1].Value)
+	require.True(t, m.form.fields[1].Touched)
+
+	m, _ = send(m, mkKey(" "))
+	require.Equal(t, "k8s", m.form.fields[1].Value, "cycling wraps")
+}
+
+// TestSpaceOnAFreeTextFieldDoesNotOpenAnEditor: space is a cycle key only,
+// so it cannot become a way to start typing a space into a value.
+func TestSpaceOnAFreeTextFieldDoesNotOpenAnEditor(t *testing.T) {
+	m := formModel()
+	m.form.cursor = 0 // cluster_name: free text
+	m, _ = send(m, mkKey(" "))
+	require.False(t, m.form.editing)
+	require.Equal(t, "beta", m.form.fields[0].Value)
+}
+
+// TestAZeroVariablePlanCanStillBeRun: an empty VarSet is what bam run sends
+// for a plan that declares nothing, so the form must not swallow ctrl-R.
+func TestAZeroVariablePlanCanStillBeRun(t *testing.T) {
+	m := formModel()
+	m.form.base = app.VarSet{DeclaredKnown: true, Declared: map[string]bool{}}
+	m.form.fields = nil
+	m.form.ref.Target = nil
+
+	m2, cmd := send(m, tea.KeyMsg{Type: tea.KeyCtrlR})
+	require.Equal(t, screenForm, m2.screen, "the form stays open until the build comes back")
+	require.NotNil(t, cmd, "ctrl-R sent the run")
+
+	m3, _ := send(m, mkKey("d"))
+	require.Equal(t, overlayDryRun, m3.overlay)
+	require.Contains(t, m3.View(), "no variables would be sent")
+}
+
+// TestCIsIgnoredOutsideBuildsAndMain: currentBuild falls back to the Builds
+// cursor, so without a focus guard a C struck in Plans offers to stop a build
+// from a panel the user is not operating on.
+func TestCIsIgnoredOutsideBuildsAndMain(t *testing.T) {
+	for _, f := range []focus{focusPlans, focusPresets} {
+		m := cancelModel()
+		m.focus = f
+		m, cmd := send(m, mkKey("C"))
+		require.Equal(t, overlayNone, m.overlay, "focus %v must not open the confirmation", f)
+		require.Nil(t, cmd)
+	}
+}
+
+// TestCStillWorksFromBuildsAndMain is the other half: the guard must not
+// take away the two focuses the design gives C.
+func TestCStillWorksFromBuildsAndMain(t *testing.T) {
+	for _, f := range []focus{focusBuilds, focusMain} {
+		m := cancelModel()
+		m.focus = f
+		if f == focusMain {
+			b := m.builds.items[0]
+			m.detail = &b
+		}
+		m, _ = send(m, mkKey("C"))
+		require.Equal(t, overlayConfirm, m.overlay, "focus %v must still ask", f)
+	}
+}
+
+// TestAStaleCancelResultIsDropped: a cancel confirmed just before the user
+// left the build must not report "cancelled OLD" over the build they are
+// looking at now.
+func TestAStaleCancelResultIsDropped(t *testing.T) {
+	m := cancelModel()
+	m, _ = send(m, mkKey("C"))
+	m, cmd := send(m, mkKey("y"))
+	require.NotNil(t, cmd)
+	sent := cmd().(cancelledMsg)
+	require.Equal(t, m.cancelGen, sent.Gen)
+
+	// The user leaves the build before the reply lands.
+	m.leaveBuild()
+	m, _ = send(m, sent)
+	require.Empty(t, m.status, "the reply belongs to a build that is no longer on screen")
+
+	// The same reply on the screen that asked for it is still accepted.
+	m2 := cancelModel()
+	m2, _ = send(m2, mkKey("C"))
+	m2, cmd2 := send(m2, mkKey("y"))
+	m2, _ = send(m2, cmd2().(cancelledMsg))
+	require.Contains(t, m2.status, "cancelled PROJ-BUILD-44")
+}
+
+// TestAStaleCancelErrorIsDropped is the same rule for the failure path.
+func TestAStaleCancelErrorIsDropped(t *testing.T) {
+	m := cancelModel()
+	m, _ = send(m, mkKey("C"))
+	m, _ = send(m, mkKey("y"))
+	stale := errMsg{Err: errs.Bamboof("boom"), Where: "cancel", Stream: streamCancel, Gen: m.cancelGen}
+
+	m.leaveBuild()
+	m, _ = send(m, stale)
+	require.NoError(t, m.err, "a failure for an abandoned cancel is not the current screen's")
+}
+
+// TestEveryFormCommandTagsItsError: the model drops a stale error by Stream
+// and Gen, so a command that returns an untagged one is accepted whatever
+// screen the user has moved to. These are the three that can fail.
+func TestEveryFormCommandTagsItsError(t *testing.T) {
+	const gen = 7
+	svc := testService()
+	f := svc.P.(*fake.Provider)
+
+	t.Run("resolving the plan", func(t *testing.T) {
+		requireTaggedRunError(t, openFormCmd(t.Context(), svc, "no such plan", nil, "", gen), gen)
+	})
+
+	t.Run("fetching the variables", func(t *testing.T) {
+		f.VariablesErr = errBoom
+		defer func() { f.VariablesErr = nil }()
+		requireTaggedRunError(t, openFormCmd(t.Context(), svc, "PROJ-PROV", nil, "", gen), gen)
+	})
+
+	t.Run("triggering", func(t *testing.T) {
+		f.TriggerErr = errBoom
+		defer func() { f.TriggerErr = nil }()
+		ref := app.PlanRef{PlanKey: "PROJ-PROV", MasterKey: "PROJ-PROV"}
+		requireTaggedRunError(t, runCmd(t.Context(), svc, ref, app.VarSet{}, gen), gen)
+	})
+}
+
+func requireTaggedRunError(t *testing.T, cmd tea.Cmd, gen int) {
+	t.Helper()
+	msg, ok := cmd().(errMsg)
+	require.True(t, ok, "the command should have failed")
+	require.Equal(t, streamRun, msg.Stream, "an untagged error is never dropped as stale")
+	require.Equal(t, gen, msg.Gen)
+}
+
+// TestTheFormSendsExactlyWhatBamRunSends is the invariant behind the
+// untouched-secret rule: with nothing typed, the form's set and
+// Service.ResolveVars' set are the same, secrets included. A form that
+// dropped an untouched preset secret would run the build with the plan's
+// credentials instead of the preset's.
+func TestTheFormSendsExactlyWhatBamRunSends(t *testing.T) {
+	svc := testService()
+	svc.Getenv = func(k string) string {
+		if k == "LAB_TOKEN" {
+			return "shhh"
+		}
+		return ""
+	}
+	ref := app.PlanRef{PlanKey: "PROJ-PROV", MasterKey: "PROJ-PROV", Target: &config.ResolvedTarget{
+		Name: "provision-lab",
+		Target: config.Target{Plan: "PROJ-PROV", Defaults: config.StringMap{
+			"db_password": "hunter2",      // a secret by name
+			"token":       "${LAB_TOKEN}", // a secret by env reference
+			"region":      "eu-west",      // not a secret at all
+		}},
+	}}
+
+	// What bam run provision-lab would send.
+	want, err := svc.ResolveVars(t.Context(), ref, app.VarOptions{})
+	require.NoError(t, err)
+
+	// What the form sends with nothing typed.
+	base, err := svc.VarBase(t.Context(), ref, "")
+	require.NoError(t, err)
+	f := formState{ref: ref, base: base, fields: buildFields(base, ref)}
+	got, err := app.ValidateVars(ref, base, f.flags(), svc.Getenv)
+	require.NoError(t, err)
+
+	require.Equal(t, want.Changed(), f.stripUntypedMasks(got).Changed())
+	require.Equal(t, "shhh", want.Changed()["token"], "the resolved secret is what goes to Bamboo")
+	require.Equal(t, map[string]bool{"db_password": true, "token": true}, got.Secret())
+}
+
+// TestAMaskedReadbackIsNeverSentBack is the one value the form does strip.
+func TestAMaskedReadbackIsNeverSentBack(t *testing.T) {
+	base := app.VarSet{
+		DeclaredKnown: true,
+		Declared:      map[string]bool{"ssh_key": true},
+		Vars: []app.ResolvedVar{
+			{Name: "ssh_key", Value: app.MaskedDisplay, PlanValue: "real-key",
+				Source: "plan", Declared: true, Secret: true},
+		},
+	}
+	ref := app.PlanRef{PlanKey: "PROJ-PROV", MasterKey: "PROJ-PROV"}
+	f := formState{ref: ref, base: base, fields: buildFields(base, ref)}
+
+	vs, err := app.ValidateVars(ref, base, f.flags(), func(string) string { return "" })
+	require.NoError(t, err)
+	require.NotContains(t, f.stripUntypedMasks(vs).Changed(), "ssh_key",
+		"******** must never overwrite the real secret")
 }

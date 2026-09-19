@@ -56,6 +56,7 @@ const (
 	streamPicker
 	streamPresets
 	streamRun
+	streamCancel
 )
 
 // errMsg is a failure to show, never a failure to exit on. Where names the
@@ -289,20 +290,21 @@ func openFormCmd(ctx context.Context, svc *app.Service, planKey string, target *
 			ref, err = svc.ResolvePlan(ctx, planKey, "")
 		}
 		if err != nil {
-			return errMsg{Err: err, Where: "run"}
+			return errMsg{Err: err, Where: "run", Stream: streamRun, Gen: gen}
 		}
 		base, err := svc.VarBase(ctx, ref, from)
 		if err != nil && from != "" {
 			base, err = svc.VarBase(ctx, ref, "")
 		}
 		if err != nil {
-			return errMsg{Err: err, Where: "run"}
+			return errMsg{Err: err, Where: "run", Stream: streamRun, Gen: gen}
 		}
 		return formLoadedMsg{Gen: gen, Ref: ref, Target: name, Base: base}
 	}
 }
 
 type cancelledMsg struct {
+	Gen             int
 	Build           provider.Build
 	AlreadyFinished bool
 }
@@ -310,13 +312,17 @@ type cancelledMsg struct {
 // cancelCmd stops a queued or running build. It is the only thing in the UI
 // that stops a build: leaving a screen, switching server and quitting all
 // cancel watches, and a watch is not a build.
-func cancelCmd(ctx context.Context, svc *app.Service, key string) tea.Cmd {
+//
+// The request is stopped, not the reply: gen is what the model checks, so a
+// cancel confirmed just before the user switched server or left the build
+// cannot report "cancelled OLD" over the build they are on now.
+func cancelCmd(ctx context.Context, svc *app.Service, key string, gen int) tea.Cmd {
 	return func() tea.Msg {
 		b, alreadyFinished, err := svc.Cancel(ctx, key)
 		if err != nil {
-			return errMsg{Err: err, Where: "cancel"}
+			return errMsg{Err: err, Where: "cancel", Stream: streamCancel, Gen: gen}
 		}
-		return cancelledMsg{Build: b, AlreadyFinished: alreadyFinished}
+		return cancelledMsg{Gen: gen, Build: b, AlreadyFinished: alreadyFinished}
 	}
 }
 
@@ -331,7 +337,7 @@ func runCmd(ctx context.Context, svc *app.Service, ref app.PlanRef, vs app.VarSe
 	return func() tea.Msg {
 		b, err := svc.Run(ctx, ref, vs)
 		if err != nil {
-			return errMsg{Err: err, Where: "run"}
+			return errMsg{Err: err, Where: "run", Stream: streamRun, Gen: gen}
 		}
 		return triggeredMsg{Gen: gen, Build: b}
 	}

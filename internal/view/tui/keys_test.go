@@ -61,3 +61,18 @@ func TestQuitBindings(t *testing.T) {
 	require.True(t, key.Matches(mkKey("q"), keys.Quit))
 	require.True(t, key.Matches(mkKey("ctrl+c"), keys.Quit))
 }
+
+// TestNoBindingShipsWithNoKeys catches a binding whose key string did not
+// survive splitKeys — a dead key that every other test would pass over,
+// because a binding with no keys simply never matches.
+func TestNoBindingShipsWithNoKeys(t *testing.T) {
+	for _, b := range allBindings(keys) {
+		require.NotEmpty(t, b.Keys(), "binding %q has no keys", b.Help().Desc)
+	}
+}
+
+// TestSpaceIsBoundToCycling pins the translation splitKeys does.
+func TestSpaceIsBoundToCycling(t *testing.T) {
+	require.Equal(t, []string{" "}, keys.CycleOption.Keys())
+	require.True(t, key.Matches(mkKey(" "), keys.CycleOption))
+}

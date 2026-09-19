@@ -119,6 +119,7 @@ type Model struct {
 	watchGen, followGen, formGen int
 	connGen, detailGen           int
 	pickerGen, presetsGen        int
+	cancelGen                    int
 
 	watchCancel context.CancelFunc
 	watchCh     <-chan app.Event
@@ -207,6 +208,8 @@ func (m Model) currentStream(s stream, gen int) bool {
 		return gen == m.presetsGen
 	case streamRun:
 		return gen == m.formGen
+	case streamCancel:
+		return gen == m.cancelGen
 	}
 	return true
 }
@@ -358,6 +361,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.revalidate()
 		return m, nil
 	case cancelledMsg:
+		// The build was stopped either way; this only decides whether the
+		// screen the user is on now is the one that should say so.
+		if msg.Gen != m.cancelGen {
+			return m, nil
+		}
 		// An already-finished build is not an error: it is a fact about
 		// timing, and the status bar is where facts go.
 		if msg.AlreadyFinished {
@@ -730,6 +738,7 @@ func (m Model) switchServer(alias string) (tea.Model, tea.Cmd) {
 	m.detailGen++
 	m.logsGen++
 	m.presetsGen++
+	m.cancelGen++
 
 	cmds := []tea.Cmd{}
 	if m.deps.Targets != nil {
@@ -818,6 +827,9 @@ func (m *Model) leaveBuild() {
 	// otherwise be accepted and restore the abandoned build under the new
 	// selection.
 	m.detailGen++
+	// A cancel confirmed for the build being left must not report against
+	// the next one.
+	m.cancelGen++
 	m.detail, m.expanded, m.treeCursor = nil, nil, 0
 }
 
@@ -1120,11 +1132,18 @@ func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	if len(m.form.fields) == 0 {
-		if key.Matches(msg, keys.Back) {
+		// A plan with no variables is a valid thing to run: an empty VarSet
+		// is what bam run sends for it. Only the field keys are missing.
+		switch {
+		case key.Matches(msg, keys.Back):
 			return m.back()
-		}
-		if key.Matches(msg, keys.Quit) {
+		case key.Matches(msg, keys.Quit):
 			return m.quit()
+		case key.Matches(msg, keys.Trigger):
+			return m.trigger()
+		case key.Matches(msg, keys.DryRun):
+			m.overlay = overlayDryRun
+			return m, nil
 		}
 		return m, nil
 	}
@@ -1142,10 +1161,14 @@ func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.DryRun):
 		m.overlay = overlayDryRun
 		return m, nil
-	case key.Matches(msg, keys.Enter):
+	case key.Matches(msg, keys.Enter), key.Matches(msg, keys.CycleOption):
 		if len(m.form.fields[m.form.cursor].Options) > 0 {
 			m.form.cycle(1)
 			m.revalidate()
+			return m, nil
+		}
+		// space is only a cycle key; it never opens a text field.
+		if key.Matches(msg, keys.CycleOption) {
 			return m, nil
 		}
 		m.form.startEditing()
@@ -1178,6 +1201,12 @@ func (m Model) trigger() (tea.Model, tea.Cmd) {
 // in the UI that cannot be undone, so it always asks and always names the
 // build it will stop.
 func (m Model) askCancel() (tea.Model, tea.Cmd) {
+	// C is a Builds and Main key. currentBuild falls back to the Builds
+	// cursor, so without this a C struck in Plans or Presets would offer to
+	// stop a build from the row the user is no longer looking at.
+	if m.focus != focusBuilds && m.focus != focusMain {
+		return m, nil
+	}
 	b, ok := m.currentBuild()
 	if !ok || m.svc == nil {
 		return m, nil
@@ -1187,7 +1216,8 @@ func (m Model) askCancel() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m.ask("Cancel "+b.Key+"?", func(m Model) (tea.Model, tea.Cmd) {
-		return m, cancelCmd(m.baseCtx(), m.svc, b.Key)
+		m.cancelGen++
+		return m, cancelCmd(m.baseCtx(), m.svc, b.Key, m.cancelGen)
 	})
 }
 

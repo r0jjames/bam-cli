@@ -72,7 +72,9 @@ func buildFields(base app.VarSet, ref app.PlanRef) []formField {
 		add(v.Name, v.Value, v.Source, v.Secret)
 	}
 	for name := range required {
-		add(name, "", "", false)
+		// A required name the plan does not declare still has to obey the
+		// name heuristic: db_password must arrive masked, not echoing.
+		add(name, "", "", app.IsSecretName(name))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
@@ -98,14 +100,28 @@ func (f formState) flags() []string {
 
 // changedCount is the footer's count: how many values differ from the plan's,
 // because only those are sent to Bamboo.
-func (f formState) changedCount() int {
-	n := 0
-	for _, fl := range f.fields {
-		if fl.Touched {
-			n++
-		}
+//
+// It counts the set the trigger would actually send, not the fields the user
+// touched. Typing a value back to the plan's own is not a change, and a
+// preset's untouched default is one.
+func (m Model) changedCount() int {
+	getenv := m.deps.Getenv
+	if getenv == nil {
+		getenv = func(string) string { return "" }
 	}
-	return n
+	vs, err := app.ValidateVars(m.form.ref, m.form.base, m.form.flags(), getenv)
+	if err != nil {
+		// Nothing can be sent while a rule is broken, so the honest count is
+		// what the user has touched.
+		n := 0
+		for _, fl := range m.form.fields {
+			if fl.Touched {
+				n++
+			}
+		}
+		return n
+	}
+	return len(m.form.stripUntypedMasks(vs).Changed())
 }
 
 // formView is the whole terminal: the run form in the standard panel frame.
@@ -153,7 +169,7 @@ func (m Model) formBody(width, height int) string {
 	}
 
 	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("%d of %d changed from the plan's values",
-		m.form.changedCount(), len(m.form.fields))))
+		m.changedCount(), len(m.form.fields))))
 	if m.form.err != nil {
 		lines = append(lines, "", errorStyle.Render(truncate(errorWhat(m.form.err), width)))
 	}
@@ -326,7 +342,16 @@ func (m Model) canRun() bool {
 
 // stripUntypedMasks stops a value Bamboo returned as ******** from being sent
 // straight back as the literal string ********, which would overwrite the
-// real secret with asterisks. Only a secret the user actually typed is sent.
+// real secret with asterisks.
+//
+// It deliberately strips nothing else. An untouched secret that the preset
+// configures — a literal default, or a ${ENV} reference the target resolved —
+// is still sent, because that is exactly what bam run sends for the same
+// preset. Dropping it would make R on provision-lab and bam run provision-lab
+// disagree, and would run the build with the plan's credentials instead of
+// the preset's. The rule the form owes the user is that the empty box on
+// screen never overwrites anything, and flags() is what keeps it: an
+// untouched field contributes no flag, so the value underneath stands.
 func (f formState) stripUntypedMasks(vs app.VarSet) app.VarSet {
 	typed := map[string]bool{}
 	for _, fl := range f.fields {

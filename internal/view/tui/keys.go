@@ -18,6 +18,7 @@ type keyMap struct {
 	Refresh, ExpandErr           key.Binding
 	Open, Copy                   key.Binding
 	Run, Trigger, DryRun         key.Binding
+	CycleOption                  key.Binding
 	Cancel                       key.Binding
 	Server, Project, Branch      key.Binding
 	Help, Quit                   key.Binding
@@ -27,7 +28,18 @@ type keyMap struct {
 type helpRow struct{ Group, Keys, Desc string }
 
 // splitKeys turns "q ctrl+c" into the key list key.WithKeys wants.
-func splitKeys(s string) []string { return strings.Fields(s) }
+//
+// The one key that cannot be written literally is the space bar, because the
+// separator is a space. It is spelled "space" and translated back here.
+func splitKeys(s string) []string {
+	out := strings.Fields(s)
+	for i, k := range out {
+		if k == "space" {
+			out[i] = " "
+		}
+	}
+	return out
+}
 
 func defaultKeys() keyMap {
 	b := func(keys, help, desc string) key.Binding {
@@ -56,14 +68,16 @@ func defaultKeys() keyMap {
 		Run:       b("R", "R", "open the run form"),
 		Trigger:   b("ctrl+r", "ctrl-R", "run"),
 		DryRun:    b("d", "d", "dry-run"),
-		Cancel:    b("C", "C", "cancel the build"),
-		Open:      b("o", "o", "open in the browser"),
-		Copy:      b("y", "y", "copy the URL"),
-		Server:    b("S", "S", "switch server"),
-		Project:   b("P", "P", "filter by project"),
-		Branch:    b("b", "b", "switch branch"),
-		Help:      b("?", "?", "help"),
-		Quit:      b("q ctrl+c", "q ctrl-c", "quit"),
+		// space never opens a text field; it only steps an options field.
+		CycleOption: b("space", "space", "cycle an options field"),
+		Cancel:      b("C", "C", "cancel the build"),
+		Open:        b("o", "o", "open in the browser"),
+		Copy:        b("y", "y", "copy the URL"),
+		Server:      b("S", "S", "switch server"),
+		Project:     b("P", "P", "filter by project"),
+		Branch:      b("b", "b", "switch branch"),
+		Help:        b("?", "?", "help"),
+		Quit:        b("q ctrl+c", "q ctrl-c", "quit"),
 	}
 }
 
@@ -75,7 +89,7 @@ func allBindings(k keyMap) []key.Binding {
 		k.Panel1, k.Panel2, k.Panel3, k.Enter, k.Back,
 		k.Logs, k.AllLogs, k.Follow, k.Filter, k.NextMatch, k.PrevMatch,
 		k.Refresh, k.ExpandErr, k.Open, k.Copy, k.Run, k.Trigger, k.DryRun,
-		k.Server, k.Project, k.Branch, k.Help, k.Quit,
+		k.CycleOption, k.Cancel, k.Server, k.Project, k.Branch, k.Help, k.Quit,
 	}
 }
 
@@ -99,6 +113,7 @@ func (k keyMap) helpRows() []helpRow {
 		{"RUN", "R", "open the run form for the selection"},
 		{"RUN", "ctrl-R", "run (in the form)"},
 		{"RUN", "d", "dry-run: show what would be sent (in the form)"},
+		{"RUN", "space", "cycle an options field (in the form)"},
 		{"RUN", "C", "cancel the selected build (asks first)"},
 		{"GO", "o", "open the selection's Bamboo URL in the browser"},
 		{"GO", "y", "copy the selection's Bamboo URL"},
