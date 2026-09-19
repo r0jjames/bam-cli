@@ -1,0 +1,24 @@
+┏━Run provision-lab · PROJ-PROV12 · develop━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃                                                                              ┃
+┃▸ cluster_name          beta                      required                    ┃
+┃  cluster_type          k8s                       k8s | dcos                  ┃
+┃  ssh_key               ********                  plan                        ┃
+┃                                                                              ┃
+┃1 of 3 changed from the plan's values                                         ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+lab · 9.6.4 · jdoe           enter edit  tab next  ^R run  d dry-run  esc cancel

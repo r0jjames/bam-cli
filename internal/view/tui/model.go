@@ -1,0 +1,1391 @@
+package tui
+
+import (
+	"context"
+	"strings"
+	"time"
+
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/r0jjames/bam-cli/internal/app"
+	"github.com/r0jjames/bam-cli/internal/provider"
+)
+
+// inputMode says what the text input is collecting, if anything.
+type inputMode int
+
+const (
+	inputNone inputMode = iota
+	inputFilter
+	inputSearch
+)
+
+// screen is what fills the terminal. The log screen takes the whole width.
+type screen int
+
+const (
+	screenColumns screen = iota
+	screenLogs
+	screenForm
+)
+
+// focus is which panel takes keys. Main is the right-hand panel.
+type focus int
+
+const (
+	focusPlans focus = iota
+	focusBuilds
+	focusPresets
+	focusMain
+)
+
+// overlay is the modal on top, if any. At most one is open.
+type overlay int
+
+const (
+	overlayNone overlay = iota
+	overlayServers
+	overlayProjects
+	overlayBranches
+	overlayHelp
+	overlayError
+	overlayDryRun
+	overlayConfirm
+)
+
+var tabOrder = []focus{focusPlans, focusBuilds, focusPresets, focusMain}
+
+// parent is where esc goes from here. Main came from Builds and Presets is a
+// sibling of Builds, so neither steps through the tab order backwards.
+func (f focus) parent() focus {
+	switch f {
+	case focusMain:
+		return focusBuilds
+	case focusBuilds, focusPresets:
+		return focusPlans
+	}
+	return focusPlans
+}
+
+func (f focus) next() focus { return tabOrder[(int(f)+1)%len(tabOrder)] }
+func (f focus) prev() focus { return tabOrder[(int(f)+len(tabOrder)-1)%len(tabOrder)] }
+
+// Model is the whole UI. Update is a pure function of (Model, tea.Msg).
+type Model struct {
+	deps Deps
+
+	// ctx is the UI's lifetime. Every watch, follow and load hangs off it, so
+	// when bubbletea returns because its context was cancelled — which can
+	// happen without any key reaching quit — no goroutine outlives the UI.
+	ctx context.Context
+
+	width, height int
+
+	screen  screen
+	focus   focus
+	overlay overlay
+
+	server string
+	info   provider.ServerInfo
+	user   provider.User
+	svc    *app.Service
+
+	project    string // the project filter; empty means every project
+	buildsPlan string // the plan (or branch plan) the Builds panel holds
+
+	detail     *provider.Build
+	expanded   map[string]bool
+	treeCursor int
+
+	plans   listState[provider.Plan]
+	builds  listState[provider.Build]
+	presets listState[app.TargetInfo]
+	picker  listState[pickerItem]
+
+	confirm  confirmState
+	help     helpState
+	form     formState
+	logs     logState
+	input    textinput.Model
+	inputFor inputMode
+
+	// One generation per asynchronous stream. Bumping a stream's generation
+	// abandons every request already in flight on it, so a slow response for
+	// a server, project, branch, build or job the user has left cannot land
+	// on the one they are looking at now.
+	plansGen, buildsGen, logsGen int
+	watchGen, followGen, formGen int
+	connGen, detailGen           int
+	pickerGen, presetsGen        int
+	cancelGen                    int
+
+	watchCancel context.CancelFunc
+	watchCh     <-chan app.Event
+
+	followCancel context.CancelFunc
+	followLines  <-chan []string
+	followDone   <-chan error
+	followFrom   int // the offset the current follow resumed at
+
+	now func() time.Time
+
+	err    error
+	status string
+}
+
+// New builds the initial model. It starts no work; Init does that.
+func New(d Deps) Model {
+	return Model{
+		deps:    d,
+		ctx:     context.Background(),
+		server:  d.Initial,
+		screen:  screenColumns,
+		focus:   focusPlans,
+		plans:   newList(func(p provider.Plan) string { return p.Key + " " + p.Name }),
+		builds:  newList(func(b provider.Build) string { return b.Key + " " + b.Branch + " " + b.Reason }),
+		presets: newList(func(t app.TargetInfo) string { return t.Name + " " + t.Plan }),
+		picker:  newList(func(p pickerItem) string { return p.Label + " " + p.Detail }),
+		now:     time.Now,
+		input:   textinput.New(),
+	}
+}
+
+// loadPlans, loadBuilds and loadLogs own their stream's generation bump, so
+// no call site can issue a request without invalidating the older ones.
+func (m *Model) loadPlans() tea.Cmd {
+	m.plansGen++
+	m.plans.loading = true
+	return loadPlansCmd(m.baseCtx(), m.svc, m.project, m.plansGen)
+}
+
+// clear empties the panel first, for a switch to a different plan or branch:
+// the rows on screen belong to what is being left, and Enter on one of them
+// would open a build from the wrong plan. A plain refresh keeps them, so the
+// cursor does not jump.
+func (m *Model) loadBuilds(planKey string, clear bool) tea.Cmd {
+	m.buildsGen++
+	m.builds.loading = true
+	if clear {
+		m.builds.setItems(nil)
+	}
+	return loadBuildsCmd(m.baseCtx(), m.svc, planKey, buildsPerPlan, m.buildsGen)
+}
+
+// presetsForServer keeps the panel to the presets that belong to the server
+// the UI is connected to. A preset may name a server of its own, and the
+// panel loads every layer of the configuration: acting on one bound to
+// another alias would resolve its plan against the wrong Bamboo and show
+// unrelated builds. Switching server with S reloads the panel.
+func presetsForServer(ts []app.TargetInfo, alias string) []app.TargetInfo {
+	out := make([]app.TargetInfo, 0, len(ts))
+	for _, t := range ts {
+		if t.Server == "" || t.Server == alias {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// currentStream says whether a message belongs to the request the model is
+// waiting on. An untagged message (streamNone) is always current.
+func (m Model) currentStream(s stream, gen int) bool {
+	switch s {
+	case streamConnect:
+		return gen == m.connGen
+	case streamPlans:
+		return gen == m.plansGen
+	case streamBuilds:
+		return gen == m.buildsGen
+	case streamLogs:
+		return gen == m.logsGen
+	case streamDetail:
+		return gen == m.detailGen
+	case streamPicker:
+		return gen == m.pickerGen
+	case streamPresets:
+		return gen == m.presetsGen
+	case streamRun:
+		return gen == m.formGen
+	case streamCancel:
+		return gen == m.cancelGen
+	}
+	return true
+}
+
+// baseCtx is the context every command runs under. A zero Model built by a
+// test still gets a usable one.
+func (m Model) baseCtx() context.Context {
+	if m.ctx == nil {
+		return context.Background()
+	}
+	return m.ctx
+}
+
+// withContext roots the model in the UI's lifetime. Run calls it before the
+// program starts.
+func (m Model) withContext(ctx context.Context) Model {
+	m.ctx = ctx
+	return m
+}
+
+// connected folds the start-up handshake's result into the model, so Init
+// does not dial a second time.
+func (m Model) connected(msg connectedMsg) Model {
+	m.svc, m.info, m.user, m.server = msg.Svc, msg.Info, msg.User, msg.Alias
+	return m
+}
+
+func (m Model) Init() tea.Cmd {
+	cmds := []tea.Cmd{}
+	switch {
+	case m.svc != nil:
+		// Run's handshake already connected; go straight to the panels.
+		m.plans.loading = true
+		cmds = append(cmds, m.loadPlans())
+	case m.deps.Connect != nil:
+		cmds = append(cmds, connectCmd(m.baseCtx(), m.deps, m.server, m.connGen))
+	}
+	if m.deps.Targets != nil {
+		cmds = append(cmds, loadPresetsCmd(m.deps, m.presetsGen))
+	}
+	return tea.Batch(cmds...)
+}
+
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
+		// The viewport holds its own width and height, so a resize has to
+		// reach it or the log stays wrapped for the old terminal.
+		m.logs.resize(m.width, m.logHeight())
+		return m, nil
+	case tea.KeyMsg:
+		return m.handleKey(msg)
+	case connectedMsg:
+		if msg.Gen != m.connGen {
+			return m, nil
+		}
+		m.svc, m.info, m.user, m.server = msg.Svc, msg.Info, msg.User, msg.Alias
+		m.err = nil
+		return m, m.loadPlans()
+	case plansLoadedMsg:
+		if msg.Gen != m.plansGen {
+			return m, nil
+		}
+		m.plans.loading = false
+		m.plans.setItems(msg.Plans)
+		return m, nil
+	case buildsLoadedMsg:
+		if msg.Gen != m.buildsGen {
+			return m, nil
+		}
+		m.builds.loading = false
+		m.buildsPlan = msg.PlanKey
+		m.builds.setItems(msg.Builds)
+		return m, nil
+	case presetsLoadedMsg:
+		if msg.Gen != m.presetsGen {
+			return m, nil
+		}
+		m.presets.setItems(presetsForServer(msg.Targets, m.server))
+		return m, nil
+	case projectsLoadedMsg:
+		if msg.Gen != m.pickerGen {
+			return m, nil
+		}
+		// The empty value is the "no filter" row, so one list both sets and
+		// clears the filter.
+		items := []pickerItem{{Label: "all projects", Value: ""}}
+		for _, p := range msg.Projects {
+			items = append(items, pickerItem{Label: p.Key, Value: p.Key, Detail: p.Name})
+		}
+		m.picker.setItems(items)
+		m.picker.cursor = indexOf(items, m.project)
+		return m, nil
+	case branchesLoadedMsg:
+		if msg.Gen != m.pickerGen {
+			return m, nil
+		}
+		// The first row is the master plan itself, so one list both sets and
+		// clears the branch.
+		items := []pickerItem{{Label: "default branch", Value: msg.MasterKey}}
+		for _, br := range msg.Branches {
+			items = append(items, pickerItem{Label: br.ShortName, Value: br.Key, Detail: br.Name})
+		}
+		m.picker.setItems(items)
+		m.picker.cursor = indexOf(items, m.buildsPlan)
+		return m, nil
+	case copiedMsg:
+		m.status = "copied to clipboard (osc 52)"
+		return m, nil
+	case logChunkMsg:
+		if msg.Gen != m.followGen {
+			return m, nil
+		}
+		m.logs.appendLines(msg.Lines)
+		return m, drainFollowCmd(m.followLines, m.followDone, m.followGen)
+	case followEndedMsg:
+		if msg.Gen != m.followGen {
+			return m, nil
+		}
+		m.stopFollow()
+		if msg.Err != nil {
+			m.err = msg.Err
+		}
+		return m, nil
+	case logsLoadedMsg:
+		if msg.Gen != m.logsGen {
+			return m, nil
+		}
+		m.logs.title, m.logs.jobKey, m.logs.url, m.logs.all = msg.Title, msg.JobKey, msg.URL, msg.All
+		m.logs.multi, m.logs.offset = msg.Multi, msg.Offset
+		// Keep the build the logs were read from. A row straight from the
+		// Builds panel carries no stages, so without this f could not find
+		// the job it is meant to follow.
+		if msg.Build.Key != "" {
+			b := msg.Build
+			m.logs.build = &b
+		}
+		m.logs.setLines(m.width, m.logHeight(), msg.Lines)
+		return m, nil
+	case formLoadedMsg:
+		if msg.Gen != m.formGen {
+			return m, nil
+		}
+		m.form.loading = false
+		m.form.ref, m.form.target, m.form.base = msg.Ref, msg.Target, msg.Base
+		m.form.fields = buildFields(msg.Base, msg.Ref)
+		m.form.cursor = 0
+		m.revalidate()
+		return m, nil
+	case cancelledMsg:
+		// The build was stopped either way; this only decides whether the
+		// screen the user is on now is the one that should say so.
+		if msg.Gen != m.cancelGen {
+			return m, nil
+		}
+		// An already-finished build is not an error: it is a fact about
+		// timing, and the status bar is where facts go.
+		if msg.AlreadyFinished {
+			m.status = msg.Build.Key + " had already finished"
+			return m, nil
+		}
+		m.status = "cancelled " + msg.Build.Key
+		if msg.Build.Key != "" && m.detail != nil && m.detail.Key == msg.Build.Key {
+			b := msg.Build
+			m.detail = &b
+			m.clampTree()
+		}
+		return m, nil
+	case triggeredMsg:
+		if msg.Gen != m.formGen {
+			return m, nil
+		}
+		return m.openTriggered(msg.Build)
+	case buildLoadedMsg:
+		if msg.Gen != m.detailGen {
+			return m, nil
+		}
+		b := msg.Build
+		m.detail = &b
+		m.clampTree()
+		return m, nil
+	case watchEventMsg:
+		if msg.Gen != m.watchGen {
+			return m, nil
+		}
+		return m.handleWatchEvent(msg.Event)
+	case watchClosedMsg:
+		// A closed channel from an abandoned watch must not stop the current
+		// one: that is a different watch, on a different build.
+		if msg.Gen != m.watchGen {
+			return m, nil
+		}
+		m.stopWatch()
+		return m, nil
+	case errMsg:
+		// A failure from a request the user has abandoned must not replace
+		// the status of the one they are waiting on.
+		if !m.currentStream(msg.Stream, msg.Gen) {
+			return m, nil
+		}
+		m.err = msg.Err
+		m.status = ""
+		m.plans.loading, m.builds.loading = false, false
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.inputFor != inputNone {
+		return m.handleInputKey(msg)
+	}
+	if m.overlay != overlayNone {
+		return m.handleOverlayKey(msg)
+	}
+	if m.screen == screenForm {
+		return m.handleFormKey(msg)
+	}
+	if m.screen == screenLogs {
+		return m.handleLogKey(msg)
+	}
+	switch {
+	case key.Matches(msg, keys.Quit):
+		return m.quit()
+	case key.Matches(msg, keys.Back):
+		return m.back()
+	case key.Matches(msg, keys.NextPanel):
+		m.focus = m.focus.next()
+	case key.Matches(msg, keys.PrevPanel):
+		m.focus = m.focus.prev()
+	case key.Matches(msg, keys.Panel1):
+		m.focus = focusPlans
+	case key.Matches(msg, keys.Panel2):
+		m.focus = focusBuilds
+	case key.Matches(msg, keys.Panel3):
+		m.focus = focusPresets
+	case key.Matches(msg, keys.Down):
+		m.moveFocused(1)
+	case key.Matches(msg, keys.Up):
+		m.moveFocused(-1)
+	case key.Matches(msg, keys.Top):
+		m.jumpFocused(true)
+	case key.Matches(msg, keys.Bottom):
+		m.jumpFocused(false)
+	case key.Matches(msg, keys.Enter):
+		return m.drill()
+	case key.Matches(msg, keys.Filter):
+		return m.startInput()
+	case key.Matches(msg, keys.NextMatch):
+		m.logs.nextMatch(1)
+	case key.Matches(msg, keys.PrevMatch):
+		m.logs.nextMatch(-1)
+	case key.Matches(msg, keys.Run):
+		return m.openForm()
+	case key.Matches(msg, keys.Cancel):
+		return m.askCancel()
+	case key.Matches(msg, keys.Open):
+		return m.openSelection()
+	case key.Matches(msg, keys.Copy):
+		return m.copySelection()
+	case key.Matches(msg, keys.Logs):
+		return m.openLogs("", false)
+	case key.Matches(msg, keys.AllLogs):
+		return m.openLogs("", true)
+	case key.Matches(msg, keys.Help):
+		return m.openHelp()
+	case key.Matches(msg, keys.ExpandErr):
+		if m.err == nil {
+			return m, nil
+		}
+		m.overlay = overlayError
+	case key.Matches(msg, keys.Refresh):
+		return m.refresh()
+	case key.Matches(msg, keys.Server):
+		return m.openServerPicker()
+	case key.Matches(msg, keys.Project):
+		if m.svc == nil {
+			return m, nil
+		}
+		m.overlay = overlayProjects
+		m.pickerGen++
+		m.picker.setQuery("")
+		m.picker.setItems(nil)
+		return m, loadProjectsCmd(m.baseCtx(), m.svc, m.pickerGen)
+	case key.Matches(msg, keys.Branch):
+		p, ok := m.plans.selected()
+		if !ok || m.svc == nil {
+			return m, nil
+		}
+		m.overlay = overlayBranches
+		m.pickerGen++
+		m.picker.setQuery("")
+		m.picker.setItems(nil)
+		return m, loadBranchesCmd(m.baseCtx(), m.svc, p.Key, m.pickerGen)
+	}
+	return m, nil
+}
+
+// handleInputKey owns every key while the user is typing, so q, l and j are
+// characters rather than commands.
+func (m Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.inputFor = inputNone
+		m.input.SetValue("")
+		m.input.Blur()
+		return m, nil
+	case tea.KeyEnter:
+		mode, q := m.inputFor, m.input.Value()
+		m.inputFor = inputNone
+		m.input.Blur()
+		if mode == inputSearch {
+			m.logs.search(q)
+			return m, nil
+		}
+		m.applyFilter(q)
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+// startInput opens the text input for the filter or the log search.
+func (m Model) startInput() (tea.Model, tea.Cmd) {
+	m.inputFor = inputFilter
+	if m.screen == screenLogs {
+		m.inputFor = inputSearch
+	}
+	m.input.SetValue("")
+	m.input.Prompt = "/"
+	m.input.Focus()
+	return m, textinput.Blink
+}
+
+// applyFilter narrows whichever list has focus.
+func (m *Model) applyFilter(q string) {
+	switch m.focus {
+	case focusPlans:
+		m.plans.setQuery(q)
+	case focusBuilds:
+		m.builds.setQuery(q)
+	case focusPresets:
+		m.presets.setQuery(q)
+	}
+}
+
+// openHelp sizes the help viewport for the terminal it is about to fill.
+// handleConfirmKey answers the question and nothing else. Any other key is
+// ignored rather than guessed at.
+func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEnter:
+		return m.answerYes()
+	case tea.KeyEsc:
+		m.overlay, m.confirm = overlayNone, confirmState{}
+		return m, nil
+	}
+	switch strings.ToLower(msg.String()) {
+	case "y":
+		return m.answerYes()
+	case "n", "q":
+		m.overlay, m.confirm = overlayNone, confirmState{}
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m Model) answerYes() (tea.Model, tea.Cmd) {
+	action := m.confirm.Action
+	m.overlay, m.confirm = overlayNone, confirmState{}
+	if action == nil {
+		return m, nil
+	}
+	return action(m)
+}
+
+func (m Model) openHelp() (tea.Model, tea.Cmd) {
+	m.overlay = overlayHelp
+	w := overlayWidth(m.width, helpMaxWidth) - 2
+	m.help.set(w, m.helpHeight(), m.helpBody(w, 0))
+	return m, nil
+}
+
+// handleOverlayKey keeps overlay keys from reaching the panels underneath.
+// The help overlay scrolls; the pickers move a cursor.
+func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.overlay == overlayConfirm {
+		return m.handleConfirmKey(msg)
+	}
+	if m.overlay == overlayHelp {
+		switch {
+		case key.Matches(msg, keys.Back):
+			return m.back()
+		case key.Matches(msg, keys.Quit):
+			return m.quit()
+		}
+		var cmd tea.Cmd
+		m.help.vp, cmd = m.help.vp.Update(msg)
+		return m, cmd
+	}
+	switch {
+	case key.Matches(msg, keys.Back):
+		return m.back()
+	case key.Matches(msg, keys.Quit):
+		return m.quit()
+	case key.Matches(msg, keys.Down):
+		m.picker.move(1)
+	case key.Matches(msg, keys.Up):
+		m.picker.move(-1)
+	case key.Matches(msg, keys.Top):
+		m.picker.top()
+	case key.Matches(msg, keys.Bottom):
+		m.picker.bottom()
+	case key.Matches(msg, keys.Enter):
+		return m.chooseOverlay()
+	}
+	return m, nil
+}
+
+// refresh reloads whichever panel has focus. It is also the documented retry
+// after a watch error, so it clears the error first. Presets is handled before
+// the connection check, because rereading .bam.yaml needs no server.
+func (m Model) refresh() (tea.Model, tea.Cmd) {
+	m.err = nil
+	if m.focus == focusPresets {
+		if m.deps.Targets == nil {
+			return m, nil
+		}
+		m.presetsGen++
+		return m, loadPresetsCmd(m.deps, m.presetsGen)
+	}
+	if m.svc == nil {
+		return m, nil
+	}
+	switch m.focus {
+	case focusPlans:
+		return m, m.loadPlans()
+	case focusBuilds:
+		if m.buildsPlan == "" {
+			return m, nil
+		}
+		return m, m.loadBuilds(m.buildsPlan, false)
+	case focusMain:
+		if m.detail == nil {
+			return m, nil
+		}
+		m.detailGen++
+		return m, reloadBuildCmd(m.baseCtx(), m.svc, m.detail.Key, m.detailGen)
+	}
+	return m, nil
+}
+
+func (m Model) openServerPicker() (tea.Model, tea.Cmd) {
+	items := make([]pickerItem, 0, len(m.deps.Servers))
+	for _, s := range m.deps.Servers {
+		items = append(items, pickerItem{Label: s.Alias, Value: s.Alias, Detail: s.URL})
+	}
+	m.overlay = overlayServers
+	m.pickerGen++
+	m.picker.setQuery("")
+	m.picker.setItems(items)
+	m.picker.cursor = indexOf(items, m.server)
+	return m, nil
+}
+
+func (m Model) chooseOverlay() (tea.Model, tea.Cmd) {
+	it, ok := m.picker.selected()
+	if !ok {
+		m.overlay = overlayNone
+		return m, nil
+	}
+	switch m.overlay {
+	case overlayServers:
+		m.overlay = overlayNone
+		if it.Value == m.server {
+			return m, nil
+		}
+		return m.switchServer(it.Value)
+	case overlayProjects:
+		m.overlay = overlayNone
+		if it.Value == m.project {
+			return m, nil
+		}
+		m.project = it.Value
+		// The plans, the builds and the open build all belonged to the old
+		// filter. Leaving them selectable while the new list loads means
+		// enter can open a build from a project that is no longer shown.
+		m.leaveBuild()
+		m.buildsPlan = ""
+		m.buildsGen++
+		m.builds.setItems(nil)
+		m.plans.setItems(nil)
+		m.focus = focusPlans
+		return m, m.loadPlans()
+	case overlayBranches:
+		m.overlay = overlayNone
+		m.leaveBuild()
+		m.buildsPlan = it.Value
+		m.focus = focusBuilds
+		return m, m.loadBuilds(it.Value, true)
+	}
+	m.overlay = overlayNone
+	return m, nil
+}
+
+// switchServer drops everything that belonged to the old server: its build,
+// its watch, its panels. Nothing keyed to one origin is shown under another.
+func (m Model) switchServer(alias string) (tea.Model, tea.Cmd) {
+	m.leaveBuild()
+	m.server, m.svc = alias, nil
+	m.buildsPlan = ""
+	// The project filter names a project of the server being left; keeping it
+	// would hide every plan on the new one.
+	m.project = ""
+	m.plans.setItems(nil)
+	m.builds.setItems(nil)
+	m.presets.setItems(nil)
+	m.err = nil
+	// Clearing the rows is not enough: a request already in flight for the
+	// server being left would still match these generations and repopulate
+	// the panels under the new one.
+	m.plansGen++
+	m.buildsGen++
+	m.detailGen++
+	m.logsGen++
+	m.presetsGen++
+	m.cancelGen++
+
+	cmds := []tea.Cmd{}
+	if m.deps.Targets != nil {
+		cmds = append(cmds, loadPresetsCmd(m.deps, m.presetsGen))
+	}
+	if m.deps.Connect != nil {
+		m.connGen++
+		cmds = append(cmds, connectCmd(m.baseCtx(), m.deps, alias, m.connGen))
+	}
+	return m, tea.Batch(cmds...)
+}
+
+// moveFocused moves exactly one cursor: the focused panel's.
+func (m *Model) moveFocused(delta int) {
+	switch m.focus {
+	case focusPlans:
+		m.plans.move(delta)
+	case focusBuilds:
+		m.builds.move(delta)
+	case focusPresets:
+		m.presets.move(delta)
+	case focusMain:
+		m.treeCursor += delta
+		m.clampTree()
+	}
+}
+
+func (m *Model) jumpFocused(top bool) {
+	switch m.focus {
+	case focusPlans:
+		jump(&m.plans, top)
+	case focusBuilds:
+		jump(&m.builds, top)
+	case focusPresets:
+		jump(&m.presets, top)
+	case focusMain:
+		m.treeCursor = 0
+		if !top {
+			m.treeCursor = len(m.treeRows()) - 1
+		}
+		m.clampTree()
+	}
+}
+
+func jump[T any](l *listState[T], top bool) {
+	if top {
+		l.top()
+		return
+	}
+	l.bottom()
+}
+
+func (m *Model) clampTree() {
+	n := len(m.treeRows())
+	if m.treeCursor >= n {
+		m.treeCursor = n - 1
+	}
+	if m.treeCursor < 0 {
+		m.treeCursor = 0
+	}
+}
+
+// treeRows is the stage and job tree of the open build, or nothing.
+func (m Model) treeRows() []treeRow {
+	if m.detail == nil {
+		return nil
+	}
+	return buildTree(*m.detail, m.expanded)
+}
+
+func (m Model) selectedTreeRow() (treeRow, bool) {
+	rows := m.treeRows()
+	if m.treeCursor < 0 || m.treeCursor >= len(rows) {
+		return treeRow{}, false
+	}
+	return rows[m.treeCursor], true
+}
+
+// leaveBuild drops the build the main panel is showing and the watch on it.
+// Every path that changes which plan the Builds panel holds calls it: the
+// open build belongs to the plan being left, and its watch would keep
+// overwriting the main panel while the new plan loads.
+func (m *Model) leaveBuild() {
+	m.stopWatch()
+	// Bump the detail generation too: a Main refresh already in flight would
+	// otherwise be accepted and restore the abandoned build under the new
+	// selection.
+	m.detailGen++
+	// A cancel confirmed for the build being left must not report against
+	// the next one.
+	m.cancelGen++
+	m.detail, m.expanded, m.treeCursor = nil, nil, 0
+}
+
+// drill is spec §4.1. Each row moves focus and starts the load its panel needs.
+func (m Model) drill() (tea.Model, tea.Cmd) {
+	switch m.focus {
+	case focusPlans:
+		p, ok := m.plans.selected()
+		if !ok || m.svc == nil {
+			return m, nil
+		}
+		m.focus = focusBuilds
+		m.leaveBuild()
+		return m, m.loadBuilds(p.Key, true)
+	case focusBuilds:
+		b, ok := m.builds.selected()
+		if !ok || m.svc == nil {
+			return m, nil
+		}
+		m.focus = focusMain
+		m.detail = &b
+		m.expanded = defaultExpanded(b)
+		m.treeCursor = 0
+		return m.startWatch(b.Key)
+	case focusPresets:
+		t, ok := m.presets.selected()
+		if !ok || m.svc == nil || t.Plan == "" {
+			return m, nil
+		}
+		// Move the Plans cursor onto the preset's plan when it is listed, so
+		// the panels agree about what the main panel is showing.
+		for i, p := range m.plans.rows() {
+			if p.Key == t.Plan {
+				m.plans.cursor = i
+				break
+			}
+		}
+		m.focus = focusBuilds
+		m.leaveBuild()
+		m.buildsGen++
+		m.builds.loading = true
+		m.builds.setItems(nil)
+		// A preset may name a branch, and its builds live under the branch
+		// plan, not the master. ResolvePlan is what turns the two into a plan
+		// key, exactly as bam run does it.
+		return m, resolveTargetBuildsCmd(m.baseCtx(), m.svc, t, m.buildsGen)
+	case focusMain:
+		row, ok := m.selectedTreeRow()
+		if !ok {
+			return m, nil
+		}
+		if row.Kind == rowStage {
+			if m.expanded == nil {
+				m.expanded = map[string]bool{}
+			}
+			m.expanded[row.Name] = !m.expanded[row.Name]
+			m.clampTree()
+			return m, nil
+		}
+		return m.openLogs(row.Key, false)
+	}
+	return m, nil
+}
+
+// handleWatchEvent folds one app.Event into the open build. The build in the
+// event is the whole snapshot of that poll, so the tree follows it without a
+// second request.
+func (m Model) handleWatchEvent(e app.Event) (tea.Model, tea.Cmd) {
+	if e.Build.Key != "" {
+		b := e.Build
+		m.detail = &b
+		m.clampTree()
+	}
+	switch e.Type {
+	case app.EventError:
+		m.err = e.Err
+		m.stopWatch()
+		return m, nil
+	case app.EventDone:
+		m.stopWatch()
+		if m.svc != nil && m.buildsPlan != "" {
+			return m, m.loadBuilds(m.buildsPlan, false)
+		}
+		return m, nil
+	}
+	return m, watchCmd(m.watchCh, m.watchGen)
+}
+
+// startWatch begins watching key and cancels whatever was being watched
+// before. At most one watch runs, so the UI polls at most one build and
+// inherits app.Watch's own backoff. Ending a watch never stops the build.
+func (m Model) startWatch(key string) (tea.Model, tea.Cmd) {
+	m.stopWatch()
+	if m.svc == nil {
+		return m, nil
+	}
+	ctx, cancel := context.WithCancel(m.baseCtx())
+	m.watchCancel = cancel
+	m.watchCh = m.svc.Watch(ctx, key)
+	return m, watchCmd(m.watchCh, m.watchGen)
+}
+
+// handleLogKey owns the keys while the log screen fills the terminal; the
+// rest go to the viewport, which scrolls itself.
+func (m Model) handleLogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, keys.Back):
+		return m.back()
+	case key.Matches(msg, keys.Quit):
+		return m.quit()
+	case key.Matches(msg, keys.Bottom):
+		m.logs.vp.GotoBottom()
+		return m, nil
+	case key.Matches(msg, keys.Top):
+		m.logs.vp.GotoTop()
+		return m, nil
+	case key.Matches(msg, keys.Open):
+		return m.openSelection()
+	case key.Matches(msg, keys.Copy):
+		return m.copySelection()
+	case key.Matches(msg, keys.Help):
+		return m.openHelp()
+	case key.Matches(msg, keys.ExpandErr):
+		if m.err != nil {
+			m.overlay = overlayError
+		}
+		return m, nil
+	case key.Matches(msg, keys.AllLogs):
+		// The failed-log error advises pressing a, so a has to work here and
+		// not fall through to the viewport.
+		return m.openLogs("", true)
+	case key.Matches(msg, keys.Follow):
+		return m.toggleFollow()
+	case key.Matches(msg, keys.Filter):
+		return m.startInput()
+	case key.Matches(msg, keys.NextMatch):
+		m.logs.nextMatch(1)
+		return m, nil
+	case key.Matches(msg, keys.PrevMatch):
+		m.logs.nextMatch(-1)
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.logs.vp, cmd = m.logs.vp.Update(msg)
+	return m, cmd
+}
+
+// openLogs takes the screen for the log viewport. An empty jobKey means the
+// selected build's failed jobs, the same default bam logs uses.
+func (m Model) openLogs(jobKey string, all bool) (tea.Model, tea.Cmd) {
+	b, ok := m.currentBuild()
+	if !ok || m.svc == nil {
+		return m, nil
+	}
+	m.screen = screenLogs
+	// Reopening replaces the log state, so an active follow has to end first
+	// or its chunks land in the view that replaced it.
+	m.stopFollow()
+	m.logs = logState{all: all}
+	m.logsGen++
+	// ListBuilds returns builds without their stage and job tree, so a row
+	// straight from the Builds panel has no job to take a log from. Expand it
+	// first rather than reporting that it has no failed job.
+	if len(b.Stages) == 0 {
+		return m, logsForKeyCmd(m.baseCtx(), m.svc, b.Key, jobKey, all, m.logsGen)
+	}
+	return m, loadLogsCmd(m.baseCtx(), m.svc, b, jobKey, all, m.logsGen)
+}
+
+// copiedMsg says the URL reached the terminal's clipboard.
+type copiedMsg struct{}
+
+// selectionURL is the Bamboo URL of whatever the focused panel points at, so
+// o and y always act on what the user is looking at.
+func (m Model) selectionURL() string {
+	if m.screen == screenLogs && m.logs.url != "" {
+		return m.logs.url
+	}
+	switch m.focus {
+	case focusPlans:
+		if p, ok := m.plans.selected(); ok {
+			return p.URL
+		}
+	case focusBuilds:
+		if b, ok := m.builds.selected(); ok {
+			return b.URL
+		}
+	case focusMain:
+		// A stage has no URL of its own, so the build's stands in.
+		if row, ok := m.selectedTreeRow(); ok && row.URL != "" {
+			return row.URL
+		}
+		if m.detail != nil {
+			return m.detail.URL
+		}
+	}
+	return ""
+}
+
+// openSelection and copySelection are shared by the columns and the log
+// screen, so o and y mean the same thing on both.
+func (m Model) openSelection() (tea.Model, tea.Cmd) {
+	url := m.selectionURL()
+	if url == "" || m.deps.Open == nil {
+		return m, nil
+	}
+	open := m.deps.Open
+	return m, func() tea.Msg {
+		if err := open(url); err != nil {
+			return errMsg{Err: err, Where: "open"}
+		}
+		return nil
+	}
+}
+
+func (m Model) copySelection() (tea.Model, tea.Cmd) {
+	url := m.selectionURL()
+	if url == "" || m.deps.Clipboard == nil {
+		return m, nil
+	}
+	w := m.deps.Clipboard
+	return m, func() tea.Msg {
+		if err := osc52(w, url); err != nil {
+			return errMsg{Err: err, Where: "copy"}
+		}
+		return copiedMsg{}
+	}
+}
+
+// toggleFollow starts or stops streaming the open job's log. Following polls
+// that job only; it never touches the build.
+func (m Model) toggleFollow() (tea.Model, tea.Cmd) {
+	if m.logs.following {
+		m.stopFollow()
+		return m, nil
+	}
+	if m.logs.multi {
+		// The screen is several jobs concatenated, so there is no single job
+		// to resume and appending would interleave one job into another.
+		m.status = "follow needs one job; press l for the failed job or pick one"
+		return m, nil
+	}
+	b, ok := m.logBuild()
+	if !ok || m.svc == nil || m.logs.jobKey == "" {
+		return m, nil
+	}
+	job, ok := jobByKey(b, m.logs.jobKey)
+	if !ok {
+		return m, nil
+	}
+	ctx, cancel := context.WithCancel(m.baseCtx())
+	m.followCancel = cancel
+	m.logs.following = true
+	// Resume at the provider's own offset, not at the number of lines drawn:
+	// the two are different numbers and only the first is a contract.
+	m.followFrom = m.logs.offset
+	m.followLines, m.followDone = followCmd(ctx, m.svc, b.Key, job, m.followFrom)
+	return m, drainFollowCmd(m.followLines, m.followDone, m.followGen)
+}
+
+func (m *Model) stopFollow() {
+	if m.followCancel != nil {
+		m.followCancel()
+		m.followCancel = nil
+	}
+	m.followLines, m.followDone = nil, nil
+	m.logs.following = false
+	m.followGen++
+}
+
+func jobByKey(b provider.Build, key string) (provider.Job, bool) {
+	for _, st := range b.Stages {
+		for _, j := range st.Jobs {
+			if j.Key == key {
+				return j, true
+			}
+		}
+	}
+	return provider.Job{}, false
+}
+
+// currentBuild is the open build when there is one, otherwise whatever the
+// Builds cursor points at.
+// handleFormKey owns the keys while the form fills the terminal. While a
+// field is being edited every key is a character, so q is a q and ctrl-R
+// cannot be struck by accident.
+func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.form.editing {
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.form.cancelEdit()
+			return m, nil
+		case tea.KeyEnter:
+			m.form.acceptEdit()
+			m.revalidate()
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.form.input, cmd = m.form.input.Update(msg)
+		return m, cmd
+	}
+	if len(m.form.fields) == 0 {
+		// A plan with no variables is a valid thing to run: an empty VarSet
+		// is what bam run sends for it. Only the field keys are missing.
+		switch {
+		case key.Matches(msg, keys.Back):
+			return m.back()
+		case key.Matches(msg, keys.Quit):
+			return m.quit()
+		case key.Matches(msg, keys.Trigger):
+			return m.trigger()
+		case key.Matches(msg, keys.DryRun):
+			m.overlay = overlayDryRun
+			return m, nil
+		}
+		return m, nil
+	}
+	switch {
+	case key.Matches(msg, keys.Back):
+		return m.back()
+	case key.Matches(msg, keys.Quit):
+		return m.quit()
+	case key.Matches(msg, keys.NextPanel), key.Matches(msg, keys.Down):
+		m.form.move(1)
+	case key.Matches(msg, keys.PrevPanel), key.Matches(msg, keys.Up):
+		m.form.move(-1)
+	case key.Matches(msg, keys.Trigger):
+		return m.trigger()
+	case key.Matches(msg, keys.DryRun):
+		m.overlay = overlayDryRun
+		return m, nil
+	case key.Matches(msg, keys.Enter), key.Matches(msg, keys.CycleOption):
+		if len(m.form.fields[m.form.cursor].Options) > 0 {
+			m.form.cycle(1)
+			m.revalidate()
+			return m, nil
+		}
+		// space is only a cycle key; it never opens a text field.
+		if key.Matches(msg, keys.CycleOption) {
+			return m, nil
+		}
+		m.form.startEditing()
+		return m, textinput.Blink
+	}
+	return m, nil
+}
+
+// trigger sends the run. It revalidates first and refuses on an error: the
+// form stays open with everything typed still in it, because losing a filled
+// form to a rejected value is worse than the rejection.
+func (m Model) trigger() (tea.Model, tea.Cmd) {
+	m.revalidate()
+	if !m.canRun() || m.svc == nil {
+		return m, nil
+	}
+	getenv := m.deps.Getenv
+	if getenv == nil {
+		getenv = func(string) string { return "" }
+	}
+	vs, err := app.ValidateVars(m.form.ref, m.form.base, m.form.flags(), getenv)
+	if err != nil {
+		m.form.err = err
+		return m, nil
+	}
+	return m, runCmd(m.baseCtx(), m.svc, m.form.ref, m.form.stripUntypedMasks(vs), m.formGen)
+}
+
+// askCancel confirms before stopping a build. Cancelling is the one action
+// in the UI that cannot be undone, so it always asks and always names the
+// build it will stop.
+func (m Model) askCancel() (tea.Model, tea.Cmd) {
+	// C is a Builds and Main key. currentBuild falls back to the Builds
+	// cursor, so without this a C struck in Plans or Presets would offer to
+	// stop a build from the row the user is no longer looking at.
+	if m.focus != focusBuilds && m.focus != focusMain {
+		return m, nil
+	}
+	b, ok := m.currentBuild()
+	if !ok || m.svc == nil {
+		return m, nil
+	}
+	if b.State.Finished() {
+		m.status = b.Key + " has already finished"
+		return m, nil
+	}
+	return m.ask("Cancel "+b.Key+"?", func(m Model) (tea.Model, tea.Cmd) {
+		m.cancelGen++
+		return m, cancelCmd(m.baseCtx(), m.svc, b.Key, m.cancelGen)
+	})
+}
+
+// openTriggered shows the build that was just started and watches it. It is
+// the drill-into-a-build path, so at most one watch still runs.
+func (m Model) openTriggered(b provider.Build) (tea.Model, tea.Cmd) {
+	m.screen = screenColumns
+	m.form = formState{}
+	m.focus = focusMain
+	m.detail = &b
+	m.expanded = defaultExpanded(b)
+	m.treeCursor = 0
+	m.status = "queued " + b.Key
+
+	next, watch := m.startWatch(b.Key)
+	m = next.(Model)
+	cmds := []tea.Cmd{watch}
+	if b.PlanKey != "" {
+		cmds = append(cmds, m.loadBuilds(b.PlanKey, false))
+	}
+	return m, tea.Batch(cmds...)
+}
+
+// openForm opens the run form for whatever the cursor is on: a preset by its
+// name, so its branch and rules apply, or a plan key. Opening a form changes
+// nothing on the server, which is why R needs no confirmation.
+func (m Model) openForm() (tea.Model, tea.Cmd) {
+	if m.svc == nil {
+		return m, nil
+	}
+	var (
+		planKey string
+		target  *app.TargetInfo
+	)
+	switch m.focus {
+	case focusPresets:
+		t, ok := m.presets.selected()
+		if !ok {
+			return m, nil
+		}
+		target = &t
+	case focusPlans:
+		p, ok := m.plans.selected()
+		if !ok {
+			return m, nil
+		}
+		planKey = p.Key
+	default:
+		b, ok := m.currentBuild()
+		if !ok {
+			return m, nil
+		}
+		planKey = b.PlanKey
+	}
+	if target == nil && planKey == "" {
+		return m, nil
+	}
+
+	// Prefill from the selected build when there is one, so re-running with a
+	// tweak is the short path; otherwise from this repository's last build.
+	from := "last"
+	if b, ok := m.currentBuild(); ok && m.focus != focusPlans && m.focus != focusPresets {
+		from = b.Key
+	}
+
+	m.screen = screenForm
+	m.formGen++
+	m.form = formState{loading: true}
+	return m, openFormCmd(m.baseCtx(), m.svc, planKey, target, from, m.formGen)
+}
+
+// logBuild is the build the open log came from, in full. It is not
+// currentBuild: the Builds cursor may have moved, and a row from a listing
+// carries no stages.
+func (m Model) logBuild() (provider.Build, bool) {
+	if m.logs.build != nil {
+		return *m.logs.build, true
+	}
+	return m.currentBuild()
+}
+
+// currentBuild is what l, a, o, y and f act on. The Builds cursor wins when
+// Builds has focus, because esc leaves the detail open: without this, moving
+// down one row and pressing l would show the previous build's log.
+func (m Model) currentBuild() (provider.Build, bool) {
+	if m.focus == focusBuilds {
+		if b, ok := m.builds.selected(); ok {
+			return b, true
+		}
+	}
+	if m.detail != nil {
+		return *m.detail, true
+	}
+	return m.builds.selected()
+}
+
+// back pops exactly one level, in the order spec §4.1 fixes.
+func (m Model) back() (tea.Model, tea.Cmd) {
+	switch {
+	case m.overlay != overlayNone:
+		// Closing the error overlay is how an error is dismissed.
+		if m.overlay == overlayError {
+			m.err = nil
+		}
+		m.overlay = overlayNone
+		return m, nil
+	case m.screen == screenLogs:
+		m.stopFollow()
+		m.screen = screenColumns
+		return m, nil
+	case m.screen == screenForm:
+		m.formGen++ // abandon a load still in flight
+		m.screen = screenColumns
+		m.form = formState{}
+		return m, nil
+	case m.focus != focusPlans:
+		m.focus = m.focus.parent()
+		return m, nil
+	}
+	return m.quit()
+}
+
+// quit cancels the watch on the way out. Cancelling a watch never stops the
+// build; only bam build cancel does.
+func (m Model) quit() (tea.Model, tea.Cmd) {
+	m.stopWatch()
+	m.stopFollow()
+	return m, tea.Quit
+}
+
+func (m *Model) stopWatch() {
+	if m.watchCancel != nil {
+		m.watchCancel()
+		m.watchCancel = nil
+	}
+	m.watchCh = nil
+	m.watchGen++
+}
+
+func (m Model) View() string {
+	if m.width < 4 || m.height < 4 {
+		return ""
+	}
+	switch m.screen {
+	case screenLogs:
+		return m.overlayView(m.logsView())
+	case screenForm:
+		return m.overlayView(m.formView())
+	}
+	return m.columnsView()
+}
+
+// logHeight is the viewport's height: the terminal minus the header and the
+// key line.
+func (m Model) logHeight() int {
+	h := m.height - 2
+	if h < 1 {
+		h = 1
+	}
+	return h
+}
+
+func (m Model) columnsView() string {
+	body := m.height - 1 // the status bar
+	lw := leftWidth(m.width)
+	return m.overlayView(lipgloss.JoinVertical(lipgloss.Left,
+		lipgloss.JoinHorizontal(lipgloss.Top,
+			m.leftColumn(lw, body),
+			m.mainPanel(m.width-lw, body)),
+		m.statusBar(m.width)))
+}

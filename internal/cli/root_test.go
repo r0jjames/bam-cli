@@ -37,17 +37,15 @@ func TestGroupCommandWithoutArgsPrintsHelp(t *testing.T) {
 	assert.Contains(t, h.stdout.String(), "Usage:")
 }
 
-func TestBareBamOnTerminalPrintsHelpAndNote(t *testing.T) {
+// Bare bam opened the UI as of v0.2 part A; on a pipe it still prints help.
+// The entry matrix itself is covered by ui_test.go.
+func TestBareBamOnAPipeStillPrintsHelp(t *testing.T) {
 	h := newHarness(t)
-	h.tty = true
-	assert.Equal(t, 0, h.run())
-	assert.Contains(t, h.stdout.String(), "Usage:")
-	assert.Contains(t, h.stdout.String(), "interactive mode arrives in v0.2")
-
 	h.tty = false
 	assert.Equal(t, 0, h.run())
 	assert.Contains(t, h.stdout.String(), "Usage:")
 	assert.NotContains(t, h.stdout.String(), "interactive mode")
+	assert.Empty(t, h.tuiRuns)
 }
 
 func TestDocsRootIncludesCompletion(t *testing.T) {

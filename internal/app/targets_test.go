@@ -29,3 +29,36 @@ func TestDescribeTargets(t *testing.T) {
 	_, err = DescribeTarget(cfg, func(string) string { return "" }, "nope")
 	assert.Equal(t, errs.KindUsage, errs.KindOf(err))
 }
+
+// TestRefFromTargetResolvesTheBranchWithoutTheServiceConfig is what lets the
+// terminal UI act on a preset it refreshed from disk: the configuration the
+// Service was built with may be older than the panel.
+func TestRefFromTargetResolvesTheBranchWithoutTheServiceConfig(t *testing.T) {
+	s := newService(t, fakeBamboo())
+	info := TargetInfo{
+		Name: "provision-lab", Plan: "PROJ-PROV", Branch: "develop",
+		Options:  map[string][]string{"cluster_type": {"k8s", "dcos"}},
+		Required: []string{"cluster_name"},
+		Defaults: []TargetVar{{Name: "cluster_type", Value: "k8s"}},
+	}
+
+	ref, err := s.RefFromTarget(bg, info)
+	require.NoError(t, err)
+	assert.Equal(t, "PROJ-PROV12", ref.PlanKey, "the branch plan, not the master")
+	assert.Equal(t, "PROJ-PROV", ref.MasterKey)
+	assert.Equal(t, "develop", ref.Branch)
+	require.NotNil(t, ref.Target)
+	assert.Equal(t, []string{"cluster_name"}, ref.Target.Required)
+	assert.Equal(t, "k8s", ref.Target.Defaults["cluster_type"])
+}
+
+// TestRefFromTargetKeepsEnvReferencesAsWritten, so ValidateVars still sees a
+// ${NAME} to resolve rather than an already-expanded value.
+func TestRefFromTargetKeepsEnvReferencesAsWritten(t *testing.T) {
+	s := newService(t, fakeBamboo())
+	info := TargetInfo{Name: "t", Plan: "PROJ-PROV",
+		Defaults: []TargetVar{{Name: "db_password", Value: "${LAB_DB_PASSWORD}", EnvRef: "LAB_DB_PASSWORD", Secret: true}}}
+	ref, err := s.RefFromTarget(bg, info)
+	require.NoError(t, err)
+	assert.Equal(t, "${LAB_DB_PASSWORD}", ref.Target.Defaults["db_password"])
+}
