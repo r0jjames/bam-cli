@@ -234,6 +234,9 @@ func (m Model) withContext(ctx context.Context) Model {
 // does not dial a second time.
 func (m Model) connected(msg connectedMsg) Model {
 	m.svc, m.info, m.user, m.server = msg.Svc, msg.Info, msg.User, msg.Alias
+	// Init loads the plans of this connection, so the panel is already
+	// waiting on them here. Init's receiver is a copy, so it cannot say so.
+	m.plans.loading = true
 	return m
 }
 
@@ -242,8 +245,10 @@ func (m Model) Init() tea.Cmd {
 	switch {
 	case m.svc != nil:
 		// Run's handshake already connected; go straight to the panels.
-		m.plans.loading = true
-		cmds = append(cmds, m.loadPlans())
+		// loadPlans is not usable here: Init's receiver is a copy, so the
+		// generation it bumped would be lost and every plansLoadedMsg the
+		// request produced would be dropped as stale.
+		cmds = append(cmds, loadPlansCmd(m.baseCtx(), m.svc, m.project, m.plansGen))
 	case m.deps.Connect != nil:
 		cmds = append(cmds, connectCmd(m.baseCtx(), m.deps, m.server, m.connGen))
 	}

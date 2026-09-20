@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -293,4 +294,45 @@ func TestPresetRowShowsNamePlanAndBranch(t *testing.T) {
 	require.Contains(t, rows, "smoke")
 	require.Contains(t, rows, "PROJ-PROV")
 	require.Contains(t, rows, "develop")
+}
+
+// TestInitAfterHandshakeFillsPlans pins the generation Init hands to its
+// plans request. Run connects before the program loop, so Init takes the
+// already-connected branch; Init's receiver is a copy, so a bump made there
+// is lost and every plansLoadedMsg it asked for would be dropped as stale.
+func TestInitAfterHandshakeFillsPlans(t *testing.T) {
+	d := Deps{
+		Connect: func(context.Context, string) (*app.Service, error) { return testService(), nil },
+		Servers: []Server{{Alias: "lab", URL: "https://bamboo.lab.example"}},
+		Initial: "lab",
+	}
+	m := New(d).withContext(t.Context())
+	msg, ok := connectCmd(t.Context(), d, d.Initial, 0)().(connectedMsg)
+	require.True(t, ok)
+	m = m.connected(msg)
+
+	// Run what Init asks for and feed every message back, the way the
+	// bubbletea loop does.
+	var deliver func(Model, tea.Cmd) Model
+	deliver = func(m Model, cmd tea.Cmd) Model {
+		if cmd == nil {
+			return m
+		}
+		switch msg := cmd().(type) {
+		case tea.BatchMsg:
+			for _, sub := range msg {
+				m = deliver(m, sub)
+			}
+		case nil:
+		default:
+			m, cmd = send(m, msg)
+			m = deliver(m, cmd)
+		}
+		return m
+	}
+	m = deliver(m, m.Init())
+
+	require.NoError(t, m.err)
+	require.NotZero(t, m.plans.len(), "the Plans panel is empty after start-up")
+	require.False(t, m.plans.loading)
 }
