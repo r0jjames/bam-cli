@@ -54,10 +54,33 @@ func branchLabel(b string) string {
 	return b
 }
 
-func BuildList(o Out, bs []provider.Build) error {
-	t := Table{Headers: []string{"BUILD", "STATE", "BRANCH", "STARTED", "DURATION", "REASON"}, Flex: []int{5}}
+func BuildList(o Out, bs []provider.Build) error { return BuildListWithProgress(o, bs, nil) }
+
+// BuildListWithProgress adds an ETA column, filled for the running builds
+// that the server could estimate. Without any estimate the table is the
+// same one BuildList renders.
+func BuildListWithProgress(o Out, bs []provider.Build, ps map[string]provider.Progress) error {
+	eta := false
 	for _, b := range bs {
-		t.Rows = append(t.Rows, []string{o.Key(b.Key, b.URL), o.State(b.State), branchLabel(b.Branch), o.Time(b.StartedAt), Duration(b.Duration), b.Reason})
+		if p, ok := ps[b.Key]; ok && p.Valid {
+			eta = true
+		}
+	}
+	t := Table{Headers: []string{"BUILD", "STATE", "BRANCH", "STARTED", "DURATION", "REASON"}, Flex: []int{5}}
+	if eta {
+		t.Headers = []string{"BUILD", "STATE", "BRANCH", "STARTED", "DURATION", "ETA", "REASON"}
+		t.Flex = []int{6}
+	}
+	for _, b := range bs {
+		row := []string{o.Key(b.Key, b.URL), o.State(b.State), branchLabel(b.Branch), o.Time(b.StartedAt), Duration(b.Duration)}
+		if eta {
+			cell := ""
+			if p, ok := ps[b.Key]; ok && p.Valid {
+				cell = Duration(p.Remaining)
+			}
+			row = append(row, cell)
+		}
+		t.Rows = append(t.Rows, append(row, b.Reason))
 	}
 	return t.Render(o)
 }
@@ -70,6 +93,12 @@ func field(o Out, label, value string) {
 }
 
 func BuildDetail(o Out, b provider.Build) error {
+	return BuildDetailWithProgress(o, b, provider.Progress{})
+}
+
+// BuildDetailWithProgress prints a build, and the server's estimate for it
+// when the build is still running.
+func BuildDetailWithProgress(o Out, b provider.Build, p provider.Progress) error {
 	fmt.Fprintf(o.W, "%s  %s  %s\n", style.Bold(o.Style, o.Key(b.Key, b.URL)), o.State(b.State), b.URL)
 	plan := b.PlanKey
 	if b.Branch != "" {
@@ -82,6 +111,9 @@ func BuildDetail(o Out, b provider.Build) error {
 		field(o, "Completed", o.Time(b.FinishedAt))
 	}
 	field(o, "Duration", Duration(b.Duration))
+	if bar := Bar(o, p); bar != "" {
+		field(o, "Estimate", Duration(p.Average)+"  "+bar)
+	}
 	if b.QueueDuration > 0 {
 		field(o, "Queued", Duration(b.QueueDuration))
 	}
