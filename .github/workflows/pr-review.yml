@@ -47,7 +47,13 @@ jobs:
 
   claude:
     needs: copilot
-    if: needs.copilot.outputs.reviewed != 'true'
+    # A custom `if:` drops the implicit success() check on `needs`, so the
+    # copilot job's own guard has to be repeated here: without it this job
+    # would run on the draft and fork pull requests that job skips.
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.copilot.outputs.reviewed != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
