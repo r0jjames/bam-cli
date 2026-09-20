@@ -688,6 +688,13 @@ func (r *recorder) recordTriggerAndStop(plan string) error {
 		if err != nil {
 			return err
 		}
+		// The progress endpoint answers only while the build runs, so it is
+		// recorded here, before the stop below settles it.
+		if len(jobs) > 0 {
+			if err := r.record("status_running.json", http.MethodGet, "/rest/api/latest/result/status/"+q.Key, nil); err != nil {
+				return err
+			}
+		}
 		for _, job := range jobs {
 			_, status, err := r.call(http.MethodDelete, "/rest/api/latest/queue/"+job, nil)
 			if err != nil {

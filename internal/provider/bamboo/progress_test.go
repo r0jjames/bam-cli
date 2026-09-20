@@ -3,6 +3,8 @@ package bamboo
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -126,4 +128,24 @@ func TestBuildProgressLearnsSupportedOnFirstSuccess(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "yes", c.Capabilities().Progress)
 	require.NotEmpty(t, *saved)
+}
+
+// TestRecordedStatusDecode runs a recording of the progress endpoint through
+// BuildProgress, so the hand-written fixture cannot drift from the server's
+// shape unnoticed. It skips when nothing is recorded.
+func TestRecordedStatusDecode(t *testing.T) {
+	const f = "recorded/status_running.json"
+	if _, err := os.Stat(filepath.Join("testdata", f)); err != nil {
+		t.Skipf("%s not recorded", f)
+	}
+	c, _ := newTestServer(t, map[string]*route{
+		"GET /rest/api/latest/result/status/REC-PLAN-1": {fixture: f},
+	})
+	knownCaps(c, Capabilities{})
+
+	p, err := c.BuildProgress(context.Background(), "REC-PLAN-1")
+
+	require.NoError(t, err)
+	assert.True(t, p.Valid, "a recorded running build must carry an estimate")
+	assert.Positive(t, p.Average)
 }

@@ -186,6 +186,29 @@ func (s *stub) handleResult(w http.ResponseWriter, r *http.Request) {
 	s.serve(w, "result_detail.json", fixtureBuild, key)
 }
 
+// handleStatus answers the progress endpoint: a running simulated build
+// reports its share of the configured run time, and everything else reports
+// as finished, which is what Bamboo does.
+func (s *stub) handleStatus(w http.ResponseWriter, r *http.Request) {
+	key := strings.TrimPrefix(r.URL.Path, api+"/result/status/")
+	s.mu.Lock()
+	b := s.live[key]
+	s.mu.Unlock()
+	if b == nil {
+		writeJSON(w, []byte(`{"currentStage":"","finished":true}`))
+		return
+	}
+	if life, _ := s.phase(b); life != "InProgress" {
+		writeJSON(w, []byte(`{"currentStage":"","finished":true}`))
+		return
+	}
+	elapsed := s.now().Sub(b.started) - s.queued
+	pct := float64(elapsed) / float64(s.running)
+	writeJSON(w, fmt.Appendf(nil,
+		`{"currentStage":"Build","finished":false,"progress":{"isValid":true,"averageBuildDuration":%d,"buildTime":%d,"percentageCompleted":%.2f}}`,
+		s.running.Milliseconds(), elapsed.Milliseconds(), pct))
+}
+
 func (s *stub) handleQueue(w http.ResponseWriter, r *http.Request) {
 	key := strings.TrimPrefix(r.URL.Path, api+"/queue/")
 	switch r.Method {
@@ -254,6 +277,7 @@ func (s *stub) handler() http.Handler {
 	mux.HandleFunc(api+"/project", s.handleProject)
 	mux.HandleFunc(api+"/project/", s.handleProject)
 	mux.HandleFunc(api+"/plan/", s.handlePlan)
+	mux.HandleFunc(api+"/result/status/", s.handleStatus)
 	mux.HandleFunc(api+"/result/", s.handleResult)
 	mux.HandleFunc(api+"/queue/", s.handleQueue)
 	mux.HandleFunc("/download/", func(w http.ResponseWriter, _ *http.Request) {
