@@ -147,3 +147,26 @@ func TestEventJSONCarriesProgressOnRunningEventsOnly(t *testing.T) {
 	assert.Nil(t, done.Progress)
 	assert.Nil(t, done.Build.Progress)
 }
+
+func TestBarWithinFitsItsBudget(t *testing.T) {
+	p := provider.Progress{Valid: true, Average: 4 * time.Minute, Elapsed: 2 * time.Minute, Remaining: 2 * time.Minute, Percent: 0.5}
+
+	for _, budget := range []int{26, 32, 40, 60} {
+		got := BarWithin(style.Mode{}, p, budget)
+		assert.LessOrEqual(t, len(got), budget, "budget %d: %q", budget, got)
+		assert.Contains(t, got, "~2m00s left", "budget %d", budget)
+	}
+}
+
+func TestBarWithinDropsTheCellsBeforeTheNumbers(t *testing.T) {
+	p := provider.Progress{Valid: true, Average: 4 * time.Minute, Elapsed: 2 * time.Minute, Remaining: 2 * time.Minute, Percent: 0.5}
+
+	assert.Equal(t, " 50%  ~2m00s left", BarWithin(style.Mode{}, p, 25), "six cells plus the text need 26 columns")
+}
+
+func TestBarWithinIsEmptyWhenThereIsNoRoom(t *testing.T) {
+	p := provider.Progress{Valid: true, Average: 4 * time.Minute, Elapsed: 2 * time.Minute, Remaining: 2 * time.Minute, Percent: 0.5}
+
+	assert.Equal(t, "", BarWithin(style.Mode{}, p, 16), "not even the numbers fit")
+	assert.Equal(t, "", BarWithin(style.Mode{}, provider.Progress{}, 80))
+}

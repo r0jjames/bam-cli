@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/r0jjames/bam-cli/internal/provider"
 	"github.com/r0jjames/bam-cli/internal/view"
+	"github.com/r0jjames/bam-cli/internal/view/style"
 )
 
 type treeKind int
@@ -63,9 +64,15 @@ func defaultExpanded(b provider.Build) map[string]bool {
 // and the failed-test count when the server reported one.
 func (m Model) detailBody(width, height int) string {
 	b := *m.detail
+	header := fmt.Sprintf("%s   #%d   branch %s   %s",
+		stateCell(b.State), b.Number, branchOrDefault(b), view.Duration(b.Duration))
+	// The bar takes the columns the header line leaves, and is dropped
+	// entirely when the panel is too narrow to hold a readable one.
+	if bar := view.BarWithin(style.Mode{}, m.progress, width-lipgloss.Width(header)-3); bar != "" {
+		header += "   " + bar
+	}
 	lines := []string{
-		fmt.Sprintf("%s   #%d   branch %s   %s",
-			stateCell(b.State), b.Number, branchOrDefault(b), view.Duration(b.Duration)),
+		header,
 		dimStyle.Render(strings.TrimSpace(b.Reason + " " + revisionShort(b))),
 		"",
 	}

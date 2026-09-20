@@ -356,8 +356,9 @@ func logsForKeyCmd(ctx context.Context, svc *app.Service, buildKey, jobKey strin
 }
 
 type buildLoadedMsg struct {
-	Gen   int
-	Build provider.Build
+	Gen      int
+	Build    provider.Build
+	Progress provider.Progress
 }
 
 // reloadBuildCmd re-reads one build. It goes through Service.Build rather
@@ -369,7 +370,9 @@ func reloadBuildCmd(ctx context.Context, svc *app.Service, key string, gen int) 
 		if err != nil {
 			return errMsg{Err: err, Where: "build", Stream: streamDetail, Gen: gen}
 		}
-		return buildLoadedMsg{Gen: gen, Build: b}
+		// A missing estimate is decoration lost, never a failed refresh.
+		pr, _ := svc.Progress(ctx, key)
+		return buildLoadedMsg{Gen: gen, Build: b, Progress: pr}
 	}
 }
 
