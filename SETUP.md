@@ -200,6 +200,7 @@ Also used later:
 | `go test -race ./...` | tests with the race detector |
 | `make check-fixtures` | fails if any test fixture names a real host |
 | `make docs` | regenerates the command reference in `docs/cli/`; CI fails if it is stale |
+| `make stub` | serves a fake Bamboo from the fixtures, so bam can be driven without a server (see below) |
 | `make record ARGS='-target provision'` | records scrubbed fixtures from your own Bamboo (see below) |
 | `make e2e ARGS='-target smoke'` | end-to-end test against a real Bamboo |
 | `goreleaser build --snapshot --clean` | cross-platform release build into `dist/`; release work only |
@@ -217,6 +218,43 @@ make docs && git diff --exit-code docs/cli  # docs/cli must be up to date
 make check-fixtures
 make lint
 ```
+
+## Run bam without a Bamboo
+
+`make stub` serves a fake Bamboo Data Center from the fixtures in
+`internal/provider/bamboo/testdata`. It needs no server, no token and no
+network, so it is the fastest way to drive the CLI and the terminal UI by
+hand. Run it from the repository root and leave it running:
+
+```bash
+make stub                                   # http://127.0.0.1:7990
+make stub ARGS='-addr 127.0.0.1:8085'       # somewhere else
+```
+
+Point bam at it from another terminal. The reserved `env` alias means no
+configuration file is involved:
+
+```bash
+export BAM_URL=http://127.0.0.1:7990
+export BAM_TOKEN=devtoken                   # any value; the stub accepts all
+bam                                         # the terminal UI
+bam doctor
+bam plan list PROJ
+bam build show PROJ-BUILD-482
+bam logs PROJ-BUILD-481 --failed
+bam run PROJ-BUILD --watch
+```
+
+Reads are the fixtures, retargeted to whatever key you ask for, so every
+project and plan answers. A build you trigger is simulated rather than
+replayed: it stays queued for 5 seconds, runs for 10, then succeeds, which is
+what `bam watch` and the UI's watch view need. `bam build cancel` stops it.
+`-queued` and `-running` change those durations.
+
+Presets are configuration, not server state, so `bam target list` and
+`bam run <target>` still need a `.bam.yaml` or a machine file. Write one
+against the stub's keys (`PROJ-BUILD`, `OPS-BUILD`) and keep it out of the
+repository, or point `BAM_CONFIG` at a throwaway file.
 
 ## Your Bamboo for development
 
