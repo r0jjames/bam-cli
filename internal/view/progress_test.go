@@ -124,3 +124,26 @@ func TestBuildListShowsAnETAColumnOnlyWhenSomethingRuns(t *testing.T) {
 	require.NoError(t, BuildListWithProgress(o, []provider.Build{failedResult()}, nil))
 	assert.NotContains(t, buf.String(), "ETA")
 }
+
+func TestBuildJSONCarriesProgressOnlyWhenEstimated(t *testing.T) {
+	p := provider.Progress{Valid: true, Average: 3 * time.Minute, Elapsed: 99 * time.Second, Remaining: 81 * time.Second, Percent: 0.55, Stage: "Deploy"}
+
+	doc := BuildJSONWithProgress(runningBuild(), p)
+
+	require.NotNil(t, doc.Progress)
+	assert.Equal(t, ProgressDoc{Percent: 0.55, AverageMS: 180000, ElapsedMS: 99000, RemainingMS: 81000, Stage: "Deploy"}, *doc.Progress)
+	assert.Nil(t, BuildJSONWithProgress(runningBuild(), provider.Progress{}).Progress)
+	assert.Nil(t, BuildJSON(failedResult()).Progress)
+}
+
+func TestEventJSONCarriesProgressOnRunningEventsOnly(t *testing.T) {
+	p := provider.Progress{Valid: true, Average: 3 * time.Minute, Elapsed: 99 * time.Second, Remaining: 81 * time.Second, Percent: 0.55}
+
+	running := EventJSON(app.Event{Type: app.EventState, Time: fixedNow, Build: runningBuild(), Progress: p, State: provider.StateRunning})
+	done := EventJSON(app.Event{Type: app.EventDone, Time: fixedNow, Build: failedResult(), State: provider.StateFailed})
+
+	require.NotNil(t, running.Progress)
+	assert.Equal(t, 0.55, running.Progress.Percent)
+	assert.Nil(t, done.Progress)
+	assert.Nil(t, done.Build.Progress)
+}

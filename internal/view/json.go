@@ -50,6 +50,17 @@ type BuildDoc struct {
 	Revisions       []RevisionDoc `json:"revisions"`
 	Stages          []StageDoc    `json:"stages"`
 	FailedTests     []string      `json:"failed_tests"`
+	Progress        *ProgressDoc  `json:"progress,omitempty"`
+}
+
+// ProgressDoc is the server's estimate for a running build. It is absent from
+// a document when the server had no estimate.
+type ProgressDoc struct {
+	Percent     float64 `json:"percent"`
+	AverageMS   int64   `json:"average_ms"`
+	ElapsedMS   int64   `json:"elapsed_ms"`
+	RemainingMS int64   `json:"remaining_ms"`
+	Stage       string  `json:"stage,omitempty"`
 }
 
 type LastBuildDoc struct {
@@ -112,14 +123,15 @@ type RunDoc struct {
 }
 
 type EventDoc struct {
-	Type     string    `json:"type"`
-	Time     string    `json:"time"`
-	BuildKey string    `json:"build_key,omitempty"`
-	Name     string    `json:"name,omitempty"`
-	Key      string    `json:"key,omitempty"`
-	State    string    `json:"state,omitempty"`
-	Message  string    `json:"message,omitempty"`
-	Build    *BuildDoc `json:"build,omitempty"`
+	Type     string       `json:"type"`
+	Time     string       `json:"time"`
+	BuildKey string       `json:"build_key,omitempty"`
+	Name     string       `json:"name,omitempty"`
+	Key      string       `json:"key,omitempty"`
+	State    string       `json:"state,omitempty"`
+	Message  string       `json:"message,omitempty"`
+	Build    *BuildDoc    `json:"build,omitempty"`
+	Progress *ProgressDoc `json:"progress,omitempty"`
 }
 
 func timePtr(t time.Time) *string {
@@ -140,10 +152,16 @@ func nonNil[T any](s []T) []T {
 }
 
 func BuildJSON(b provider.Build) BuildDoc {
+	return BuildJSONWithProgress(b, provider.Progress{})
+}
+
+// BuildJSONWithProgress is BuildJSON with the server's estimate attached.
+func BuildJSONWithProgress(b provider.Build, pr provider.Progress) BuildDoc {
 	d := BuildDoc{Key: b.Key, URL: b.URL, PlanKey: b.PlanKey, Branch: b.Branch, Number: b.Number, State: string(b.State),
 		Reason: b.Reason, CustomBuild: b.CustomBuild, Labels: nonNil(b.Labels), QueuedAt: timePtr(b.QueuedAt),
 		StartedAt: timePtr(b.StartedAt), FinishedAt: timePtr(b.FinishedAt), QueueDurationMS: ms(b.QueueDuration),
-		DurationMS: ms(b.Duration), Agent: b.Agent, Revisions: []RevisionDoc{}, Stages: []StageDoc{}, FailedTests: nonNil(b.FailedTests)}
+		DurationMS: ms(b.Duration), Agent: b.Agent, Revisions: []RevisionDoc{}, Stages: []StageDoc{}, FailedTests: nonNil(b.FailedTests),
+		Progress: progressDoc(pr)}
 	for _, r := range b.Revisions {
 		d.Revisions = append(d.Revisions, RevisionDoc{Repository: r.Repository, Revision: r.Revision, Short: r.Short()})
 	}
@@ -227,9 +245,18 @@ func RunJSON(b provider.Build, ref app.PlanRef, vs app.VarSet) RunDoc {
 	return d
 }
 
+// progressDoc converts an estimate, or nil when there is none.
+func progressDoc(p provider.Progress) *ProgressDoc {
+	if !p.Valid || p.Average <= 0 {
+		return nil
+	}
+	return &ProgressDoc{Percent: p.Percent, AverageMS: ms(p.Average), ElapsedMS: ms(p.Elapsed),
+		RemainingMS: ms(p.Remaining), Stage: p.Stage}
+}
+
 func EventJSON(e app.Event) EventDoc {
 	d := EventDoc{Type: string(e.Type), Time: e.Time.UTC().Format(time.RFC3339), BuildKey: e.Build.Key,
-		Name: e.Name, Key: e.Key, State: string(e.State)}
+		Name: e.Name, Key: e.Key, State: string(e.State), Progress: progressDoc(e.Progress)}
 	switch e.Type {
 	case app.EventDone:
 		b := BuildJSON(e.Build)
