@@ -80,12 +80,13 @@ Adoption path: the author first, on a personal Bamboo and a work Bamboo; then wo
 
 ### Then (v0.3)
 
-- Duration estimate and progress bar from build history, in both the commands and the UI.
+- Duration estimate and progress bar from Bamboo's own progress endpoint, in both the commands and the UI.
 - `run --edit`, `run --revision`, `run --verbose` (the last two once the capability probe confirms REST support).
 - `bam target sync` to refresh a preset when the plan's variables change.
 
 ### Future
 
+- **Local duration estimator:** a median of recent builds, for servers whose REST API does not report progress.
 - **Run sets:** matrix expansion, batch files, `rerun --failed`, `status`, plan statistics, set-level results, and a run-sets panel in the UI.
 - **Kubernetes:** read-only rollout status per environment.
 
