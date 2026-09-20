@@ -7,27 +7,47 @@ jobs:
     if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
-      pull-requests: write
+      pull-requests: read
     outputs:
-      requested: ${{ steps.request.outputs.requested }}
+      reviewed: ${{ steps.watch.outputs.reviewed }}
     steps:
-      - name: Request a Copilot review
-        id: request
+      - name: Wait for the Copilot review
+        id: watch
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
         run: |
-          if gh api -X POST "repos/${{ github.repository }}/pulls/$PR/requested_reviewers" \
-            -f "reviewers[]=copilot-pull-request-reviewer[bot]" --silent; then
-            echo "requested=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "requested=false" >> "$GITHUB_OUTPUT"
-            echo "Copilot review could not be requested; falling back to the Claude reviewer." >&2
+          # GitHub's own automatic Copilot review requests the bot; this job only
+          # watches for the result. A quota-exhausted Copilot still posts a review,
+          # so the body is what distinguishes a real review from a declined one.
+          deadline=$((SECONDS + 180))
+          reviewed=false
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            body=$(gh api "repos/$REPO/pulls/$PR/reviews" \
+              --jq '[.[] | select(.user.login == "copilot-pull-request-reviewer[bot]")] | last | .body // empty' \
+              2>/dev/null || true)
+            if [ -n "$body" ]; then
+              case "$body" in
+                *"unable to review"*)
+                  echo "Copilot declined: $body" >&2
+                  ;;
+                *)
+                  reviewed=true
+                  ;;
+              esac
+              break
+            fi
+            sleep 10
+          done
+          if [ "$reviewed" = false ] && [ -z "$body" ]; then
+            echo "No Copilot review within 180s." >&2
           fi
+          echo "reviewed=$reviewed" >> "$GITHUB_OUTPUT"
 
   claude:
     needs: copilot
-    if: needs.copilot.outputs.requested != 'true'
+    if: needs.copilot.outputs.reviewed != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
