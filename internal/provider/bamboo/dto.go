@@ -78,3 +78,15 @@ type stageDTO struct {
 		Result []resultDTO `json:"result"`
 	} `json:"results"`
 }
+
+// statusDTO is /result/status/{key}: a running build's progress.
+type statusDTO struct {
+	CurrentStage string `json:"currentStage"`
+	Finished     bool   `json:"finished"`
+	Progress     *struct {
+		IsValid              bool    `json:"isValid"`
+		AverageBuildDuration int64   `json:"averageBuildDuration"`
+		BuildTime            int64   `json:"buildTime"`
+		PercentageCompleted  float64 `json:"percentageCompleted"`
+	} `json:"progress"`
+}

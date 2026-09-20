@@ -49,3 +49,17 @@ func (s *Service) Build(ctx context.Context, key string) (provider.Build, error)
 	}
 	return b, err
 }
+
+// Progress returns how far a running build has got. A server that cannot
+// report progress, or a build that is not running, yields a zero Progress and
+// no error; only a real transport failure is returned.
+func (s *Service) Progress(ctx context.Context, key string) (provider.Progress, error) {
+	p, err := s.P.BuildProgress(ctx, key)
+	if err != nil {
+		if errors.Is(err, errs.ErrUnsupported) {
+			return provider.Progress{}, nil
+		}
+		return provider.Progress{}, err
+	}
+	return p, nil
+}

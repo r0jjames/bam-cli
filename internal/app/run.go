@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"errors"
 	"time"
 
+	"github.com/r0jjames/bam-cli/internal/errs"
 	"github.com/r0jjames/bam-cli/internal/provider"
 )
 
@@ -40,15 +42,17 @@ const (
 	EventError EventType = "error" // polling failed; last event
 )
 
-// Event is one change seen while watching. Build is the snapshot of that poll.
+// Event is one change seen while watching. Build is the snapshot of that poll,
+// and Progress the server's estimate for it; a zero Progress means none.
 type Event struct {
-	Type  EventType
-	Time  time.Time
-	Build provider.Build
-	Name  string // stage or job name
-	Key   string // job result key for job events
-	State provider.State
-	Err   error
+	Type     EventType
+	Time     time.Time
+	Build    provider.Build
+	Progress provider.Progress
+	Name     string // stage or job name
+	Key      string // job result key for job events
+	State    provider.State
+	Err      error
 }
 
 // Watch polls a build until it finishes and emits its changes. Ending ctx
@@ -67,6 +71,7 @@ func (s *Service) Watch(ctx context.Context, key string) <-chan Event {
 		}
 		var prev *provider.Build
 		interval := MinPoll
+		noProgress := false
 		for {
 			// The provider ignores ctx, so check here before every poll:
 			// ending ctx must stop watching, not keep polling forever.
@@ -83,9 +88,21 @@ func (s *Service) Watch(ctx context.Context, key string) <-chan Event {
 				return
 			}
 			now := s.Clock.Now()
+			// A missing estimate is decoration lost, never a reason to stop
+			// watching, so every progress error becomes a zero Progress.
+			var pr provider.Progress
+			if !noProgress && !b.State.Finished() {
+				got, err := s.P.BuildProgress(ctx, key)
+				switch {
+				case err == nil:
+					pr = got
+				case errors.Is(err, errs.ErrUnsupported):
+					noProgress = true
+				}
+			}
 			changes := diff(prev, b)
 			for _, e := range changes {
-				e.Time, e.Build = now, b
+				e.Time, e.Build, e.Progress = now, b, pr
 				if !send(e) {
 					return
 				}

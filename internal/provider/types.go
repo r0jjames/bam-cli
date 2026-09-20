@@ -140,6 +140,17 @@ func (b Build) FailedJobs() []Job {
 	return out
 }
 
+// Progress is how far a running build has got, as the server reports it. The
+// zero value means "no estimate", which is not an error.
+type Progress struct {
+	Valid     bool          // the server had a usable estimate
+	Average   time.Duration // the plan's average build duration
+	Elapsed   time.Duration // build time so far, as the server counts it
+	Remaining time.Duration // Average - Elapsed, floored at zero
+	Percent   float64       // 0..1, clamped; 1 once Elapsed >= Average
+	Stage     string        // the stage running now; may be empty
+}
+
 type ListOptions struct {
 	Limit int   // 0 means the provider default
 	State State // empty means all states

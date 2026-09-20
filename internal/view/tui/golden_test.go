@@ -108,3 +108,13 @@ func TestHelpGolden(t *testing.T) {
 	m, _ := send(goldenModel(80, 24), mkKey("?"))
 	requireGolden(t, "help-80x24", m.View())
 }
+
+// TestDetailWithEstimateGolden pins the bar in the detail header.
+func TestDetailWithEstimateGolden(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.focus = focusMain
+	m.detail = ptr(runningDetail())
+	m.expanded = defaultExpanded(runningDetail())
+	m.progress = runningEstimate()
+	requireGolden(t, "detail-estimate-80x24", m.View())
+}

@@ -347,8 +347,13 @@ func newBuildListCmd(r *runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			progress := runningProgress(ctx, svc, builds)
 			if r.flags.json {
-				return view.WriteJSON(r.env.Stdout, view.BuildsJSON(builds))
+				docs := []view.BuildDoc{}
+				for _, b := range builds {
+					docs = append(docs, view.BuildJSONWithProgress(b, progress[b.Key]))
+				}
+				return view.WriteJSON(r.env.Stdout, docs)
 			}
 			if len(builds) == 0 {
 				msg := "no builds for " + ref.PlanKey
@@ -365,13 +370,28 @@ func newBuildListCmd(r *runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return view.BuildList(o, builds)
+			return view.BuildListWithProgress(o, builds, progress)
 		}),
 	}
 	cmd.Flags().StringVar(&branch, "branch", "", "plan branch")
 	cmd.Flags().IntVar(&limit, "limit", 10, "number of builds")
 	cmd.Flags().StringVar(&state, "state", "", "only builds in this state, e.g. failed")
 	return cmd
+}
+
+// runningProgress asks the server for an estimate for the running builds
+// only: no other state can have one, and each answer costs a request.
+func runningProgress(ctx context.Context, svc *app.Service, builds []provider.Build) map[string]provider.Progress {
+	out := map[string]provider.Progress{}
+	for _, b := range builds {
+		if b.State != provider.StateRunning {
+			continue
+		}
+		if p, err := svc.Progress(ctx, b.Key); err == nil && p.Valid {
+			out[b.Key] = p
+		}
+	}
+	return out
 }
 
 // resolveBuildArg connects to the right server and turns [<build>] / --last into a build key.
@@ -411,14 +431,16 @@ func newBuildShowCmd(r *runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// A missing estimate is decoration lost, never a failed read.
+			pr, _ := svc.Progress(cmd.Context(), key)
 			if r.flags.json {
-				return view.WriteJSON(r.env.Stdout, view.BuildJSON(b))
+				return view.WriteJSON(r.env.Stdout, view.BuildJSONWithProgress(b, pr))
 			}
 			o, err := r.out()
 			if err != nil {
 				return err
 			}
-			return view.BuildDetail(o, b)
+			return view.BuildDetailWithProgress(o, b, pr)
 		}),
 	}
 	cmd.Flags().BoolVar(&last, "last", false, "the last build bam triggered from this repository")

@@ -20,6 +20,7 @@ type Capabilities struct {
 	FailedTests string    `json:"failed_tests,omitempty"` // yes | no
 	Log         string    `json:"log,omitempty"`          // entries | download
 	Stop        string    `json:"stop,omitempty"`         // yes | no
+	Progress    string    `json:"progress,omitempty"`     // yes | no
 }
 
 const capsMaxAge = 7 * 24 * time.Hour

@@ -79,10 +79,12 @@ type WatchRenderer interface {
 
 // Live redraws a block in place on a TTY.
 type Live struct {
-	o     Out
-	last  provider.Build
-	have  bool
-	lines int
+	o        Out
+	last     provider.Build
+	progress provider.Progress
+	at       time.Time // when that estimate arrived, so Tick can extrapolate
+	have     bool
+	lines    int
 }
 
 func NewLive(o Out) *Live { return &Live{o: o} }
@@ -92,6 +94,7 @@ func (l *Live) Event(e app.Event) {
 		return
 	}
 	l.last, l.have = e.Build, true
+	l.progress, l.at = e.Progress, l.o.Now()
 	l.draw()
 	if e.Type == app.EventDone {
 		fmt.Fprintln(l.o.W)
@@ -109,7 +112,7 @@ func (l *Live) draw() {
 	var b strings.Builder
 	o := l.o
 	o.W = &b
-	block(o, l.last)
+	block(o, l.last, advance(l.progress, l.o.Now().Sub(l.at)))
 	text := b.String()
 	if l.lines > 0 {
 		fmt.Fprintf(l.o.W, "\x1b[%dA\x1b[J", l.lines)
@@ -130,7 +133,7 @@ func elapsed(o Out, b provider.Build) time.Duration {
 	return 0
 }
 
-func block(o Out, b provider.Build) {
+func block(o Out, b provider.Build, p provider.Progress) {
 	head := style.Colored(o.Style, b.State, style.Glyph(b.State)+" "+style.Title(b.State))
 	parts := []string{head}
 	if b.Agent != "" {
@@ -138,6 +141,9 @@ func block(o Out, b provider.Build) {
 	}
 	if d := elapsed(o, b); d > 0 {
 		parts = append(parts, Duration(d))
+	}
+	if bar := Bar(o, p); bar != "" {
+		parts = append(parts, bar)
 	}
 	fmt.Fprintln(o.W, strings.Join(parts, "  "))
 	if len(b.Stages) == 0 {

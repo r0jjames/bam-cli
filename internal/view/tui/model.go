@@ -96,6 +96,7 @@ type Model struct {
 	buildsPlan string // the plan (or branch plan) the Builds panel holds
 
 	detail     *provider.Build
+	progress   provider.Progress // the server's estimate for detail, if any
 	expanded   map[string]bool
 	treeCursor int
 
@@ -395,6 +396,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		b := msg.Build
 		m.detail = &b
+		m.progress = msg.Progress
 		m.clampTree()
 		return m, nil
 	case watchEventMsg:
@@ -836,6 +838,7 @@ func (m *Model) leaveBuild() {
 	// the next one.
 	m.cancelGen++
 	m.detail, m.expanded, m.treeCursor = nil, nil, 0
+	m.progress = provider.Progress{}
 }
 
 // drill is spec §4.1. Each row moves focus and starts the load its panel needs.
@@ -856,6 +859,7 @@ func (m Model) drill() (tea.Model, tea.Cmd) {
 		}
 		m.focus = focusMain
 		m.detail = &b
+		m.progress = provider.Progress{}
 		m.expanded = defaultExpanded(b)
 		m.treeCursor = 0
 		return m.startWatch(b.Key)
@@ -906,6 +910,7 @@ func (m Model) handleWatchEvent(e app.Event) (tea.Model, tea.Cmd) {
 	if e.Build.Key != "" {
 		b := e.Build
 		m.detail = &b
+		m.progress = e.Progress
 		m.clampTree()
 	}
 	switch e.Type {
@@ -1233,6 +1238,7 @@ func (m Model) openTriggered(b provider.Build) (tea.Model, tea.Cmd) {
 	m.form = formState{}
 	m.focus = focusMain
 	m.detail = &b
+	m.progress = provider.Progress{}
 	m.expanded = defaultExpanded(b)
 	m.treeCursor = 0
 	m.status = "queued " + b.Key

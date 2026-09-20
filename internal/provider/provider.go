@@ -14,6 +14,7 @@ type Provider interface {
 	ListVariables(ctx context.Context, planKey string) ([]Variable, error)
 	ListBuilds(ctx context.Context, planKey string, o ListOptions) ([]Build, error)
 	GetBuild(ctx context.Context, buildKey string) (Build, error)
+	BuildProgress(ctx context.Context, buildKey string) (Progress, error)
 	BuildVariables(ctx context.Context, buildKey string) (map[string]string, error)
 	Trigger(ctx context.Context, req TriggerRequest) (Build, error)
 	StopBuild(ctx context.Context, buildKey string) error

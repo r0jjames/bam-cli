@@ -134,3 +134,22 @@ func TestNoTokenIsRefused(t *testing.T) {
 	t.Cleanup(func() { _ = resp.Body.Close() })
 	assert.Equal(t, 401, resp.StatusCode)
 }
+
+func TestRunningBuildReportsProgress(t *testing.T) {
+	s, c := testStub(t)
+	ctx := context.Background()
+	b, err := c.Trigger(ctx, provider.TriggerRequest{PlanKey: "PROJ-BUILD"})
+	require.NoError(t, err)
+
+	advance(s, s.queued+s.running/2)
+	p, err := c.BuildProgress(ctx, b.Key)
+	require.NoError(t, err)
+	assert.True(t, p.Valid)
+	assert.Equal(t, s.running, p.Average)
+	assert.InDelta(t, 0.5, p.Percent, 0.1)
+
+	advance(s, s.running)
+	done, err := c.BuildProgress(ctx, b.Key)
+	require.NoError(t, err)
+	assert.False(t, done.Valid, "a finished build has no estimate")
+}

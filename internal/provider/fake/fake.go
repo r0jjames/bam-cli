@@ -30,12 +30,15 @@ type Provider struct {
 	TriggerResult provider.Build
 	TriggerErr    error
 	StopErr       error
-	LogErrs       []error // returned by FetchLog in order, one per call; nil entries succeed
+	LogErrs       []error                        // returned by FetchLog in order, one per call; nil entries succeed
+	Progressions  map[string][]provider.Progress // by build key; BuildProgress walks it and repeats the last entry
+	ProgressErr   error
 
-	mu        sync.Mutex
-	Triggered []provider.TriggerRequest
-	Stopped   []string
-	getCalls  map[string]int
+	mu           sync.Mutex
+	Triggered    []provider.TriggerRequest
+	Stopped      []string
+	getCalls     map[string]int
+	progressCall map[string]int
 }
 
 func notFound(what, key string) error {
@@ -114,6 +117,34 @@ func (f *Provider) GetBuild(_ context.Context, key string) (provider.Build, erro
 		}
 	}
 	return provider.Build{}, notFound("build", key)
+}
+
+func (f *Provider) BuildProgress(_ context.Context, key string) (provider.Progress, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.progressCall == nil {
+		f.progressCall = map[string]int{}
+	}
+	n := f.progressCall[key]
+	f.progressCall[key] = n + 1
+	if f.ProgressErr != nil {
+		return provider.Progress{}, f.ProgressErr
+	}
+	seq, ok := f.Progressions[key]
+	if !ok || len(seq) == 0 {
+		return provider.Progress{}, nil
+	}
+	if n >= len(seq) {
+		n = len(seq) - 1
+	}
+	return seq[n], nil
+}
+
+// ProgressCalls reports how many times BuildProgress was called for key.
+func (f *Provider) ProgressCalls(key string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.progressCall[key]
 }
 
 // GetCalls reports how many times GetBuild was called for key.

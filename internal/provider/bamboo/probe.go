@@ -63,10 +63,12 @@ func (c *Client) Probe(ctx context.Context, planKey string) []ProbeResult {
 		// capability the server lacks; doctor must exit nonzero.
 		add("build variables", err, "", "")
 		add("logs", err, "", "")
+		add("duration estimate", err, "", "")
 	case len(builds) == 0:
 		why := planKey + " has no builds"
 		skip("build variables", why)
 		skip("logs", why)
+		skip("duration estimate", why)
 	default:
 		latest := builds[0].Key
 		_, err = c.BuildVariables(ctx, latest)
@@ -89,6 +91,9 @@ func (c *Client) Probe(ctx context.Context, planKey string) []ProbeResult {
 			_, err = c.FetchLog(ctx, job, provider.LogOptions{})
 			add("logs", err, "via "+c.Capabilities().Log, "")
 		}
+
+		_, err = c.BuildProgress(ctx, latest)
+		add("duration estimate", err, "read from "+latest, "watch shows elapsed time only")
 	}
 
 	failed, err := c.ListBuilds(ctx, planKey, provider.ListOptions{Limit: 1, State: provider.StateFailed})
