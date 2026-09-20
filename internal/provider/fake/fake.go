@@ -122,14 +122,14 @@ func (f *Provider) GetBuild(_ context.Context, key string) (provider.Build, erro
 func (f *Provider) BuildProgress(_ context.Context, key string) (provider.Progress, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.ProgressErr != nil {
-		return provider.Progress{}, f.ProgressErr
-	}
 	if f.progressCall == nil {
 		f.progressCall = map[string]int{}
 	}
 	n := f.progressCall[key]
 	f.progressCall[key] = n + 1
+	if f.ProgressErr != nil {
+		return provider.Progress{}, f.ProgressErr
+	}
 	seq, ok := f.Progressions[key]
 	if !ok || len(seq) == 0 {
 		return provider.Progress{}, nil
