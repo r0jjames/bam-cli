@@ -1,0 +1,14 @@
+{
+  "currentStage": "Deploy",
+  "finished": false,
+  "progress": {
+    "isValid": true,
+    "startTime": 1789000000000,
+    "averageBuildDuration": 180000,
+    "buildTime": 99000,
+    "prettyBuildTime": "1 minute",
+    "percentageCompleted": 0.55,
+    "percentageCompletedPretty": "55%",
+    "prettyTimeRemaining": "1 minute remaining"
+  }
+}
