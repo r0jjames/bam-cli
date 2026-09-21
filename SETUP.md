@@ -10,7 +10,7 @@ Windows is not covered here.
 | --- | --- | --- |
 | Git | source control | yes |
 | Go (latest stable, 1.26 or newer) | build and test | yes |
-| GNU make (3.81 or newer) | `make build`, `make test`, `make lint` … | yes |
+| GNU make (3.81 or newer) | `make install`, `make test`, `make lint` … | yes |
 | golangci-lint v2 (CI pins v2.13.2) | the lint gate (`make lint`) | yes |
 | curl | downloads in this guide | yes |
 | gopls | Go language server for your editor | recommended |
@@ -185,16 +185,36 @@ The product design lives in `docs/`:
 ## Build and test
 
 ```bash
-make build        # bin/bam
+make install      # installs bam into $(go env GOPATH)/bin
 make test         # go test ./...
 make lint         # golangci-lint run
-./bin/bam version
+bam version
 ```
+
+`make install` is what puts `bam` on your PATH, so you type `bam …` and not
+`./bin/bam …`. It installs into Go's bin directory, which the PATH step above
+already added to your shell profile. Check it with:
+
+```bash
+type bam          # should print <GOPATH>/bin/bam
+bam version       # the tag from git describe, or the commit
+```
+
+If `type bam` prints nothing, the PATH line is missing or the shell was not
+reloaded; redo the PATH step for your platform and open a new terminal.
+
+The binary is a snapshot, not a link: re-run `make install` after every change
+you want to exercise by hand.
+
+`make build` is the alternative. It writes `bin/bam` inside the clone and
+touches nothing outside it, which is what you want for a throwaway check or
+when you do not want `bam` on your PATH at all. Then run `./bin/bam`.
 
 Also used later:
 
 | Command | What it does |
 | --- | --- |
+| `make build` | builds `bin/bam` inside the clone instead of installing it |
 | `gofmt -l .` | prints files that need formatting; CI fails if the list is not empty |
 | `go vet ./...` | the vet gate CI runs |
 | `go test -race ./...` | tests with the race detector |
@@ -301,6 +321,9 @@ Prepare before you record:
 | `go: command not found` | the PATH line is missing or the shell was not reloaded; open a new terminal |
 | `golangci-lint` complains about the config version | you have v1; install v2 as above |
 | a tool installed with `go install` is not found | add `$HOME/go/bin` to PATH |
+| `bam: command not found` after `make install` | `$(go env GOPATH)/bin` is not on PATH; redo the PATH step and open a new terminal |
+| `bam version` shows an old commit | the installed binary is stale; run `make install` again |
+| `type bam` points somewhere unexpected | another `bam` shadows it; `type -a bam` lists all of them, and PATH order decides |
 | Homebrew commands not found on Apple Silicon | run `eval "$(/opt/homebrew/bin/brew shellenv)"` and add it to `~/.zprofile` |
 | `go` downloads fail behind a proxy | set `HTTPS_PROXY`, or `GOPROXY=direct` if your network blocks proxy.golang.org |
 | `make` reports "missing separator" | a Makefile recipe line lost its leading tab; recipe lines must start with a tab, not spaces |

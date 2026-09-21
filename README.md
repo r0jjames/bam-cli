@@ -45,27 +45,31 @@ on bam itself.
 
 You need Go 1.26 or newer, `git`, `make`, and two terminals.
 
-### 1. Get the code and build
+### 1. Get the code and install `bam`
 
     git clone https://github.com/r0jjames/bam-cli.git
     cd bam-cli
-    make build
+    make install
 
-This writes `bin/bam`. The version string comes from `git describe`, so
-`./bin/bam version` prints the tag you are on, or the commit if the clone has
-no tags yet.
+This installs `bam` into Go's bin directory (`go env GOPATH`/bin, usually
+`~/go/bin`), so every command below is just `bam`. The version string comes
+from `git describe`, so `bam version` prints the tag you are on, or the commit
+if the clone has no tags yet. Re-run `make install` after each change.
 
-### 2. Put `bam` on your PATH
+### 2. Check that `bam` is on your PATH
 
-Either copy it somewhere on your PATH, or symlink it so that rebuilds are
-picked up without copying again:
+    type bam            # should print <GOPATH>/bin/bam
 
-    ln -sf "$PWD/bin/bam" ~/.local/bin/bam
-    type bam            # should print the path you just linked
+If it prints nothing, add Go's bin directory to your shell profile:
 
-If `~/.local/bin` is not on your PATH, use `./bin/bam` everywhere below
-instead. On a non-interactive shell, Go may not be on your PATH either; see
-[SETUP.md](SETUP.md).
+    grep -q 'go/bin' ~/.zshrc || echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.zshrc
+    source ~/.zshrc
+
+Use `~/.bashrc` instead for bash. On a non-interactive shell, Go itself may not
+be on your PATH either; see [SETUP.md](SETUP.md).
+
+If you would rather keep the binary inside the clone, `make build` writes
+`bin/bam` and leaves your PATH alone; then run `./bin/bam` everywhere below.
 
 ### 3. Start the fake Bamboo (first terminal)
 
@@ -160,14 +164,15 @@ Press `ctrl-c` in the first terminal, or `pkill -f bamboostub`. Then, if you
 want the environment back as it was:
 
     unset BAM_URL BAM_TOKEN BAM_CONFIG
-    rm ~/.local/bin/bam                              # only if you made the symlink
+    rm "$(go env GOPATH)/bin/bam"                    # only if you ran make install
     rm /tmp/bam-local.yaml
 
 ### If something does not work
 
 | Symptom | Cause and fix |
 | --- | --- |
-| `bam: command not found` | the symlink step was skipped or `~/.local/bin` is not on your PATH; run `./bin/bam` instead |
+| `bam: command not found` | `make install` was skipped, or Go's bin directory is not on your PATH; run `type bam` and step 2 again |
+| `bam version` prints an older commit | the binary is stale; run `make install` again after every change |
 | `connection refused` | the stub is not running, or is on another port; check the first terminal |
 | `no fixtures in internal/provider/bamboo/testdata` | `make stub` was run from somewhere other than the repository root; `cd` there or pass `-fixtures` |
 | every command says the token is invalid | `BAM_TOKEN` is unset; the stub requires some value, not a valid one |

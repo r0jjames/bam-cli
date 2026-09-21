@@ -19,6 +19,7 @@ If code and spec disagree, the spec wins unless the change to the spec is delibe
 
 ```bash
 make build            # bin/bam, version from git describe via -ldflags
+make install          # same binary into $(go env GOPATH)/bin, so `bam` works anywhere
 make test             # go test ./...
 make lint             # golangci-lint run (v2 config in .golangci.yml)
 make check-fixtures   # fixture host guard (TestFixtureGuard)
