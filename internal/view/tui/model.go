@@ -912,6 +912,11 @@ func (m Model) handleWatchEvent(e app.Event) (tea.Model, tea.Cmd) {
 		m.detail = &b
 		m.progress = e.Progress
 		m.clampTree()
+		// "queued KEY" is news only while the build waits; after that the
+		// detail panel shows its state. Other notices are not the watch's.
+		if m.status == "queued "+b.Key && (b.State != provider.StateQueued || e.Type == app.EventDone) {
+			m.status = ""
+		}
 	}
 	switch e.Type {
 	case app.EventError:

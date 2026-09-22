@@ -483,6 +483,51 @@ func TestASuccessfulRunOpensAndWatchesTheNewBuild(t *testing.T) {
 	m.stopWatch()
 }
 
+// TestTheQueuedNoticeEndsWhenTheBuildLeavesTheQueue: "queued KEY" is news
+// only while the build waits. Once the watch sees it run, the detail panel
+// shows the state and the status bar goes back to server, version and user.
+func TestTheQueuedNoticeEndsWhenTheBuildLeavesTheQueue(t *testing.T) {
+	m := formModel()
+	b := provider.Build{Key: "PROJ-PROV12-9", PlanKey: "PROJ-PROV12", Number: 9, State: provider.StateQueued}
+	m, _ = send(m, triggeredMsg{Gen: m.formGen, Build: b})
+	defer m.stopWatch()
+	require.Equal(t, "queued PROJ-PROV12-9", m.status)
+
+	m, _ = send(m, watchEventMsg{Gen: m.watchGen, Event: app.Event{Type: app.EventState, Build: b, State: b.State}})
+	require.Equal(t, "queued PROJ-PROV12-9", m.status, "still queued")
+
+	b.State = provider.StateRunning
+	m, _ = send(m, watchEventMsg{Gen: m.watchGen, Event: app.Event{Type: app.EventState, Build: b, State: b.State}})
+	require.Empty(t, m.status)
+	require.NotContains(t, m.statusBar(80), "queued")
+}
+
+// TestTheQueuedNoticeEndsWhenTheBuildFinishesStraightFromTheQueue.
+func TestTheQueuedNoticeEndsWhenTheBuildFinishesStraightFromTheQueue(t *testing.T) {
+	m := formModel()
+	b := provider.Build{Key: "PROJ-PROV12-9", PlanKey: "PROJ-PROV12", Number: 9, State: provider.StateQueued}
+	m, _ = send(m, triggeredMsg{Gen: m.formGen, Build: b})
+	defer m.stopWatch()
+
+	b.State = provider.StateNotBuilt
+	m, _ = send(m, watchEventMsg{Gen: m.watchGen, Event: app.Event{Type: app.EventDone, Build: b, State: b.State}})
+	require.Empty(t, m.status)
+}
+
+// TestAnotherNoticeSurvivesTheWatch: only the queued notice belongs to the
+// watch; a notice the user caused since then is not the watch's to clear.
+func TestAnotherNoticeSurvivesTheWatch(t *testing.T) {
+	m := formModel()
+	b := provider.Build{Key: "PROJ-PROV12-9", PlanKey: "PROJ-PROV12", Number: 9, State: provider.StateQueued}
+	m, _ = send(m, triggeredMsg{Gen: m.formGen, Build: b})
+	defer m.stopWatch()
+	m.status = "copied to clipboard (osc 52)"
+
+	b.State = provider.StateRunning
+	m, _ = send(m, watchEventMsg{Gen: m.watchGen, Event: app.Event{Type: app.EventState, Build: b, State: b.State}})
+	require.Equal(t, "copied to clipboard (osc 52)", m.status)
+}
+
 // TestAFailedTriggerKeepsTheFormAndWhatWasTyped.
 func TestAFailedTriggerKeepsTheFormAndWhatWasTyped(t *testing.T) {
 	m := formModel()
