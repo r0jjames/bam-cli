@@ -241,16 +241,21 @@ func FixtureTermViolations(root string, terms []string) ([]string, error) {
 		if err != nil {
 			return err
 		}
-		content := strings.ToLower(string(data))
-
 		for _, term := range terms {
-			if strings.Contains(content, strings.ToLower(term)) {
+			if termRe(term).Match(data) {
 				out = append(out, path+": "+term)
 			}
 		}
 		return nil
 	})
 	return out, err
+}
+
+// termRe matches term case-insensitively where no letter or digit touches
+// it, the way Scrub replaces names: a project key AGENT is a leak in
+// "AGENT-BUILD-3" or "agent_home", but not inside "hasExecutableAgents".
+func termRe(term string) *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(^|[^\pL\pN])` + regexp.QuoteMeta(term) + `([^\pL\pN]|$)`)
 }
 
 // DenylistPath returns the path to the fixture denylist file.

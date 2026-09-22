@@ -229,3 +229,21 @@ func TestShortNamesAreReported(t *testing.T) {
 
 	assert.Equal(t, []string{"IT"}, s.RiskyNames(), "a short name matches unrelated words")
 }
+
+// The scrubber replaces project names as whole words, so the guard must not
+// flag a term that only appears inside a longer identifier, such as a
+// project key AGENT inside Bamboo's own field hasExecutableAgents.
+func TestFixtureTermViolationsIgnoresTermsInsideLongerWords(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "inside.json"), []byte(`{"hasExecutableAgents":true}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "word.json"), []byte(`{"key":"AGENT-BUILD-3"}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "under.json"), []byte(`{"dir":"agent_home"}`), 0o644))
+
+	v, err := FixtureTermViolations(dir, []string{"AGENT"})
+
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{
+		filepath.Join(dir, "word.json") + ": AGENT",
+		filepath.Join(dir, "under.json") + ": AGENT",
+	}, v)
+}
