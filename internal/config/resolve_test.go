@@ -167,6 +167,24 @@ func TestTargetsMergeAcrossThreeSources(t *testing.T) {
 	assert.Equal(t, "mine", got.Name)
 }
 
+func TestTargetsRecordEachLayer(t *testing.T) {
+	c := baseConfig()
+	c.Home = "/home/jdoe"
+	c.Project.Targets = map[string]Target{"lab": {Plan: "PROJ-LAB", Defaults: StringMap{"a": "1"}}}
+	c.Machine.Targets = map[string]Target{"lab": {Defaults: StringMap{"b": "3"}}}
+	c.Machine.Repos = map[string]Repo{"~/src/repo": {Targets: map[string]Target{"lab": {Plan: "PROJ-LAB2"}}}}
+
+	lab, ok, err := c.Target("lab")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Len(t, lab.Layers, 3)
+	assert.Equal(t, TargetLayer{Path: c.ProjectPath, KeyPath: []string{"targets"}, Target: c.Project.Targets["lab"]}, lab.Layers[0])
+	assert.Equal(t, TargetLayer{Path: c.MachinePath, KeyPath: []string{"targets"}, Target: c.Machine.Targets["lab"]}, lab.Layers[1])
+	assert.Equal(t, []string{"repos", "~/src/repo", "targets"}, lab.Layers[2].KeyPath, "the raw repos key, as written")
+	assert.Equal(t, c.MachinePath, lab.Layers[2].Path)
+	assert.Equal(t, c.MachinePath+" (repos)", lab.DefinedIn[2], "defined_in is unchanged")
+}
+
 func TestMergedTargetValidation(t *testing.T) {
 	cases := map[string]struct {
 		target Target
