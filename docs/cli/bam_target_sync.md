@@ -1,0 +1,36 @@
+## bam target sync
+
+Add new plan variables to a preset and mark removed ones
+
+### Synopsis
+
+sync compares a preset with its plan's declared variables. New variables are added to defaults
+with the same values and comments as target add. Variables the plan no longer declares are kept
+and marked "not declared on PLAN". Existing values are never changed.
+
+```
+bam target sync <name> | --all [flags]
+```
+
+### Options
+
+```
+      --all       sync every preset
+      --dry-run   show the changes and write nothing
+  -h, --help      help for sync
+```
+
+### Options inherited from parent commands
+
+```
+      --color string    color output: auto, always or never
+      --debug           log HTTP requests to stderr
+      --json            print JSON
+      --no-tui          never open the terminal UI
+      --server string   server alias to use
+```
+
+### SEE ALSO
+
+* [bam target](bam_target.md)	 - Run presets: list, show, add, sync
+

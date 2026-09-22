@@ -30,5 +30,5 @@ bam target add <name> --plan KEY [flags]
 
 ### SEE ALSO
 
-* [bam target](bam_target.md)	 - Run presets: list, show, add
+* [bam target](bam_target.md)	 - Run presets: list, show, add, sync
 

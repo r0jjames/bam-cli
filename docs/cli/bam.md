@@ -36,7 +36,7 @@ bam [flags]
 * [bam project](bam_project.md)	 - Bamboo projects
 * [bam run](bam_run.md)	 - Trigger a plan or target with variables
 * [bam server](bam_server.md)	 - Manage Bamboo server aliases
-* [bam target](bam_target.md)	 - Run presets: list, show, add
+* [bam target](bam_target.md)	 - Run presets: list, show, add, sync
 * [bam ui](bam_ui.md)	 - Open the terminal UI
 * [bam url](bam_url.md)	 - Print the Bamboo URL of a project, plan, build or job
 * [bam version](bam_version.md)	 - Print the bam version
