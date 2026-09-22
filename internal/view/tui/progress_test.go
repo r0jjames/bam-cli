@@ -73,3 +73,18 @@ func TestDetailBodyDrawsCellsWhenThePanelIsWide(t *testing.T) {
 
 	require.Contains(t, m.detailBody(110, 20), "[")
 }
+
+func TestProgressEventMovesTheBar(t *testing.T) {
+	m := testModel()
+	m.detail = ptr(runningDetail())
+	m.expanded = defaultExpanded(runningDetail())
+	m.progress = runningEstimate()
+	later := runningEstimate()
+	later.Elapsed, later.Remaining, later.Percent = 3*time.Minute, time.Minute, 0.75
+
+	m, cmd := send(m, watchEventMsg{Gen: m.watchGen, Event: app.Event{
+		Type: app.EventProgress, Build: runningDetail(), Progress: later}})
+
+	require.Contains(t, m.detailBody(56, 20), "75%")
+	require.NotNil(t, cmd, "a progress event keeps the watch going")
+}

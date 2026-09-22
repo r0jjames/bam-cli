@@ -119,3 +119,16 @@ func TestNDJSONRenderer(t *testing.T) {
 	assert.Equal(t, "done", last["type"])
 	assert.Equal(t, "failed", last["build"].(map[string]any)["state"])
 }
+
+func TestLinesAndNDJSONSkipProgressEvents(t *testing.T) {
+	e := app.Event{Type: app.EventProgress, Time: fixedNow, Build: runningBuild(),
+		Progress: provider.Progress{Valid: true, Average: 4 * time.Minute, Elapsed: 2 * time.Minute, Percent: 0.5}}
+
+	o, buf := testOut(false)
+	NewLines(o).Event(e)
+	assert.Empty(t, buf.String(), "a pipe gets one line per change, and an estimate is not a change")
+
+	o, buf = testOut(false)
+	NewNDJSON(o).Event(e)
+	assert.Empty(t, buf.String(), "NDJSON types stay state, stage, job and done (spec §7)")
+}

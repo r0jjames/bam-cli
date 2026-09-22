@@ -170,3 +170,17 @@ func TestBarWithinIsEmptyWhenThereIsNoRoom(t *testing.T) {
 	assert.Equal(t, "", BarWithin(style.Mode{}, p, 16), "not even the numbers fit")
 	assert.Equal(t, "", BarWithin(style.Mode{}, provider.Progress{}, 80))
 }
+
+func TestLiveRedrawsOnAProgressEvent(t *testing.T) {
+	o, buf := testOut(true)
+	r := NewLive(o)
+	b := runningBuild()
+	r.Event(app.Event{Type: app.EventState, Time: fixedNow, Build: b, State: provider.StateRunning,
+		Progress: provider.Progress{Valid: true, Average: 4 * time.Minute, Elapsed: time.Minute, Percent: 0.25}})
+	before := buf.Len()
+
+	r.Event(app.Event{Type: app.EventProgress, Time: fixedNow, Build: b,
+		Progress: provider.Progress{Valid: true, Average: 4 * time.Minute, Elapsed: 3 * time.Minute, Percent: 0.75}})
+
+	assert.Contains(t, buf.String()[before:], "75%")
+}
