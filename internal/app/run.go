@@ -35,11 +35,12 @@ func (s *Service) Run(ctx context.Context, ref PlanRef, vs VarSet) (provider.Bui
 type EventType string
 
 const (
-	EventState EventType = "state" // the build's state changed (always sent for the first poll)
-	EventStage EventType = "stage" // a stage's state changed
-	EventJob   EventType = "job"   // a job's state changed
-	EventDone  EventType = "done"  // the build finished; last event
-	EventError EventType = "error" // polling failed; last event
+	EventState    EventType = "state"    // the build's state changed (always sent for the first poll)
+	EventStage    EventType = "stage"    // a stage's state changed
+	EventJob      EventType = "job"      // a job's state changed
+	EventProgress EventType = "progress" // only the server's estimate changed
+	EventDone     EventType = "done"     // the build finished; last event
+	EventError    EventType = "error"    // polling failed; last event
 )
 
 // Event is one change seen while watching. Build is the snapshot of that poll,
@@ -72,6 +73,7 @@ func (s *Service) Watch(ctx context.Context, key string) <-chan Event {
 		var prev *provider.Build
 		interval := MinPoll
 		noProgress := false
+		var sent provider.Progress // the estimate the last event carried
 		for {
 			// The provider ignores ctx, so check here before every poll:
 			// ending ctx must stop watching, not keep polling forever.
@@ -101,6 +103,12 @@ func (s *Service) Watch(ctx context.Context, key string) <-chan Event {
 				}
 			}
 			changes := diff(prev, b)
+			// A poll that changes nothing still brings a fresh estimate; send
+			// it on its own so the bar moves. It does not reset the backoff.
+			moved := len(changes) == 0 && pr.Valid && pr != sent
+			if moved {
+				changes = []Event{{Type: EventProgress, State: b.State}}
+			}
 			for _, e := range changes {
 				e.Time, e.Build, e.Progress = now, b, pr
 				if !send(e) {
@@ -111,7 +119,8 @@ func (s *Service) Watch(ctx context.Context, key string) <-chan Event {
 				send(Event{Type: EventDone, Time: now, Build: b, State: b.State})
 				return
 			}
-			if len(changes) > 0 {
+			sent = pr
+			if len(changes) > 0 && !moved {
 				interval = MinPoll
 			} else {
 				interval = min(interval*3/2, MaxPoll)
