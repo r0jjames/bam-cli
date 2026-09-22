@@ -110,3 +110,43 @@ func TestServiceProgressReturnsTheServerValue(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, runningProgress(0.5), got)
 }
+
+func TestWatchSendsProgressWhenOnlyTheEstimateMoves(t *testing.T) {
+	p := fakeBamboo()
+	running := build(provider.StateRunning, provider.StateRunning, provider.StateRunning)
+	p.Sequences = map[string][]provider.Build{"PROJ-P-1": {
+		running, running, running,
+		build(provider.StateSuccess, provider.StateSuccess, provider.StateSuccess),
+	}}
+	p.Progressions = map[string][]provider.Progress{"PROJ-P-1": {
+		runningProgress(0.25), runningProgress(0.5), runningProgress(0.75)}}
+	s := newService(t, p)
+
+	events := collect(s.Watch(bg, "PROJ-P-1"))
+
+	var percents []float64
+	for _, e := range events {
+		if e.Type == EventProgress {
+			assert.Equal(t, provider.StateRunning, e.Build.State)
+			percents = append(percents, e.Progress.Percent)
+		}
+	}
+	assert.Equal(t, []float64{0.5, 0.75}, percents, "every poll's new estimate reaches the renderers")
+	assert.Equal(t, []time.Duration{2 * time.Second, 3 * time.Second, 4500 * time.Millisecond},
+		s.Clock.(*fakeClock).Waits(), "an estimate is not a change, so the backoff still grows")
+}
+
+func TestWatchStaysQuietWhenTheEstimateDoesNotMove(t *testing.T) {
+	p := fakeBamboo()
+	running := build(provider.StateRunning, provider.StateRunning, provider.StateRunning)
+	p.Sequences = map[string][]provider.Build{"PROJ-P-1": {
+		running, running,
+		build(provider.StateSuccess, provider.StateSuccess, provider.StateSuccess),
+	}}
+	p.Progressions = map[string][]provider.Progress{"PROJ-P-1": {runningProgress(0.5)}}
+	s := newService(t, p)
+
+	for _, e := range collect(s.Watch(bg, "PROJ-P-1")) {
+		assert.NotEqual(t, EventProgress, e.Type)
+	}
+}
