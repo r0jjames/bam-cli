@@ -2,7 +2,9 @@ package cli
 
 import (
 	"fmt"
+	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/r0jjames/bam-cli/internal/app"
@@ -16,8 +18,8 @@ import (
 func init() { commandSets = append(commandSets, addPresets) }
 
 func addPresets(root *cobra.Command, r *runtime) {
-	subgroup(root, "target", "Run presets: list, show, add", groupRun).
-		AddCommand(newTargetListCmd(r), newTargetShowCmd(r), newTargetAddCmd(r))
+	subgroup(root, "target", "Run presets: list, show, add, sync", groupRun).
+		AddCommand(newTargetListCmd(r), newTargetShowCmd(r), newTargetAddCmd(r), newTargetSyncCmd(r))
 	c := newInitCmd(r)
 	c.GroupID = groupSetup
 	root.AddCommand(c)
@@ -141,6 +143,139 @@ func newTargetAddCmd(r *runtime) *cobra.Command {
 	f.BoolVar(&printOnly, "print", false, "print the YAML and write nothing")
 	f.BoolVar(&force, "force", false, "replace an existing target")
 	return cmd
+}
+
+func newTargetSyncCmd(r *runtime) *cobra.Command {
+	var all, dryRun bool
+	cmd := &cobra.Command{
+		Use:               "sync <name> | --all",
+		Short:             "Add new plan variables to a preset and mark removed ones",
+		Long:              "sync compares a preset with its plan's declared variables. New variables are added to defaults\nwith the same values and comments as target add. Variables the plan no longer declares are kept\nand marked \"not declared on PLAN\". Existing values are never changed.",
+		Args:              cobra.MaximumNArgs(1),
+		ValidArgsFunction: r.completeTargets,
+		RunE: r.wrap(func(cmd *cobra.Command, args []string) error {
+			if (len(args) == 1) == all {
+				return errs.Usagef("pass a target name or --all").WithTry("bam target sync <name>, or bam target sync --all")
+			}
+			cfg, err := r.config()
+			if err != nil {
+				return err
+			}
+			var targets []config.ResolvedTarget
+			if all {
+				m, err := cfg.Targets()
+				if err != nil {
+					return err
+				}
+				for _, name := range slices.Sorted(maps.Keys(m)) {
+					targets = append(targets, m[name])
+				}
+			} else {
+				t, ok, err := cfg.Target(args[0])
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return errs.Usagef("unknown target %q", args[0]).WithTry("bam target list")
+				}
+				targets = append(targets, t)
+			}
+			if len(targets) == 0 {
+				r.note("no targets configured", "bam target add <name> --plan PROJ-PLAN")
+				return nil
+			}
+
+			services := map[string]*app.Service{}
+			var results []view.SyncResult
+			var worst error
+			wrote := false
+			for _, t := range targets {
+				res := r.syncTarget(cmd, cfg, services, t, dryRun)
+				if res.Err != nil && (worst == nil || exitCode(res.Err) > exitCode(worst)) {
+					worst = res.Err
+				}
+				wrote = wrote || res.Status == view.SyncSynced
+				results = append(results, res)
+			}
+			if r.flags.json {
+				if err := view.WriteJSON(r.env.Stdout, view.SyncJSON(results)); err != nil {
+					return err
+				}
+			} else {
+				o, err := r.out()
+				if err != nil {
+					return err
+				}
+				if err := view.Sync(o, results, dryRun); err != nil {
+					return err
+				}
+			}
+			if wrote {
+				fmt.Fprintln(r.env.Stderr, "review before commit: values copied from Bamboo")
+			}
+			if worst != nil {
+				return silentError{worst}
+			}
+			return nil
+		}),
+	}
+	f := cmd.Flags()
+	f.BoolVar(&all, "all", false, "sync every preset")
+	f.BoolVar(&dryRun, "dry-run", false, "show the changes and write nothing")
+	return cmd
+}
+
+// syncTarget plans and applies the sync of one target. Errors land in the
+// result so that --all can move on to the next target.
+func (r *runtime) syncTarget(cmd *cobra.Command, cfg *config.Config, services map[string]*app.Service, t config.ResolvedTarget, dryRun bool) view.SyncResult {
+	res := view.SyncResult{Sync: app.SyncPlan{Name: t.Name, Plan: t.Plan, Stale: []string{}}, Status: view.SyncError}
+	server, err := cfg.SelectServer(r.flags.server, t.Server)
+	if err != nil {
+		res.Err = err
+		return res
+	}
+	key := server.Alias + "\x00" + server.URL
+	svc := services[key]
+	if svc == nil {
+		if svc, _, err = r.connectServer(server); err != nil {
+			res.Err = err
+			return res
+		}
+		services[key] = svc
+	}
+	p, err := svc.PlanSync(cmd.Context(), t)
+	if err != nil {
+		res.Err = err
+		return res
+	}
+	res.Sync, res.File = p, displayPath(cfg.RepoRoot, p.File)
+	changed := false
+	for _, e := range p.Edits {
+		ch, err := config.SyncTarget(e.Path, e.KeyPath, t.Name, e.Edit, !dryRun)
+		if err != nil {
+			res.Err, res.Status = err, view.SyncError
+			return res
+		}
+		changed = changed || !ch.Empty()
+		res.Redeclared = append(res.Redeclared, ch.Unmarked...)
+	}
+	switch {
+	case !changed:
+		res.Status = view.SyncUpToDate
+	case dryRun:
+		res.Status = view.SyncWouldSync
+	default:
+		res.Status = view.SyncSynced
+	}
+	return res
+}
+
+// displayPath shows path relative to the repository root when it is inside it.
+func displayPath(root, path string) string {
+	if rel, err := filepath.Rel(root, path); err == nil && !strings.HasPrefix(rel, "..") {
+		return rel
+	}
+	return path
 }
 
 func newInitCmd(r *runtime) *cobra.Command {

@@ -20,22 +20,29 @@ type GenerateOptions struct {
 // GenerateTarget reads the plan's declared variables (or, when unsupported,
 // a build's variables) and returns a commented target draft (spec §3.9).
 func (s *Service) GenerateTarget(ctx context.Context, o GenerateOptions) (config.TargetDraft, error) {
+	d, _, err := s.generate(ctx, o)
+	return d, err
+}
+
+// generate is GenerateTarget that also reports whether the names came from
+// the plan's declared list rather than from a build.
+func (s *Service) generate(ctx context.Context, o GenerateOptions) (config.TargetDraft, bool, error) {
 	if !config.ValidTargetName(o.Name) {
-		return config.TargetDraft{}, errs.Usagef("invalid target name %q", o.Name).
+		return config.TargetDraft{}, false, errs.Usagef("invalid target name %q", o.Name).
 			WithWhy("target names are lowercase letters, digits, - and _, starting with a letter")
 	}
 	if !IsPlanKey(o.PlanKey) {
-		return config.TargetDraft{}, errs.Usagef("%q is not a plan key", o.PlanKey).WithTry("bam plan list")
+		return config.TargetDraft{}, false, errs.Usagef("%q is not a plan key", o.PlanKey).WithTry("bam plan list")
 	}
 	if _, err := s.P.GetPlan(ctx, o.PlanKey); err != nil {
-		return config.TargetDraft{}, err
+		return config.TargetDraft{}, false, err
 	}
 	d := config.TargetDraft{Name: o.Name, Plan: o.PlanKey, Branch: o.Branch}
 	ref := PlanRef{PlanKey: o.PlanKey, MasterKey: o.PlanKey}
 	if o.Branch != "" {
 		key, err := s.ResolveBranch(ctx, o.PlanKey, o.Branch)
 		if err != nil {
-			return d, err
+			return d, false, err
 		}
 		ref.PlanKey, ref.Branch = key, o.Branch
 	}
@@ -50,10 +57,10 @@ func (s *Service) GenerateTarget(ctx context.Context, o GenerateOptions) (config
 		if bv, err := s.P.BuildVariables(ctx, key); err == nil {
 			used, usedKey = bv, key
 		} else if o.From != "" && !errors.Is(err, errs.ErrUnsupported) {
-			return d, err
+			return d, false, err
 		}
 	} else if o.From != "" {
-		return d, err
+		return d, false, err
 	}
 
 	declared, err := s.P.ListVariables(ctx, o.PlanKey)
@@ -69,16 +76,17 @@ func (s *Service) GenerateTarget(ctx context.Context, o GenerateOptions) (config
 	case errors.Is(err, errs.ErrUnsupported):
 		if used == nil {
 			d.Note = "plan variables are not readable on this server; add them under defaults"
-			return d, nil
+			return d, false, nil
 		}
 		d.Note = "plan variables are not readable on this server; names come from " + usedKey
 		for _, name := range sortedNames(used) {
 			d.Vars = append(d.Vars, draftVar(name, used[name], false, used, usedKey, false))
 		}
+		return d, false, nil
 	default:
-		return d, err
+		return d, false, err
 	}
-	return d, nil
+	return d, true, nil
 }
 
 func isSecretDraft(v config.DraftVar) bool {

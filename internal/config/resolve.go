@@ -65,12 +65,18 @@ func (c *Config) Servers() map[string]ResolvedServer {
 
 // RepoEntry returns the machine file's repos entry for this repository.
 func (c *Config) RepoEntry() (Repo, bool) {
+	_, r, ok := c.repoEntry()
+	return r, ok
+}
+
+// repoEntry also returns the repos key as written, e.g. "~/src/repo".
+func (c *Config) repoEntry() (string, Repo, bool) {
 	for key, r := range c.Machine.Repos {
 		if c.expand(key) == filepath.Clean(c.RepoRoot) {
-			return r, true
+			return key, r, true
 		}
 	}
-	return Repo{}, false
+	return "", Repo{}, false
 }
 
 func (c *Config) expand(path string) string {
@@ -141,28 +147,37 @@ func (c *Config) ProjectKeys(s ResolvedServer) []string {
 type ResolvedTarget struct {
 	Name string
 	Target
-	DefinedIn []string // file paths, lowest precedence first
+	DefinedIn []string      // file paths, lowest precedence first
+	Layers    []TargetLayer // the raw entry of each defining layer, lowest precedence first
+}
+
+// TargetLayer is one layer's own entry for a target and where it lives.
+type TargetLayer struct {
+	Path    string   // file on disk
+	KeyPath []string // mapping path to the targets map, e.g. ["targets"] or ["repos", key, "targets"]
+	Target  Target
 }
 
 // Targets merges targets by name: project, then machine top-level, then the
 // machine repos entry for this repository. It validates the merged result.
 func (c *Config) Targets() (map[string]ResolvedTarget, error) {
 	out := map[string]ResolvedTarget{}
-	layer := func(path string, targets map[string]Target) {
+	layer := func(label, path string, keyPath []string, targets map[string]Target) {
 		for name, t := range targets {
 			r := out[name]
 			r.Name = name
 			r.Target = mergeTarget(r.Target, t)
-			r.DefinedIn = append(r.DefinedIn, path)
+			r.DefinedIn = append(r.DefinedIn, label)
+			r.Layers = append(r.Layers, TargetLayer{Path: path, KeyPath: keyPath, Target: t})
 			out[name] = r
 		}
 	}
 	if c.Project != nil {
-		layer(c.ProjectPath, c.Project.Targets)
+		layer(c.ProjectPath, c.ProjectPath, []string{"targets"}, c.Project.Targets)
 	}
-	layer(c.MachinePath, c.Machine.Targets)
-	if repo, ok := c.RepoEntry(); ok {
-		layer(c.MachinePath+" (repos)", repo.Targets)
+	layer(c.MachinePath, c.MachinePath, []string{"targets"}, c.Machine.Targets)
+	if key, repo, ok := c.repoEntry(); ok {
+		layer(c.MachinePath+" (repos)", c.MachinePath, []string{"repos", key, "targets"}, repo.Targets)
 	}
 	servers := c.Servers()
 	for _, name := range sortedKeys(out) {

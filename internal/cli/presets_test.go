@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/r0jjames/bam-cli/internal/errs"
+	"github.com/r0jjames/bam-cli/internal/provider"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -103,4 +105,82 @@ func TestInitWithDifferentURLDropsMachineAuthEnv(t *testing.T) {
 func TestDefaultTargetName(t *testing.T) {
 	assert.Equal(t, "prov", defaultTargetName("PROJ-PROV"))
 	assert.Equal(t, "build2", defaultTargetName("PROJ-BUILD2"))
+}
+
+func TestTargetSyncAddsThenUpToDate(t *testing.T) {
+	h := newHarness(t)
+	path := filepath.Join(h.root, ".bam.yaml")
+	assert.Equal(t, 0, h.run("target", "sync", "provision-lab"))
+	assert.Contains(t, h.stdout.String(), "provision-lab  PROJ-PROV  .bam.yaml\n")
+	assert.Regexp(t, `\+\s+cluster_name\s+""\s+no plan default; last used "beta" in PROJ-PROV12-8`, h.stdout.String())
+	assert.Contains(t, h.stderr.String(), "review before commit: values copied from Bamboo")
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "      cluster_type: k8s\n      cluster_name: \"\" # no plan default; last used \"beta\" in PROJ-PROV12-8\n")
+	assert.Contains(t, string(data), "    required: [cluster_name]\n", "required is untouched")
+
+	assert.Equal(t, 0, h.run("target", "sync", "provision-lab"))
+	assert.Contains(t, h.stdout.String(), "provision-lab  PROJ-PROV  .bam.yaml  up to date\n")
+	assert.NotContains(t, h.stderr.String(), "review before commit")
+	again, _ := os.ReadFile(path)
+	assert.Equal(t, data, again)
+}
+
+func TestTargetSyncMarksAndUnmarksStale(t *testing.T) {
+	h := newHarness(t)
+	path := filepath.Join(h.root, ".bam.yaml")
+	h.fake.Variables["PROJ-PROV"] = []provider.Variable{{Name: "cluster_name", Value: ""}}
+	assert.Equal(t, 0, h.run("target", "sync", "provision-lab"))
+	assert.Regexp(t, `!\s+cluster_type\s+not declared on PROJ-PROV \(kept\)`, h.stdout.String())
+	data, _ := os.ReadFile(path)
+	assert.Contains(t, string(data), "cluster_type: k8s # not declared on PROJ-PROV\n")
+
+	h.fake.Variables["PROJ-PROV"] = []provider.Variable{{Name: "cluster_name", Value: ""}, {Name: "cluster_type", Value: "k8s"}}
+	assert.Equal(t, 0, h.run("target", "sync", "provision-lab"))
+	assert.Regexp(t, `~\s+cluster_type\s+declared again on PROJ-PROV`, h.stdout.String())
+	data, _ = os.ReadFile(path)
+	assert.Contains(t, string(data), "cluster_type: k8s\n")
+}
+
+func TestTargetSyncDryRunWritesNothing(t *testing.T) {
+	h := newHarness(t)
+	path := filepath.Join(h.root, ".bam.yaml")
+	before, _ := os.ReadFile(path)
+	assert.Equal(t, 0, h.run("target", "sync", "--all", "--dry-run"))
+	assert.Contains(t, h.stdout.String(), "would sync: provision-lab  PROJ-PROV  .bam.yaml\n")
+	assert.Contains(t, h.stdout.String(), "build  PROJ-BUILD  .bam.yaml  up to date\n")
+	assert.Contains(t, h.stdout.String(), "dry run: no files written\n")
+	after, _ := os.ReadFile(path)
+	assert.Equal(t, before, after)
+}
+
+func TestTargetSyncAllContinuesPastFailure(t *testing.T) {
+	h := newHarness(t)
+	h.fake.Variables["PROJ-BUILD"] = nil
+	h.fake.Plans["PROJ"] = h.fake.Plans["PROJ"][1:] // PROJ-BUILD no longer exists
+	assert.Equal(t, 5, h.run("target", "sync", "--all", "--json"))
+	var docs []map[string]any
+	require.NoError(t, json.Unmarshal(h.stdout.Bytes(), &docs))
+	require.Len(t, docs, 2)
+	assert.Equal(t, "build", docs[0]["name"])
+	assert.Equal(t, "error", docs[0]["status"])
+	assert.NotEmpty(t, docs[0]["error"])
+	assert.Equal(t, "provision-lab", docs[1]["name"])
+	assert.Equal(t, "synced", docs[1]["status"])
+	assert.Equal(t, filepath.Join(h.root, ".bam.yaml"), docs[1]["file"])
+	assert.Equal(t, []any{}, docs[1]["stale"])
+}
+
+func TestTargetSyncUnsupportedPlanVariables(t *testing.T) {
+	h := newHarness(t)
+	h.fake.VariablesErr = errs.Bamboof("no").Wrap(errs.ErrUnsupported)
+	assert.Equal(t, 5, h.run("target", "sync", "provision-lab"))
+	assert.Contains(t, h.stdout.String(), "provision-lab  PROJ-PROV  error: cannot read plan variables of PROJ-PROV on this server")
+}
+
+func TestTargetSyncArgs(t *testing.T) {
+	h := newHarness(t)
+	assert.Equal(t, 2, h.run("target", "sync"))
+	assert.Equal(t, 2, h.run("target", "sync", "build", "--all"))
+	assert.Equal(t, 2, h.run("target", "sync", "nope"))
 }
