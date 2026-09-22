@@ -194,7 +194,9 @@ type NDJSON struct{ o Out }
 func NewNDJSON(o Out) *NDJSON { return &NDJSON{o: o} }
 
 func (n *NDJSON) Event(e app.Event) {
-	if e.Type == app.EventError {
+	// Progress events are not in the NDJSON contract (spec §7); the estimate
+	// still rides the state, stage and job lines.
+	if e.Type == app.EventError || e.Type == app.EventProgress {
 		return
 	}
 	_ = WriteNDJSON(n.o.W, EventJSON(e))
