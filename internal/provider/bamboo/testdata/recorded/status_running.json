@@ -1,0 +1,26 @@
+{
+  "currentStage": "Validate",
+  "expand": "stages",
+  "finished": false,
+  "key": "LAB-PROV-11",
+  "progress": {
+    "averageBuildDuration": 16327,
+    "buildTime": 1375,
+    "isUnderAverageTime": true,
+    "isValid": true,
+    "percentageCompleted": 0.08421632878054756,
+    "percentageCompletedPretty": "8%",
+    "prettyAverageBuildDuration": "16 secs",
+    "prettyBuildTime": "1 sec",
+    "prettyStartedTime": "1 second ago",
+    "prettyTimeRemaining": "14 secs remaining",
+    "prettyTimeRemainingLong": "Approximately 14 seconds remaining",
+    "startedTime": "22 Sep 2026, 4:20:38 PM",
+    "startedTimeFormatted": "2026-09-22T16:20:38"
+  },
+  "stages": {
+    "max-result": 2,
+    "size": 2,
+    "start-index": 0
+  }
+}
