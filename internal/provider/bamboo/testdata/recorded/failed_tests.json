@@ -4,16 +4,16 @@
     "size": 0,
     "start-index": 0
   },
-  "buildCompletedDate": "2026-09-17T06:17:36.936Z",
-  "buildCompletedTime": "2026-09-17T06:17:36.936Z",
-  "buildDuration": 15354,
+  "buildCompletedDate": "2026-09-17T15:29:12.465Z",
+  "buildCompletedTime": "2026-09-17T15:29:12.465Z",
+  "buildDuration": 15673,
   "buildDurationDescription": "15 seconds",
   "buildDurationInSeconds": 15,
-  "buildNumber": 4,
+  "buildNumber": 10,
   "buildReason": "Manual run by \u003ca href=\"http://bamboo.example.com/browse/user/jdoe\"\u003ejdoe\u003c/a\u003e",
-  "buildRelativeTime": "2 minutes ago",
-  "buildResultKey": "LAB-PROV-4",
-  "buildStartedTime": "2026-09-17T06:17:21.028Z",
+  "buildRelativeTime": "5 days ago",
+  "buildResultKey": "LAB-PROV-10",
+  "buildStartedTime": "2026-09-17T15:28:56.404Z",
   "buildState": "Failed",
   "buildTestSummary": "No tests found",
   "changes": {
@@ -30,13 +30,13 @@
   "expand": "changes,metadata,plan,vcsRevisions,artifacts,comments,labels,jiraIssues,variables,stages",
   "failedTestCount": 0,
   "finished": true,
-  "id": 1114126,
+  "id": 1474567,
   "jiraIssues": {
     "max-result": 0,
     "size": 0,
     "start-index": 0
   },
-  "key": "LAB-PROV-4",
+  "key": "LAB-PROV-10",
   "labels": {
     "max-result": 0,
     "size": 0,
@@ -44,7 +44,7 @@
   },
   "lifeCycleState": "Finished",
   "link": {
-    "href": "http://bamboo.example.com/rest/api/latest/result/LAB-PROV-4",
+    "href": "http://bamboo.example.com/rest/api/latest/result/LAB-PROV-10",
     "rel": "self"
   },
   "metadata": {
@@ -53,7 +53,7 @@
     "start-index": 0
   },
   "notRunYet": false,
-  "number": 4,
+  "number": 10,
   "onceOff": false,
   "plan": {
     "enabled": true,
@@ -76,11 +76,11 @@
     "entityKey": {
       "key": "LAB-PROV"
     },
-    "key": "LAB-PROV-4",
-    "resultNumber": 4
+    "key": "LAB-PROV-10",
+    "resultNumber": 10
   },
-  "prettyBuildCompletedTime": "Thu, 17 Sep, 06:17 AM",
-  "prettyBuildStartedTime": "Thu, 17 Sep, 06:17 AM",
+  "prettyBuildCompletedTime": "Thu, 17 Sep, 03:29 PM",
+  "prettyBuildStartedTime": "Thu, 17 Sep, 03:28 PM",
   "projectName": "lab",
   "quarantinedTestCount": 0,
   "reasonSummary": "Manual run by \u003ca href=\"http://bamboo.example.com/browse/user/jdoe\"\u003ejdoe\u003c/a\u003e",

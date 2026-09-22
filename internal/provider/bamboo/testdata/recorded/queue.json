@@ -1,1 +1,10 @@
-{"planKey":"LAB-PROV","buildNumber":6,"buildResultKey":"LAB-PROV-6","triggerReason":"Manual build","link":{"href":"http://bamboo.example.com/rest/api/latest/result/LAB-PROV-6","rel":"self"}}
+{
+  "buildNumber": 11,
+  "buildResultKey": "LAB-PROV-11",
+  "link": {
+    "href": "http://bamboo.example.com/rest/api/latest/result/LAB-PROV-11",
+    "rel": "self"
+  },
+  "planKey": "LAB-PROV",
+  "triggerReason": "Manual build"
+}
