@@ -78,3 +78,12 @@ func (s *Service) PlanSync(ctx context.Context, t config.ResolvedTarget) (SyncPl
 	}
 	return p, nil
 }
+
+// DisplayDraftValue returns an added value safe to print: ${ENV} references
+// as written, and a literal under a masked name as MaskedDisplay.
+func DisplayDraftValue(v config.DraftVar) string {
+	if _, ref := config.EnvRef(v.Value); !ref && v.Value != "" && config.IsMaskedName(v.Name) {
+		return MaskedDisplay
+	}
+	return v.Value
+}

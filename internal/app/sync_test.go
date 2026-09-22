@@ -88,3 +88,10 @@ func TestPlanSyncNeedsDeclaredVariables(t *testing.T) {
 	assert.True(t, errors.Is(err, errs.ErrUnsupported))
 	assert.Contains(t, err.Error(), "cannot read plan variables of PROJ-PROV on this server")
 }
+
+func TestDisplayDraftValue(t *testing.T) {
+	assert.Equal(t, "eu", DisplayDraftValue(config.DraftVar{Name: "region", Value: "eu"}))
+	assert.Equal(t, MaskedDisplay, DisplayDraftValue(config.DraftVar{Name: "db_password", Value: "hunter2"}))
+	assert.Equal(t, "${DB_PASSWORD}", DisplayDraftValue(config.DraftVar{Name: "db_password", Value: "${DB_PASSWORD}"}))
+	assert.Equal(t, "", DisplayDraftValue(config.DraftVar{Name: "db_password", Value: ""}))
+}
