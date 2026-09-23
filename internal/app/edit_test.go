@@ -111,3 +111,85 @@ func TestReopenBufferReplacesTheBlock(t *testing.T) {
 	assert.Equal(t, user, string(ReopenBuffer(twice, nil)), "no problems, no block")
 	assert.Equal(t, user, string(ReopenBuffer([]byte(user), nil)), "text without a block is untouched")
 }
+
+// setLine replaces the line of name, or appends one when there is none.
+func setLine(buf, name, value string) string {
+	lines := strings.Split(buf, "\n")
+	for i, l := range lines {
+		if strings.HasPrefix(l, name+"=") {
+			lines[i] = name + "=" + value
+			return strings.Join(lines, "\n")
+		}
+	}
+	return buf + name + "=" + value + "\n"
+}
+
+func dropLine(buf, name string) string {
+	var out []string
+	for _, l := range strings.Split(buf, "\n") {
+		if !strings.HasPrefix(l, name+"=") {
+			out = append(out, l)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+func TestParseEditsFindsOnlyChanges(t *testing.T) {
+	start := string(EditBuffer(editRef(), editOpened(), emptyEnv, "work", false, []string{"old problem"}))
+	for _, tc := range []struct {
+		name string
+		text string
+		want []Edit
+	}{
+		{"unchanged", start, nil},
+		{"changed value", setLine(start, "cluster_name", "beta"), []Edit{{"cluster_name", "beta"}}},
+		{"emptied value", setLine(start, "cluster_name", ""), []Edit{{"cluster_name", ""}}},
+		{"secret replaced", setLine(start, "api_token", "tok-9"), []Edit{{"api_token", "tok-9"}}},
+		{"env secret replaced by a reference", setLine(start, "db_password", "${OTHER}"), []Edit{{"db_password", "${OTHER}"}}},
+		{"deleted line keeps its value", dropLine(start, "compute_nodes"), nil},
+		{"new name", start + "extra=1\n", []Edit{{"extra", "1"}}},
+		{"required row filled", setLine(start, "ticket", "T-1"), []Edit{{"ticket", "T-1"}}},
+		{"hash inside a value", setLine(start, "cluster_name", "a#b"), []Edit{{"cluster_name", "a#b"}}},
+		{"carriage return stripped", setLine(start, "cluster_name", "beta\r"), []Edit{{"cluster_name", "beta"}}},
+		{"spaces around the name", strings.Replace(start, "cluster_name=alpha", "  cluster_name =beta", 1), []Edit{{"cluster_name", "beta"}}},
+		{"value kept verbatim", setLine(start, "cluster_name", " beta "), []Edit{{"cluster_name", " beta "}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			edits, abort, problems := ParseEdits([]byte(tc.text), editRef(), editOpened())
+			assert.False(t, abort)
+			assert.Empty(t, problems)
+			assert.Equal(t, tc.want, edits)
+		})
+	}
+}
+
+func TestParseEditsReportsProblemsWithoutValues(t *testing.T) {
+	text := "" +
+		"# header\n" + // 1
+		"hunter2\n" + // 2: no '='
+		"db pass=hunter2\n" + // 3: bad name
+		"cluster_name=a\n" + // 4
+		"cluster_name=hunter2\n" + // 5: duplicate
+		"cluster_type=********\n" + // 6: the mask on a non-secret
+		"api_token=********\n" // 7: fine, keeps the secret
+	edits, abort, problems := ParseEdits([]byte(text), editRef(), editOpened())
+	assert.False(t, abort)
+	assert.Equal(t, []string{
+		"line 2 is not name=value",
+		`line 3: name "db pass" may use only letters, digits, _ . -`,
+		"line 5: cluster_name is also on line 4",
+		"line 6: cluster_type: ******** is the mask; type the real value",
+	}, problems)
+	assert.Equal(t, []Edit{{"cluster_name", "a"}}, edits, "good lines still parse")
+	for _, p := range problems {
+		assert.NotContains(t, p, "hunter2")
+	}
+}
+
+func TestParseEditsAbortsOnAnEmptyBuffer(t *testing.T) {
+	for _, text := range []string{"", "\n\n", "# only\n  # comments\n"} {
+		_, abort, problems := ParseEdits([]byte(text), editRef(), editOpened())
+		assert.True(t, abort, "%q", text)
+		assert.Empty(t, problems)
+	}
+}

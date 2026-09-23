@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/r0jjames/bam-cli/internal/config"
@@ -164,4 +165,65 @@ func ReopenBuffer(text []byte, problems []string) []byte {
 	}
 	b.WriteString(strings.Join(lines[i:], ""))
 	return []byte(b.String())
+}
+
+// rowsByName indexes editRows for ParseEdits.
+func rowsByName(rows []editRow) map[string]editRow {
+	m := make(map[string]editRow, len(rows))
+	for _, r := range rows {
+		m[r.Name] = r
+	}
+	return m
+}
+
+// editNameRe is what a variable line's name may be.
+var editNameRe = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+
+// ParseEdits reads the buffer the editor saved. It compares each line with
+// the rows the buffer first opened with, never with an earlier round, and
+// returns only real changes: an untouched ********, an unchanged value and
+// a deleted line all leave the resolved value standing. abort is a buffer
+// with no variable lines. A problem names a line and at most a name, never a
+// value: the line may hold a secret the user typed.
+func ParseEdits(text []byte, ref PlanRef, opened VarSet) (edits []Edit, abort bool, problems []string) {
+	rows := rowsByName(editRows(ref, opened))
+	seen := map[string]int{}
+	count := 0
+	for i, raw := range strings.Split(string(text), "\n") {
+		n := i + 1
+		line := strings.TrimSuffix(raw, "\r")
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		count++
+		name, val, ok := strings.Cut(line, "=")
+		if !ok {
+			problems = append(problems, fmt.Sprintf("line %d is not name=value", n))
+			continue
+		}
+		name = strings.TrimSpace(name)
+		if !editNameRe.MatchString(name) {
+			problems = append(problems, fmt.Sprintf("line %d: name %q may use only letters, digits, _ . -", n, name))
+			continue
+		}
+		if first, dup := seen[name]; dup {
+			problems = append(problems, fmt.Sprintf("line %d: %s is also on line %d", n, name, first))
+			continue
+		}
+		seen[name] = n
+		row, known := rows[name]
+		switch {
+		case known && row.Secret && val == MaskedDisplay:
+		case val == MaskedDisplay:
+			problems = append(problems, fmt.Sprintf("line %d: %s: %s is the mask; type the real value", n, name, MaskedDisplay))
+		case known && val == row.Shown:
+		default:
+			edits = append(edits, Edit{Name: name, Value: val})
+		}
+	}
+	if count == 0 {
+		return nil, true, nil
+	}
+	return edits, false, problems
 }
