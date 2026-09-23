@@ -1,6 +1,9 @@
 package tui
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // listState is one scrollable, filterable panel list. It holds indexes into
 // items rather than copies, so filtering never duplicates a build.
@@ -11,6 +14,9 @@ type listState[T any] struct {
 	query   string
 	loading bool
 	match   func(T) string
+	// order, when set, sorts the visible rows. Filtering and ordering both
+	// work on indexes, so neither copies an item.
+	order func(a, b T) bool
 }
 
 // newList takes the function that says what text a row is filtered on.
@@ -35,6 +41,11 @@ func (l *listState[T]) refilter() {
 		if q == "" || strings.Contains(strings.ToLower(l.match(it)), q) {
 			l.visible = append(l.visible, i)
 		}
+	}
+	if l.order != nil {
+		sort.SliceStable(l.visible, func(i, j int) bool {
+			return l.order(l.items[l.visible[i]], l.items[l.visible[j]])
+		})
 	}
 	l.clamp()
 }
@@ -77,6 +88,25 @@ func (l listState[T]) rows() []T {
 		out = append(out, l.items[i])
 	}
 	return out
+}
+
+// setOrder changes how the rows are sorted. The caller keeps the cursor on
+// its item with selectFirst if it needs to.
+func (l *listState[T]) setOrder(less func(a, b T) bool) {
+	l.order = less
+	l.refilter()
+}
+
+// selectFirst moves the cursor onto the first visible row pred accepts, and
+// reports whether there was one. With none, the cursor stays where it was.
+func (l *listState[T]) selectFirst(pred func(T) bool) bool {
+	for i, idx := range l.visible {
+		if pred(l.items[idx]) {
+			l.cursor = i
+			return true
+		}
+	}
+	return false
 }
 
 // window is the half-open range of rows to draw in a panel of this height,

@@ -36,6 +36,16 @@ type Service struct {
 	Getenv func(string) string
 }
 
+// ProjectKeys is the projects that scope navigation on this server
+// (config.ProjectKeys), or nil when none is configured. The terminal UI calls
+// it so that it never reads the configuration itself.
+func (s *Service) ProjectKeys() []string {
+	if s.Cfg == nil {
+		return nil
+	}
+	return s.Cfg.ProjectKeys(s.Server)
+}
+
 // Build fetches a build. When the last build recorded for this repository no
 // longer exists on the server, the record is removed and the error says so.
 func (s *Service) Build(ctx context.Context, key string) (provider.Build, error) {

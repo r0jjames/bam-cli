@@ -134,6 +134,8 @@ type Model struct {
 
 	err    error
 	status string
+
+	home homeState
 }
 
 // New builds the initial model. It starts no work; Init does that.
@@ -280,9 +282,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Gen != m.plansGen {
 			return m, nil
 		}
-		m.plans.loading = false
-		m.plans.setItems(msg.Plans)
-		return m, nil
+		return m.plansLoaded(msg), nil
 	case buildsLoadedMsg:
 		if msg.Gen != m.buildsGen {
 			return m, nil
@@ -421,6 +421,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.Err
 		m.status = ""
 		m.plans.loading, m.builds.loading = false, false
+		if msg.Stream == streamPlans {
+			m.home.stale = true
+		}
 		return m, nil
 	}
 	return m, nil
