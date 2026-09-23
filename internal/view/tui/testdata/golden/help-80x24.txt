@@ -1,24 +1,24 @@
                                                                                 
     ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓    
     ┃Keys                                                                  ┃    
-    ┃MOVE  j k ↑ ↓    up / down in the focused panel                       ┃    
-    ┃      g G        first / last row                                     ┃    
-    ┃      tab        next panel                                           ┃    
-    ┃      shift-tab  previous panel                                       ┃    
-    ┃      1 2 3      focus Plans / Builds / Presets (on Home: open the pa ┃    
-    ┃      enter      drill in                                             ┃    
-    ┃      esc        back out one level; from Plans back to Home          ┃    
-    ┃HOME  enter      open the panels on the row's plan                    ┃    
-    ┃      s          next sort column                                     ┃    
-    ┃VIEW  l          logs for the selection (failed jobs by default)      ┃    
-    ┃      a          all logs, not only failed                            ┃    
-    ┃      f          follow (log screen)                                  ┃    
-    ┃      /          filter the focused list, or search the log           ┃    
-    ┃      n N        next / previous match, or next failure               ┃    
-    ┃      r          refresh the focused panel                            ┃    
-    ┃      e          expand the current error                             ┃    
-    ┃RUN   R          open the run form for the selection                  ┃    
-    ┃      ctrl-R     run (in the form)                                    ┃    
-    ┃      d          dry-run: show what would be sent (in the form)       ┃    
+    ┃MOVE  j k ↑ ↓          up / down in the focused panel                 ┃    
+    ┃      g G              first / last row                               ┃    
+    ┃      tab              next panel                                     ┃    
+    ┃      shift-tab        previous panel                                 ┃    
+    ┃      1 2 3            focus Plans / Builds / Presets (on Home: open  ┃    
+    ┃      enter            drill in                                       ┃    
+    ┃      esc              back out one level; from Plans back to Home    ┃    
+    ┃HOME  enter            open the panels on the row's plan              ┃    
+    ┃      s                next sort column                               ┃    
+    ┃      :                command bar: :plans :presets :project :server  ┃    
+    ┃VIEW  l                logs for the selection (failed jobs by default ┃    
+    ┃      a                all logs, not only failed                      ┃    
+    ┃      f                follow (log screen)                            ┃    
+    ┃      /                filter the focused list, or search the log     ┃    
+    ┃      n N              next / previous match, or next failure         ┃    
+    ┃      r                refresh the focused panel                      ┃    
+    ┃      e                expand the current error                       ┃    
+    ┃RUN   R                open the run form for the selection            ┃    
+    ┃      ctrl-R           run (in the form)                              ┃    
     ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛    
                                                                                 

@@ -182,16 +182,22 @@ func (m Model) keyLine() string {
 		return "enter edit  tab next  ^R run  d dry-run  esc cancel"
 	}
 	if m.screen == screenHome {
-		return "enter open  / filter  s sort  R run  ?help  q quit"
+		return "enter open  / filter  s sort  : cmd  R run  ?help  q quit"
 	}
-	return "?help  tab focus  l logs  o open  q quit"
+	return "?help  : cmd  tab focus  l logs  o open  q quit"
 }
 
 // statusBar is one line: where we are on the left, what to press on the
 // right. An error takes over the left half until it is dismissed.
 func (m Model) statusBar(width int) string {
 	if m.inputFor != inputNone {
-		return truncate(m.input.View(), width)
+		line := m.input.View()
+		if m.inputFor == inputCommand {
+			if cands := m.complete(m.input.Value()); len(cands) > 0 {
+				line += "   " + dimStyle.Render(strings.Join(cands[:min(len(cands), 5)], "  "))
+			}
+		}
+		return truncate(line, width)
 	}
 	left := fmt.Sprintf("%s · %s · %s", m.server, m.info.Version, m.user.Name)
 	switch {

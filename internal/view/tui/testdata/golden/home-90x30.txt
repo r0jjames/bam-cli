@@ -27,4 +27,4 @@
 
 
 
-lab · 9.6.4 · jdoe                      enter open  / filter  s sort  R run  ?help  q quit
+lab · 9.6.4 · jdoe               enter open  / filter  s sort  : cmd  R run  ?help  q quit

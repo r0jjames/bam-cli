@@ -1,0 +1,250 @@
+package tui
+
+import (
+	"fmt"
+	"slices"
+	"sort"
+	"strings"
+
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/r0jjames/bam-cli/internal/errs"
+)
+
+// command is one entry of the : bar (home spec §5). The table below is the
+// only definition: the prompt, completion and the help overlay all read it.
+type command struct {
+	name string
+	arg  string // what the argument is, or "" for none: project, server, column
+	desc string
+	run  func(m Model, arg string) (tea.Model, tea.Cmd, error)
+}
+
+func commands() []command {
+	return []command{
+		{"plans", "", "the plans table", func(m Model, _ string) (tea.Model, tea.Cmd, error) {
+			next, cmd := m.showPlans()
+			return next, cmd, nil
+		}},
+		{"presets", "", "the presets table", func(m Model, _ string) (tea.Model, tea.Cmd, error) {
+			next, cmd := m.showPresets()
+			return next, cmd, nil
+		}},
+		{"project", "project", "filter by project, or all", Model.commandProject},
+		{"server", "server", "switch server", Model.commandServer},
+		{"sort", "column", "sort the table; -column reverses", Model.commandSort},
+		{"quit", "", "quit", func(m Model, _ string) (tea.Model, tea.Cmd, error) {
+			next, cmd := m.quit()
+			return next, cmd, nil
+		}},
+	}
+}
+
+func commandNames() []string {
+	var out []string
+	for _, c := range commands() {
+		out = append(out, c.name)
+	}
+	return out
+}
+
+// findCommand matches a name exactly, else by a unique prefix.
+func findCommand(name string) (command, error) {
+	var hits []command
+	for _, c := range commands() {
+		if c.name == name {
+			return c, nil
+		}
+		if strings.HasPrefix(c.name, name) {
+			hits = append(hits, c)
+		}
+	}
+	switch len(hits) {
+	case 1:
+		return hits[0], nil
+	case 0:
+		return command{}, fmt.Errorf("unknown command %q; commands: %s", name, strings.Join(commandNames(), " "))
+	}
+	var names []string
+	for _, c := range hits {
+		names = append(names, c.name)
+	}
+	return command{}, fmt.Errorf("ambiguous command %q: %s", name, strings.Join(names, ", "))
+}
+
+// startCommand opens the : prompt on Home or the panels.
+func (m Model) startCommand() (tea.Model, tea.Cmd) {
+	if m.screen != screenHome && m.screen != screenColumns {
+		return m, nil
+	}
+	m.inputFor = inputCommand
+	m.input.SetValue("")
+	m.input.Prompt = ":"
+	m.input.Focus()
+	return m, textinput.Blink
+}
+
+// runCommandLine runs what was typed after :. A mistake goes to the status
+// bar and changes nothing else.
+func (m Model) runCommandLine(line string) (tea.Model, tea.Cmd) {
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
+		return m, nil
+	}
+	c, err := findCommand(fields[0])
+	if err == nil {
+		arg := strings.Join(fields[1:], " ")
+		switch {
+		case c.arg != "" && arg == "":
+			err = fmt.Errorf(":%s needs a %s", c.name, c.arg)
+		case c.arg == "" && arg != "":
+			err = fmt.Errorf(":%s takes no argument", c.name)
+		default:
+			next, cmd, runErr := c.run(m, arg)
+			if runErr == nil {
+				return next, cmd
+			}
+			err = runErr
+		}
+	}
+	m.err = errs.Usagef("%s", err.Error())
+	return m, nil
+}
+
+func (m Model) commandProject(arg string) (tea.Model, tea.Cmd, error) {
+	if strings.EqualFold(arg, "all") {
+		next, cmd := m.setProject("")
+		return next, cmd, nil
+	}
+	if known := m.projectChoices(); !slices.Contains(known, arg) {
+		return m, nil, fmt.Errorf("project %q is not listed; projects: %s", arg, strings.Join(known, " "))
+	}
+	next, cmd := m.setProject(arg)
+	return next, cmd, nil
+}
+
+func (m Model) commandServer(arg string) (tea.Model, tea.Cmd, error) {
+	var aliases []string
+	for _, s := range m.deps.Servers {
+		aliases = append(aliases, s.Alias)
+	}
+	if !slices.Contains(aliases, arg) {
+		return m, nil, fmt.Errorf("no server %q; servers: %s", arg, strings.Join(aliases, " "))
+	}
+	if arg == m.server {
+		return m, nil, nil
+	}
+	next, cmd := m.switchServer(arg)
+	return next, cmd, nil
+}
+
+func (m Model) commandSort(arg string) (tea.Model, tea.Cmd, error) {
+	s, err := parseSort(m.home.view, arg)
+	if err != nil {
+		return m, nil, err
+	}
+	m.setHomeSort(s)
+	return m, nil, nil
+}
+
+// projectChoices is the configured projects, or the projects of the loaded
+// plans when none is configured.
+func (m Model) projectChoices() []string {
+	if m.svc != nil {
+		if keys := m.svc.ProjectKeys(); len(keys) > 0 {
+			return append([]string(nil), keys...)
+		}
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, p := range m.plans.items {
+		if p.ProjectKey != "" && !seen[p.ProjectKey] {
+			seen[p.ProjectKey] = true
+			out = append(out, p.ProjectKey)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// complete is the candidates for what is typed: command names while the
+// first word is typed, then that command's argument values.
+func (m Model) complete(line string) []string {
+	name, arg, spaced := strings.Cut(line, " ")
+	if !spaced {
+		var out []string
+		for _, c := range commands() {
+			if strings.HasPrefix(c.name, name) {
+				out = append(out, c.name)
+			}
+		}
+		return out
+	}
+	c, err := findCommand(name)
+	if err != nil {
+		return nil
+	}
+	var values []string
+	switch c.arg {
+	case "project":
+		values = append(m.projectChoices(), "all")
+	case "server":
+		for _, s := range m.deps.Servers {
+			values = append(values, s.Alias)
+		}
+	case "column":
+		for _, n := range homeColNames[m.home.view] {
+			values = append(values, n, "-"+n)
+		}
+	}
+	var out []string
+	for _, v := range values {
+		if strings.HasPrefix(v, strings.TrimSpace(arg)) {
+			out = append(out, c.name+" "+v)
+		}
+	}
+	return out
+}
+
+// completeInput is tab in the prompt: take the only candidate, or the
+// longest prefix they share.
+func (m Model) completeInput() Model {
+	cands := m.complete(m.input.Value())
+	switch len(cands) {
+	case 0:
+		return m
+	case 1:
+		v := cands[0]
+		if c, err := findCommand(v); err == nil && c.arg != "" && !strings.Contains(v, " ") {
+			v += " "
+		}
+		m.input.SetValue(v)
+	default:
+		m.input.SetValue(commonPrefix(cands))
+	}
+	m.input.CursorEnd()
+	return m
+}
+
+func commonPrefix(ss []string) string {
+	p := ss[0]
+	for _, s := range ss[1:] {
+		for !strings.HasPrefix(s, p) {
+			p = p[:len(p)-1]
+		}
+	}
+	return p
+}
+
+// commandHelpRows is the COMMANDS section of the help overlay.
+func commandHelpRows() []helpRow {
+	var out []helpRow
+	for _, c := range commands() {
+		k := ":" + c.name
+		if c.arg != "" {
+			k += " " + strings.ToUpper(c.arg)
+		}
+		out = append(out, helpRow{Group: "CMD", Keys: k, Desc: c.desc})
+	}
+	return out
+}

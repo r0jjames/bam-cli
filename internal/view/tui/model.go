@@ -20,6 +20,7 @@ const (
 	inputNone inputMode = iota
 	inputFilter
 	inputSearch
+	inputCommand
 )
 
 // screen is what fills the terminal. The log screen takes the whole width.
@@ -496,6 +497,8 @@ func (m Model) dispatchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.drill()
 	case key.Matches(msg, keys.Filter):
 		return m.startInput()
+	case key.Matches(msg, keys.Command):
+		return m.startCommand()
 	case key.Matches(msg, keys.NextMatch):
 		m.logs.nextMatch(1)
 	case key.Matches(msg, keys.PrevMatch):
@@ -550,6 +553,10 @@ func (m Model) dispatchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // characters rather than commands.
 func (m Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
+	case tea.KeyTab:
+		if m.inputFor == inputCommand {
+			return m.completeInput(), nil
+		}
 	case tea.KeyEsc:
 		m.inputFor = inputNone
 		m.input.SetValue("")
@@ -559,6 +566,9 @@ func (m Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		mode, q := m.inputFor, m.input.Value()
 		m.inputFor = inputNone
 		m.input.Blur()
+		if mode == inputCommand {
+			return m.runCommandLine(q)
+		}
 		if mode == inputSearch {
 			m.logs.search(q)
 			return m, nil
@@ -729,23 +739,7 @@ func (m Model) chooseOverlay() (tea.Model, tea.Cmd) {
 		return m.switchServer(it.Value)
 	case overlayProjects:
 		m.overlay = overlayNone
-		if it.Value == m.project {
-			return m, nil
-		}
-		m.project = it.Value
-		// The plans, the builds and the open build all belonged to the old
-		// filter. Leaving them selectable while the new list loads means
-		// enter can open a build from a project that is no longer shown.
-		m.leaveBuild()
-		m.buildsPlan = ""
-		m.buildsGen++
-		m.builds.setItems(nil)
-		m.plans.setItems(nil)
-		if m.screen != screenHome {
-			m.focus = focusPlans
-		}
-		load := m.loadPlans()
-		return m, tea.Batch(load, m.restartHomeTick())
+		return m.setProject(it.Value)
 	case overlayBranches:
 		m.overlay = overlayNone
 		m.leaveBuild()
@@ -755,6 +749,26 @@ func (m Model) chooseOverlay() (tea.Model, tea.Cmd) {
 	}
 	m.overlay = overlayNone
 	return m, nil
+}
+
+// setProject narrows the plans to one project, or to all with "". The
+// plans, the builds and the open build all belonged to the old filter, so
+// they go before the new list loads.
+func (m Model) setProject(key string) (tea.Model, tea.Cmd) {
+	if key == m.project {
+		return m, nil
+	}
+	m.project = key
+	m.leaveBuild()
+	m.buildsPlan = ""
+	m.buildsGen++
+	m.builds.setItems(nil)
+	m.plans.setItems(nil)
+	if m.screen != screenHome {
+		m.focus = focusPlans
+	}
+	load := m.loadPlans()
+	return m, tea.Batch(load, m.restartHomeTick())
 }
 
 // switchServer drops everything that belonged to the old server: its build,

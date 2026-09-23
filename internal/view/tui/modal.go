@@ -107,10 +107,10 @@ func (m Model) overlayTitle() string {
 // undocumented and the README table cannot drift. The group is a column
 // rather than a heading row, because the whole table has to fit 24 rows.
 func (m Model) helpBody(width, height int) string {
-	const groupW, keysW = 5, 10
+	const groupW, keysW = 5, 16
 	var b strings.Builder
 	group := ""
-	for _, r := range keys.helpRows() {
+	for _, r := range append(keys.helpRows(), commandHelpRows()...) {
 		label := ""
 		if r.Group != group {
 			label, group = r.Group, r.Group

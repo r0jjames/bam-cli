@@ -22,6 +22,7 @@ type keyMap struct {
 	Cancel                       key.Binding
 	Server, Project, Branch      key.Binding
 	Sort, Help, Quit             key.Binding
+	Command                      key.Binding
 }
 
 // helpRow is one line of the help overlay and of the README table.
@@ -79,6 +80,7 @@ func defaultKeys() keyMap {
 		Sort:        b("s", "s", "next sort column"),
 		Help:        b("?", "?", "help"),
 		Quit:        b("q ctrl+c", "q ctrl-c", "quit"),
+		Command:     b(":", ":", "command bar"),
 	}
 }
 
@@ -91,6 +93,7 @@ func allBindings(k keyMap) []key.Binding {
 		k.Logs, k.AllLogs, k.Follow, k.Filter, k.NextMatch, k.PrevMatch,
 		k.Refresh, k.ExpandErr, k.Open, k.Copy, k.Run, k.Trigger, k.DryRun,
 		k.CycleOption, k.Cancel, k.Server, k.Project, k.Branch, k.Sort, k.Help, k.Quit,
+		k.Command,
 	}
 }
 
@@ -106,6 +109,7 @@ func (k keyMap) helpRows() []helpRow {
 		{"MOVE", "esc", "back out one level; from Plans back to Home"},
 		{"HOME", "enter", "open the panels on the row's plan"},
 		{"HOME", "s", "next sort column"},
+		{"HOME", ":", "command bar: :plans :presets :project :server :sort :q"},
 		{"VIEW", "l", "logs for the selection (failed jobs by default)"},
 		{"VIEW", "a", "all logs, not only failed"},
 		{"VIEW", "f", "follow (log screen)"},
