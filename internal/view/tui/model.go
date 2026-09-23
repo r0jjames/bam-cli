@@ -1282,10 +1282,12 @@ func (m Model) openTriggered(b provider.Build) (tea.Model, tea.Cmd) {
 	m.expanded = defaultExpanded(b)
 	m.treeCursor = 0
 	m.status = "queued " + b.Key
-	m.noteLive(b)
 
 	next, watch := m.startWatch(b.Key)
 	m = next.(Model)
+	// startWatch stops whatever was being watched before, which clears the
+	// old marker; note this build's only after, so it survives.
+	m.noteLive(b)
 	cmds := []tea.Cmd{watch}
 	if b.PlanKey != "" {
 		cmds = append(cmds, m.loadBuilds(b.PlanKey, false))
@@ -1414,6 +1416,10 @@ func (m *Model) stopWatch() {
 	}
 	m.watchCh = nil
 	m.watchGen++
+	// At most one watch runs, so live holds only the build being watched (or
+	// just triggered). Every watch ends here, including a switch to a
+	// different build, so the old marker must not survive it.
+	m.home.live = nil
 }
 
 func (m Model) View() string {

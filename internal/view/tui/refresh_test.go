@@ -190,3 +190,22 @@ func TestWatchEventsFeedTheMarker(t *testing.T) {
 	m, _ = send(m, watchEventMsg{Gen: 5, Event: e})
 	require.NotNil(t, m.liveFor("PROJ-BUILD"))
 }
+
+func TestSwitchingTheWatchDropsTheOldMarker(t *testing.T) {
+	m := tickModel()
+	m.svc = testService()
+	m.noteLive(provider.Build{Key: "PROJ-PROV-9", PlanKey: "PROJ-PROV", Number: 9, State: provider.StateRunning})
+	require.NotNil(t, m.liveFor("PROJ-PROV"))
+
+	next, _ := m.startWatch("PROJ-BUILD-44") // do not execute the returned command
+	nm := next.(Model)
+	require.Nil(t, nm.liveFor("PROJ-PROV"), "watching a different build must drop the old marker")
+}
+
+func TestATriggeredBuildKeepsItsMarker(t *testing.T) {
+	m := tickModel()
+	m.svc = testService()
+	m, _ = send(m, triggeredMsg{Gen: m.formGen, Build: provider.Build{
+		Key: "PROJ-PROV12-9", PlanKey: "PROJ-PROV12", Number: 9, State: provider.StateQueued}})
+	require.NotNil(t, m.liveFor("PROJ-PROV"), "a just-triggered build must survive startWatch's own stopWatch")
+}
