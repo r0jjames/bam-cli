@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/r0jjames/bam-cli/internal/provider"
 	"github.com/r0jjames/bam-cli/internal/view"
@@ -15,8 +17,11 @@ import (
 
 // homeState is what the Home screen keeps between frames (home spec §3-§4).
 type homeState struct {
-	loadedAt time.Time // the last load in which every project succeeded
-	stale    bool      // the last load, or part of it, failed
+	view     homeView                  // which table Home shows
+	sort     homeSort                  // the plans table's order
+	live     map[string]provider.Build // builds the UI watches or started, by plan key
+	loadedAt time.Time                 // the last load in which every project succeeded
+	stale    bool                      // the last load, or part of it, failed
 }
 
 // homeView is which table Home shows.
@@ -320,4 +325,168 @@ func cut(s string, w int) string {
 		return s
 	}
 	return truncate(s, w-1) + "…"
+}
+
+// homeFocus is the panel whose list Home shows. While Home is visible, focus
+// points at it, so the shared key handling (movement, /, R, o, y) acts on
+// the table's rows.
+func (m Model) homeFocus() focus {
+	if m.home.view == homePresets {
+		return focusPresets
+	}
+	return focusPlans
+}
+
+// goHome shows Home again.
+func (m Model) goHome() (tea.Model, tea.Cmd) {
+	m.screen = screenHome
+	m.focus = m.homeFocus()
+	return m, nil
+}
+
+// handleHomeKey takes the keys that mean something else, or nothing, on
+// Home. It reports handled=false for every other key, which then goes
+// through handleKey's shared switch with focus on Home's list.
+func (m Model) handleHomeKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
+	switch {
+	case key.Matches(msg, keys.Enter):
+		next, cmd := m.drillFromHome(focusBuilds)
+		return next.(Model), cmd, true
+	case key.Matches(msg, keys.Panel1):
+		next, cmd := m.drillFromHome(focusPlans)
+		return next.(Model), cmd, true
+	case key.Matches(msg, keys.Panel2):
+		next, cmd := m.drillFromHome(focusBuilds)
+		return next.(Model), cmd, true
+	case key.Matches(msg, keys.Panel3):
+		next, cmd := m.drillFromHome(focusPresets)
+		return next.(Model), cmd, true
+	case key.Matches(msg, keys.Sort):
+		m.setHomeSort(m.home.sort.next())
+		return m, nil, true
+	case key.Matches(msg, keys.Refresh):
+		next, cmd := m.refreshHome()
+		return next.(Model), cmd, true
+	case key.Matches(msg, keys.NextPanel), key.Matches(msg, keys.PrevPanel),
+		key.Matches(msg, keys.Logs), key.Matches(msg, keys.AllLogs), key.Matches(msg, keys.Follow),
+		key.Matches(msg, keys.Cancel), key.Matches(msg, keys.Branch),
+		key.Matches(msg, keys.NextMatch), key.Matches(msg, keys.PrevMatch):
+		return m, nil, true // panel keys; Home has no panel for them
+	}
+	return m, nil, false
+}
+
+// drillFromHome opens the panels on the row's plan, then focuses want. It is
+// enter on the Plans panel, so the builds load exactly as they do there.
+func (m Model) drillFromHome(want focus) (tea.Model, tea.Cmd) {
+	if _, ok := m.plans.selected(); !ok {
+		return m, nil
+	}
+	m.screen = screenColumns
+	m.focus = focusPlans
+	next, cmd := m.drill()
+	nm := next.(Model)
+	nm.focus = want
+	return nm, cmd
+}
+
+// setHomeSort re-sorts the plans and keeps the cursor on its plan.
+func (m *Model) setHomeSort(s homeSort) {
+	keep, had := m.plans.selected()
+	m.home.sort = s
+	m.plans.setOrder(planLess(s))
+	if had {
+		m.plans.selectFirst(func(p provider.Plan) bool { return p.Key == keep.Key })
+	}
+}
+
+// refreshHome is r on Home: reload the plans now.
+func (m Model) refreshHome() (tea.Model, tea.Cmd) {
+	m.err = nil
+	if m.svc == nil {
+		return m, nil
+	}
+	return m, m.loadPlans()
+}
+
+// liveFor is the unfinished build the UI is watching or just started on
+// planKey or one of its branches, or nil.
+func (m Model) liveFor(planKey string) *provider.Build {
+	for k, b := range m.home.live {
+		if (k == planKey || isBranchOf(k, planKey)) && !b.State.Finished() {
+			return &b
+		}
+	}
+	return nil
+}
+
+// isBranchOf reports whether key is a branch plan of master: the master key
+// followed by digits only (PROJ-PROV12 of PROJ-PROV).
+func isBranchOf(key, master string) bool {
+	rest, ok := strings.CutPrefix(key, master)
+	if !ok || rest == "" {
+		return false
+	}
+	for _, r := range rest {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// homeHeader is the line above the table: where, what and how it is sorted.
+func (m Model) homeHeader() string {
+	project := m.project
+	if project == "" {
+		project = "all"
+		if m.svc != nil && len(m.svc.ProjectKeys()) == 0 {
+			project = "all (none configured)"
+		}
+	}
+	parts := []string{"bam", m.server, m.info.Version, m.user.Name, "project " + project,
+		fmt.Sprintf("%d plans", m.plans.len()), "sort " + m.home.sort.label(homePlans)}
+	if m.plans.query != "" {
+		parts = append(parts, "filter /"+m.plans.query)
+	}
+	switch {
+	case m.plans.loading && len(m.plans.items) > 0:
+		parts = append(parts, "refreshing…")
+	case m.home.stale && !m.home.loadedAt.IsZero():
+		parts = append(parts, "stale "+ageShort(m.now().Sub(m.home.loadedAt)))
+	case m.home.stale:
+		parts = append(parts, "stale")
+	}
+	return " " + strings.Join(parts, " · ")
+}
+
+// planTable is the column header and the rows that fit in height lines.
+func (m Model) planTable(width, height int) []string {
+	rows := m.plans.rows()
+	cols := planColumns(width, rows)
+	start, end := m.plans.window(height - 1)
+	cells := make([][]string, 0, end-start)
+	for _, p := range rows[start:end] {
+		cells = append(cells, planCells(cols, p, m.liveFor(p.Key), m.now()))
+	}
+	return tableLines(cols, cells, m.plans.cursor-start)
+}
+
+// homeView is the whole Home screen: header, table, status bar.
+func (m Model) homeView() string {
+	body := m.height - 2
+	lines := m.planTable(m.width, body)
+	if len(lines) > body {
+		lines = lines[:body]
+	}
+	for len(lines) < body {
+		lines = append(lines, "")
+	}
+	out := make([]string, 0, m.height)
+	out = append(out, truncate(m.homeHeader(), m.width))
+	for _, l := range lines {
+		out = append(out, truncate(l, m.width))
+	}
+	out = append(out, m.statusBar(m.width))
+	return m.overlayView(strings.Join(out, "\n"))
 }

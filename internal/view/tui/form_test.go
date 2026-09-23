@@ -213,6 +213,7 @@ func TestEscLeavesTheForm(t *testing.T) {
 func TestROnNothingDoesNothing(t *testing.T) {
 	m := New(Deps{})
 	m.width, m.height = 80, 24
+	m.screen = screenColumns
 	m, cmd := send(m, mkKey("R"))
 	require.Nil(t, cmd)
 	require.Equal(t, screenColumns, m.screen)

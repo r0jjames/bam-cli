@@ -1,7 +1,7 @@
 ┏━1 Plans━━━━━━━━━━┓╭─PROJ-BUILD-44────────────────────────────────────────────╮
-┃▸ PROJ-BUILD      ┃│press enter to open this build                            │
+┃▸ OPS-NIGHTLY     ┃│press enter to open this build                            │
+┃  PROJ-BUILD      ┃│                                                          │
 ┃  PROJ-DEPLOY     ┃│                                                          │
-┃  OPS-NIGHTLY     ┃│                                                          │
 ┃                  ┃│                                                          │
 ┃                  ┃│                                                          │
 ┗━━━━━━━━━━━━━━━━━━┛│                                                          │

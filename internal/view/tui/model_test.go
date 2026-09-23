@@ -15,6 +15,7 @@ import (
 func testModel() Model {
 	m := New(Deps{Servers: []Server{{Alias: "lab", URL: "https://bamboo.lab.example"}}, Initial: "lab"})
 	m.width, m.height = 80, 24
+	m.screen = screenColumns // the v0.2 tests start on the panels; Home has its own tests
 	return m
 }
 
@@ -66,9 +67,8 @@ func TestBackResolvesInSpecOrder(t *testing.T) {
 	m, _ = send(m, mkKey("esc"))
 	require.Equal(t, focusPlans, m.focus)
 
-	_, cmd = send(m, mkKey("esc"))
-	require.NotNil(t, cmd, "esc on Plans quits")
-	require.IsType(t, tea.QuitMsg{}, cmd())
+	m, _ = send(m, mkKey("esc"))
+	require.Equal(t, screenHome, m.screen, "esc on Plans returns to Home (home spec §2.1)")
 }
 
 // TestPresetsBacksOutToPlans keeps Presets a sibling of Builds, not its child.
@@ -240,6 +240,7 @@ func TestRefreshOnPresetsRereadsTheProjectFile(t *testing.T) {
 		return []app.TargetInfo{{Name: "smoke", Plan: "LAB-SMOKE"}}, nil
 	}})
 	m.width, m.height = 80, 24
+	m.screen = screenColumns
 	m.focus = focusPresets
 
 	_, cmd := send(m, mkKey("r"))

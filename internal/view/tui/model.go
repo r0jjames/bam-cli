@@ -29,6 +29,7 @@ const (
 	screenColumns screen = iota
 	screenLogs
 	screenForm
+	screenHome // the plans table bam opens on (home spec §2)
 )
 
 // focus is which panel takes keys. Main is the right-hand panel.
@@ -136,23 +137,27 @@ type Model struct {
 	status string
 
 	home homeState
+
+	formFrom screen // where esc from the run form returns
 }
 
 // New builds the initial model. It starts no work; Init does that.
 func New(d Deps) Model {
-	return Model{
+	m := Model{
 		deps:    d,
 		ctx:     context.Background(),
 		server:  d.Initial,
-		screen:  screenColumns,
+		screen:  screenHome,
 		focus:   focusPlans,
-		plans:   newList(func(p provider.Plan) string { return p.Key + " " + p.Name }),
+		plans:   newList(planMatchText),
 		builds:  newList(func(b provider.Build) string { return b.Key + " " + b.Branch + " " + b.Reason }),
-		presets: newList(func(t app.TargetInfo) string { return t.Name + " " + t.Plan }),
+		presets: newList(func(t app.TargetInfo) string { return t.Name + " " + t.Plan + " " + t.Branch }),
 		picker:  newList(func(p pickerItem) string { return p.Label + " " + p.Detail }),
 		now:     time.Now,
 		input:   textinput.New(),
 	}
+	m.plans.setOrder(planLess(m.home.sort))
+	return m
 }
 
 // loadPlans, loadBuilds and loadLogs own their stream's generation bump, so
@@ -441,6 +446,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.screen == screenLogs {
 		return m.handleLogKey(msg)
+	}
+	if m.screen == screenHome {
+		if next, cmd, handled := m.handleHomeKey(msg); handled {
+			return next, cmd
+		}
 	}
 	switch {
 	case key.Matches(msg, keys.Quit):
@@ -1302,6 +1312,7 @@ func (m Model) openForm() (tea.Model, tea.Cmd) {
 		from = b.Key
 	}
 
+	m.formFrom = m.screen
 	m.screen = screenForm
 	m.formGen++
 	m.form = formState{loading: true}
@@ -1349,14 +1360,20 @@ func (m Model) back() (tea.Model, tea.Cmd) {
 		return m, nil
 	case m.screen == screenForm:
 		m.formGen++ // abandon a load still in flight
-		m.screen = screenColumns
+		m.screen = m.formFrom
 		m.form = formState{}
+		return m, nil
+	case m.screen == screenHome:
+		// Home is the top: esc clears a filter and otherwise does nothing.
+		if m.plans.query != "" {
+			m.plans.setQuery("")
+		}
 		return m, nil
 	case m.focus != focusPlans:
 		m.focus = m.focus.parent()
 		return m, nil
 	}
-	return m.quit()
+	return m.goHome()
 }
 
 // quit cancels the watch on the way out. Cancelling a watch never stops the
@@ -1385,6 +1402,8 @@ func (m Model) View() string {
 		return m.overlayView(m.logsView())
 	case screenForm:
 		return m.overlayView(m.formView())
+	case screenHome:
+		return m.homeView()
 	}
 	return m.columnsView()
 }

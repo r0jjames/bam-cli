@@ -181,6 +181,9 @@ func (m Model) keyLine() string {
 	if m.screen == screenForm {
 		return "enter edit  tab next  ^R run  d dry-run  esc cancel"
 	}
+	if m.screen == screenHome {
+		return "enter open  / filter  s sort  R run  ?help  q quit"
+	}
 	return "?help  tab focus  l logs  o open  q quit"
 }
 

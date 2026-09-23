@@ -36,6 +36,7 @@ func goldenModel(w, h int) Model {
 			FinishedAt: goldenNow.Add(-time.Hour), Duration: 52 * time.Second},
 	})
 	m.now = func() time.Time { return goldenNow }
+	m.screen = screenColumns // the v0.2 tests start on the panels; Home has its own tests
 	return m
 }
 

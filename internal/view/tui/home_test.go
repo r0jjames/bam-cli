@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/r0jjames/bam-cli/internal/provider"
 	"github.com/stretchr/testify/require"
 )
@@ -173,4 +174,139 @@ func TestPlanCellsFollowsTheColumns(t *testing.T) {
 
 	narrow := planColumns(70, samplePlans())
 	require.Len(t, planCells(narrow, p, nil, homeNow), len(narrow), "cells follow the dropped columns")
+}
+
+func homeModel() Model {
+	m := New(Deps{Servers: []Server{{Alias: "lab", URL: labOrigin}}, Initial: "lab"})
+	m.width, m.height = 120, 30
+	m.now = func() time.Time { return homeNow }
+	m.svc = testService()
+	m.server = "lab"
+	m, _ = send(m, plansLoadedMsg{Gen: m.plansGen, Plans: samplePlans()})
+	return m
+}
+
+func selectedKey(m Model) string {
+	p, _ := m.plans.selected()
+	return p.Key
+}
+
+func TestUIStartsOnHome(t *testing.T) {
+	m := New(Deps{})
+	require.Equal(t, screenHome, m.screen)
+	require.Equal(t, focusPlans, m.focus)
+}
+
+func TestHomeRowsAreSortedByProjectThenKey(t *testing.T) {
+	m := homeModel()
+	require.Equal(t, "OPS-NIGHTLY", selectedKey(m))
+}
+
+func TestEnterOnHomeOpensThePanelsOnThePlan(t *testing.T) {
+	m := homeModel()
+	m, _ = send(m, mkKey("j")) // OPS-OLD
+	m, cmd := send(m, mkKey("enter"))
+	require.Equal(t, screenColumns, m.screen)
+	require.Equal(t, focusBuilds, m.focus)
+	require.True(t, m.builds.loading)
+	require.NotNil(t, cmd)
+	require.Equal(t, "OPS-OLD", selectedKey(m), "the Plans panel shows the plan that was opened")
+}
+
+func TestNumberKeysOnHomeOpenThePanelsWithThatFocus(t *testing.T) {
+	for k, want := range map[string]focus{"1": focusPlans, "2": focusBuilds, "3": focusPresets} {
+		m, _ := send(homeModel(), mkKey(k))
+		require.Equal(t, screenColumns, m.screen, k)
+		require.Equal(t, want, m.focus, k)
+	}
+}
+
+func TestEscFromThePlansPanelReturnsHome(t *testing.T) {
+	m := homeModel()
+	m, _ = send(m, mkKey("enter"))
+	m, _ = send(m, mkKey("esc")) // Builds -> Plans
+	m, _ = send(m, mkKey("esc")) // Plans -> Home
+	require.Equal(t, screenHome, m.screen)
+	require.Equal(t, focusPlans, m.focus)
+}
+
+func TestEscOnHomeClearsTheFilterAndNeverQuits(t *testing.T) {
+	m := homeModel()
+	m.applyFilter("fail")
+	require.Equal(t, 1, m.plans.len())
+	m, cmd := send(m, mkKey("esc"))
+	require.Equal(t, 4, m.plans.len())
+	require.Nil(t, cmd)
+	m, cmd = send(m, mkKey("esc"))
+	require.Equal(t, screenHome, m.screen)
+	require.Nil(t, cmd, "esc on Home with nothing to clear does nothing")
+}
+
+func TestHomeFilterMatchesStateAndProject(t *testing.T) {
+	m := homeModel()
+	m.applyFilter("fail")
+	require.Equal(t, "PROJ-BUILD", selectedKey(m))
+	m.applyFilter("ops")
+	require.Equal(t, 2, m.plans.len())
+}
+
+func TestSKeyCyclesTheSortAndKeepsTheCursorOnItsPlan(t *testing.T) {
+	m := homeModel()
+	m, _ = send(m, mkKey("G")) // PROJ-PROV, last by key
+	m, _ = send(m, mkKey("s")) // name
+	require.Equal(t, homeSort{col: colName}, m.home.sort)
+	require.Equal(t, "PROJ-PROV", selectedKey(m))
+	m, _ = send(m, mkKey("s")) // state
+	require.Equal(t, "PROJ-BUILD", m.plans.rows()[0].Key, "failed first")
+	require.Equal(t, "PROJ-PROV", selectedKey(m))
+}
+
+func TestPanelOnlyKeysDoNothingOnHome(t *testing.T) {
+	for _, k := range []string{"tab", "shift+tab", "l", "a", "f", "C", "b", "n", "N"} {
+		m, cmd := send(homeModel(), mkKey(k))
+		require.Equal(t, screenHome, m.screen, k)
+		require.Equal(t, focusPlans, m.focus, k)
+		require.Nil(t, cmd, k)
+	}
+}
+
+func TestTheRunFormReturnsToWhereItWasOpened(t *testing.T) {
+	m := homeModel()
+	m, _ = send(m, mkKey("R"))
+	require.Equal(t, screenForm, m.screen)
+	m, _ = send(m, mkKey("esc"))
+	require.Equal(t, screenHome, m.screen)
+}
+
+func TestLiveForMatchesTheMasterAndItsBranches(t *testing.T) {
+	m := homeModel()
+	m.home.live = map[string]provider.Build{"PROJ-PROV12": {Key: "PROJ-PROV12-9", PlanKey: "PROJ-PROV12", State: provider.StateRunning}}
+	require.NotNil(t, m.liveFor("PROJ-PROV"))
+	require.Nil(t, m.liveFor("PROJ-PRO"), "a key prefix that is not a branch number does not match")
+	require.True(t, isBranchOf("PROJ-PROV12", "PROJ-PROV"))
+	require.False(t, isBranchOf("PROJ-PROVX", "PROJ-PROV"))
+	require.False(t, isBranchOf("PROJ-PROV", "PROJ-PROV"))
+}
+
+func goldenHome(w, h int) Model {
+	m := homeModel()
+	m.width, m.height = w, h
+	m.info = provider.ServerInfo{Version: "9.6.4"}
+	m.user = provider.User{Name: "jdoe"}
+	return m
+}
+
+func TestHomeGolden120x30(t *testing.T) { requireGolden(t, "home-120x30", goldenHome(120, 30).View()) }
+func TestHomeGolden90x30(t *testing.T)  { requireGolden(t, "home-90x30", goldenHome(90, 30).View()) }
+func TestHomeGolden80x24(t *testing.T)  { requireGolden(t, "home-80x24", goldenHome(80, 24).View()) }
+
+func TestHomeNeverExceedsTheTerminal(t *testing.T) {
+	for _, size := range [][2]int{{120, 30}, {90, 30}, {80, 24}, {60, 20}} {
+		v := goldenHome(size[0], size[1]).View()
+		lines := strings.Split(v, "\n")
+		require.LessOrEqual(t, len(lines), size[1])
+		for i, l := range lines {
+			require.LessOrEqual(t, lipgloss.Width(l), size[0], "line %d at %dx%d", i, size[0], size[1])
+		}
+	}
 }
