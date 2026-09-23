@@ -157,6 +157,7 @@ func New(d Deps) Model {
 		input:   textinput.New(),
 	}
 	m.plans.setOrder(planLess(m.home.sort))
+	m.home.lastKey = m.now()
 	return m
 }
 
@@ -263,6 +264,9 @@ func (m Model) Init() tea.Cmd {
 	if m.deps.Targets != nil {
 		cmds = append(cmds, loadPresetsCmd(m.deps, m.presetsGen))
 	}
+	if m.screen == screenHome {
+		cmds = append(cmds, homeTickCmd(m.home.tickGen))
+	}
 	return tea.Batch(cmds...)
 }
 
@@ -276,6 +280,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+	case homeTickMsg:
+		return m.homeTick(msg)
 	case connectedMsg:
 		if msg.Gen != m.connGen {
 			return m, nil
@@ -434,7 +440,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleKey notes the key for Home's idle cut-off, then dispatches it.
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	resume := m.noteKey()
+	next, cmd := m.dispatchKey(msg)
+	if resume == nil {
+		return next, cmd
+	}
+	return next, tea.Batch(resume, cmd)
+}
+
+func (m Model) dispatchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.inputFor != inputNone {
 		return m.handleInputKey(msg)
 	}
@@ -724,8 +740,11 @@ func (m Model) chooseOverlay() (tea.Model, tea.Cmd) {
 		m.buildsGen++
 		m.builds.setItems(nil)
 		m.plans.setItems(nil)
-		m.focus = focusPlans
-		return m, m.loadPlans()
+		if m.screen != screenHome {
+			m.focus = focusPlans
+		}
+		load := m.loadPlans()
+		return m, tea.Batch(load, m.restartHomeTick())
 	case overlayBranches:
 		m.overlay = overlayNone
 		m.leaveBuild()
@@ -759,8 +778,10 @@ func (m Model) switchServer(alias string) (tea.Model, tea.Cmd) {
 	m.logsGen++
 	m.presetsGen++
 	m.cancelGen++
+	m.home.live = nil
 
 	cmds := []tea.Cmd{}
+	cmds = append(cmds, m.restartHomeTick())
 	if m.deps.Targets != nil {
 		cmds = append(cmds, loadPresetsCmd(m.deps, m.presetsGen))
 	}
@@ -921,6 +942,7 @@ func (m Model) drill() (tea.Model, tea.Cmd) {
 // second request.
 func (m Model) handleWatchEvent(e app.Event) (tea.Model, tea.Cmd) {
 	if e.Build.Key != "" {
+		m.noteLive(e.Build)
 		b := e.Build
 		m.detail = &b
 		m.progress = e.Progress
@@ -1260,6 +1282,7 @@ func (m Model) openTriggered(b provider.Build) (tea.Model, tea.Cmd) {
 	m.expanded = defaultExpanded(b)
 	m.treeCursor = 0
 	m.status = "queued " + b.Key
+	m.noteLive(b)
 
 	next, watch := m.startWatch(b.Key)
 	m = next.(Model)

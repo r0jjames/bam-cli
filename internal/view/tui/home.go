@@ -22,6 +22,10 @@ type homeState struct {
 	live     map[string]provider.Build // builds the UI watches or started, by plan key
 	loadedAt time.Time                 // the last load in which every project succeeded
 	stale    bool                      // the last load, or part of it, failed
+
+	tickGen int       // the auto-refresh loop's generation (home spec §4.2)
+	lastKey time.Time // the last key pressed, for the idle cut-off
+	idle    bool      // the loop stopped for idleness; the next key restarts it
 }
 
 // homeView is which table Home shows.
@@ -341,7 +345,7 @@ func (m Model) homeFocus() focus {
 func (m Model) goHome() (tea.Model, tea.Cmd) {
 	m.screen = screenHome
 	m.focus = m.homeFocus()
-	return m, nil
+	return m, m.restartHomeTick()
 }
 
 // handleHomeKey takes the keys that mean something else, or nothing, on
@@ -384,6 +388,7 @@ func (m Model) drillFromHome(want focus) (tea.Model, tea.Cmd) {
 	}
 	m.screen = screenColumns
 	m.focus = focusPlans
+	m.home.tickGen++ // Home's refresh loop ends while the panels show
 	next, cmd := m.drill()
 	nm := next.(Model)
 	nm.focus = want
@@ -406,7 +411,9 @@ func (m Model) refreshHome() (tea.Model, tea.Cmd) {
 	if m.svc == nil {
 		return m, nil
 	}
-	return m, m.loadPlans()
+	load := m.loadPlans()
+	tick := m.restartHomeTick()
+	return m, tea.Batch(load, tick)
 }
 
 // liveFor is the unfinished build the UI is watching or just started on

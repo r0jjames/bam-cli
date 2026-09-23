@@ -313,7 +313,10 @@ func TestInitAfterHandshakeFillsPlans(t *testing.T) {
 	m = m.connected(msg)
 
 	// Run what Init asks for and feed every message back, the way the
-	// bubbletea loop does.
+	// bubbletea loop does. On Home, Init's batch also starts the auto-refresh
+	// tick (home spec §4.2); that command must never run here — it blocks for
+	// homeRefreshEvery — so it is asserted present but left undelivered, and
+	// only the plans load is drained.
 	var deliver func(Model, tea.Cmd) Model
 	deliver = func(m Model, cmd tea.Cmd) Model {
 		if cmd == nil {
@@ -331,7 +334,13 @@ func TestInitAfterHandshakeFillsPlans(t *testing.T) {
 		}
 		return m
 	}
-	m = deliver(m, m.Init())
+
+	init := m.Init()
+	require.NotNil(t, init)
+	batch, ok := init().(tea.BatchMsg)
+	require.True(t, ok)
+	require.Len(t, batch, 2, "the plans load and the Home auto-refresh tick")
+	m = deliver(m, batch[0])
 
 	require.NoError(t, m.err)
 	require.NotZero(t, m.plans.len(), "the Plans panel is empty after start-up")

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/r0jjames/bam-cli/internal/app"
 	"github.com/r0jjames/bam-cli/internal/errs"
@@ -43,7 +44,13 @@ func TestChoosingAServerReconnectsAndReloads(t *testing.T) {
 	m, cmd := send(m, mkKey("enter"))
 	require.Equal(t, overlayNone, m.overlay, "choosing closes the overlay")
 	require.NotNil(t, cmd)
-	require.IsType(t, connectedMsg{}, cmd())
+	// switchServer also restarts Home's auto-refresh tick (home spec §4.2);
+	// that command must never run here — it blocks for homeRefreshEvery — so
+	// only the reconnect, last in the batch, is inspected.
+	batch, ok := cmd().(tea.BatchMsg)
+	require.True(t, ok)
+	require.Len(t, batch, 2, "the Home tick restart and the reconnect")
+	require.IsType(t, connectedMsg{}, batch[len(batch)-1]())
 	require.Equal(t, []string{"work"}, asked)
 }
 
