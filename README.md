@@ -111,16 +111,20 @@ side effects, so bam never probes it.
 
     bam
 
-Plans fills with `OPS-BUILD`, `OPS-OLD`, `PROJ-BUILD` and `PROJ-OLD`, and the
-status bar reads `env · 9.6.2 · jdoe`. From there:
+`bam` opens on a table of every plan in the configured projects: `OPS-BUILD`,
+`OPS-OLD`, `PROJ-BUILD` and `PROJ-OLD`, each with its last build's state,
+number, age and trigger. The header reads `bam · env · 9.6.2 · jdoe`. From there:
 
-- `j` / `k` to move, `enter` on a plan to list its builds, `enter` again to
-  open one. `#481` is a failed build with stages and failed tests.
+- `j` / `k` to move, `/fail` to keep the failed plans, `s` to change the sort.
+- `enter` on a plan to open its builds in the panels, `enter` again to open
+  one. `#481` is a failed build with stages and failed tests. `esc` from the
+  Plans panel returns to the table.
 - `l` on a failed build to read the failing job's log.
 - `R` to open the run form, then `d` to dry-run it or `ctrl-R` to start a
   build. The build is simulated: queued for 5 seconds, running for 10, then
   successful, so the watch view has something to show.
-- `C` to cancel a running build, `?` for help, `q` to quit.
+- `:presets` for the presets table, `:plans` to come back, `?` for help, `q`
+  to quit.
 
 ### 6. Or drive it from the command line
 
@@ -184,8 +188,19 @@ contributor's side, along with the rest of the development workflow.
 
 ## Terminal UI
 
-Running `bam` alone on a terminal opens a lazygit-style UI over the same
-commands: browse, watch a build live, read its logs, run a preset, and cancel.
+Running `bam` alone on a terminal opens a k9s-style table of every plan, with
+lazygit-style panels behind it to browse detail, watch a build live, read its
+logs, run a preset, and cancel.
+
+It opens on the plans table; `enter` opens the panels for a plan:
+
+```
+bam · env · 9.6.2 · jdoe · project all · 4 plans · sort key↑
+PROJECT  KEY          NAME             STATE      #    AGE    BY
+▸PROJ     PROJ-BUILD   Build and test   ✗ failed   482  12m    jdoe
+ PROJ     PROJ-PROV    Provision lab    ✓ success    8   3h    sched
+ OPS      OPS-NIGHTLY  Nightly          ● running   91   now   sched
+```
 
 No lowercase key changes anything on the server. `R` only opens the run form,
 `ctrl-R` inside that form is the only key that starts a build, and `C` always
@@ -220,9 +235,12 @@ without a terminal, bare `bam` prints help exactly as before.
 | | `g` `G` | first / last row |
 | | `tab` | next panel |
 | | `shift-tab` | previous panel |
-| | `1` `2` `3` | focus Plans / Builds / Presets |
+| | `1` `2` `3` | focus Plans / Builds / Presets (on Home: open the panels) |
 | | `enter` | drill in |
-| | `esc` | back out one level, close an overlay |
+| | `esc` | back out one level; from Plans back to Home |
+| Home | `enter` | open the panels on the row's plan |
+| | `s` | next sort column |
+| | `:` | command bar: `:plans` `:presets` `:project KEY` `:server ALIAS` `:sort [-]COLUMN` `:q` |
 | View | `l` | logs for the selection (failed jobs by default) |
 | | `a` | all logs, not only failed |
 | | `f` | follow (log screen) |
