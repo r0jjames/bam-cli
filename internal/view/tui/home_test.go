@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/r0jjames/bam-cli/internal/app"
 	"github.com/r0jjames/bam-cli/internal/provider"
 	"github.com/stretchr/testify/require"
 )
@@ -309,4 +310,74 @@ func TestHomeNeverExceedsTheTerminal(t *testing.T) {
 			require.LessOrEqual(t, lipgloss.Width(l), size[0], "line %d at %dx%d", i, size[0], size[1])
 		}
 	}
+}
+
+func presetModel() Model {
+	m := homeModel()
+	m, _ = send(m, presetsLoadedMsg{Gen: m.presetsGen, Targets: []app.TargetInfo{
+		{Name: "smoke", Plan: "PROJ-PROV", Branch: "develop", Server: "lab"},
+		{Name: "build", Plan: "PROJ-BUILD", Server: "lab"},
+		{Name: "orphan", Plan: "LAB-X", Server: "lab"},
+	}})
+	next, _ := m.showPresets()
+	return next.(Model)
+}
+
+func TestShowPresetsSwitchesTheTable(t *testing.T) {
+	m := presetModel()
+	require.Equal(t, homePresets, m.home.view)
+	require.Equal(t, focusPresets, m.focus)
+	v := m.View()
+	require.Contains(t, v, "TARGET")
+	require.Contains(t, v, "3 presets")
+	next, _ := m.showPlans()
+	require.Contains(t, next.(Model).View(), "4 plans")
+}
+
+func TestPresetsSortByTargetAndState(t *testing.T) {
+	m := presetModel()
+	names := func() []string {
+		out := []string{}
+		for _, t := range m.presets.rows() {
+			out = append(out, t.Name)
+		}
+		return out
+	}
+	require.Equal(t, []string{"build", "orphan", "smoke"}, names())
+	m, _ = send(m, mkKey("s")) // plan
+	m, _ = send(m, mkKey("s")) // state: failed PROJ-BUILD, success PROJ-PROV, no build LAB-X
+	require.Equal(t, []string{"build", "smoke", "orphan"}, names())
+}
+
+func TestPresetRowTakesItsPlansState(t *testing.T) {
+	m := presetModel()
+	require.NotNil(t, m.lastBuildOf("PROJ-BUILD"))
+	require.Nil(t, m.lastBuildOf("LAB-X"))
+	cells := presetCells(presetColumns(120, m.presets.rows()), app.TargetInfo{Name: "x", Plan: "LAB-X"}, nil, nil, homeNow)
+	require.Contains(t, cells, "–")
+}
+
+func TestEnterOnAPresetOpensThePanels(t *testing.T) {
+	m := presetModel()
+	m, cmd := send(m, mkKey("enter"))
+	require.Equal(t, screenColumns, m.screen)
+	require.Equal(t, focusBuilds, m.focus)
+	require.NotNil(t, cmd)
+}
+
+func TestEscFromPanelsReturnsToThePresetsTable(t *testing.T) {
+	m := presetModel()
+	m, _ = send(m, mkKey("enter"))
+	m, _ = send(m, mkKey("esc"))
+	m, _ = send(m, mkKey("esc"))
+	require.Equal(t, screenHome, m.screen)
+	require.Equal(t, homePresets, m.home.view)
+	require.Equal(t, focusPresets, m.focus)
+}
+
+func TestHomeGoldenPresets120x30(t *testing.T) {
+	m := presetModel()
+	m.info = provider.ServerInfo{Version: "9.6.4"}
+	m.user = provider.User{Name: "jdoe"}
+	requireGolden(t, "home-presets-120x30", m.View())
 }

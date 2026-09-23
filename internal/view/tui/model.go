@@ -307,6 +307,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.presets.setItems(presetsForServer(msg.Targets, m.server))
+		m.sortPresets()
 		return m, nil
 	case projectsLoadedMsg:
 		if msg.Gen != m.pickerGen {
@@ -1389,12 +1390,15 @@ func (m Model) back() (tea.Model, tea.Cmd) {
 		m.form = formState{}
 		return m, nil
 	case m.screen == screenHome:
-		// Home is the top: esc clears a filter and otherwise does nothing.
-		if m.plans.query != "" {
+		// Home is the top: esc clears the active table's filter and
+		// otherwise does nothing.
+		if m.home.view == homePresets && m.presets.query != "" {
+			m.presets.setQuery("")
+		} else if m.home.view == homePlans && m.plans.query != "" {
 			m.plans.setQuery("")
 		}
 		return m, nil
-	case m.focus != focusPlans:
+	case m.focus != focusPlans && m.focus != m.homeFocus():
 		m.focus = m.focus.parent()
 		return m, nil
 	}

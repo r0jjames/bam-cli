@@ -404,7 +404,7 @@ func TestPresetsAreKeptToTheConnectedServer(t *testing.T) {
 	for _, t := range m.presets.rows() {
 		names = append(names, t.Name)
 	}
-	require.Equal(t, []string{"lab-smoke", "any"}, names)
+	require.Equal(t, []string{"any", "lab-smoke"}, names, "the presets sort (alphabetical by target) now applies on load")
 }
 
 // TestAStaleErrorDoesNotReplaceTheCurrentStatus.

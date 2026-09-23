@@ -135,5 +135,8 @@ func (m Model) plansLoaded(msg plansLoadedMsg) Model {
 		}
 		m.status = "project " + strings.Join(msg.Missing, ", ") + " " + verb + " configured but not on " + m.server
 	}
+	if m.home.view == homePresets {
+		m.sortPresets()
+	}
 	return m
 }

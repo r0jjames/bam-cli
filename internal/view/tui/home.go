@@ -3,6 +3,7 @@ package tui
 import (
 	"cmp"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/r0jjames/bam-cli/internal/app"
 	"github.com/r0jjames/bam-cli/internal/provider"
 	"github.com/r0jjames/bam-cli/internal/view"
 	"github.com/r0jjames/bam-cli/internal/view/style"
@@ -17,11 +19,12 @@ import (
 
 // homeState is what the Home screen keeps between frames (home spec §3-§4).
 type homeState struct {
-	view     homeView                  // which table Home shows
-	sort     homeSort                  // the plans table's order
-	live     map[string]provider.Build // builds the UI watches or started, by plan key
-	loadedAt time.Time                 // the last load in which every project succeeded
-	stale    bool                      // the last load, or part of it, failed
+	view       homeView                  // which table Home shows
+	sort       homeSort                  // the plans table's order
+	presetSort homeSort                  // the presets table's order
+	live       map[string]provider.Build // builds the UI watches or started, by plan key
+	loadedAt   time.Time                 // the last load in which every project succeeded
+	stale      bool                      // the last load, or part of it, failed
 
 	tickGen int       // the auto-refresh loop's generation (home spec §4.2)
 	lastKey time.Time // the last key pressed, for the idle cut-off
@@ -348,6 +351,120 @@ func (m Model) goHome() (tea.Model, tea.Cmd) {
 	return m, m.restartHomeTick()
 }
 
+// showPlans and showPresets pick Home's table (:plans, :presets).
+func (m Model) showPlans() (tea.Model, tea.Cmd) {
+	m.home.view = homePlans
+	return m.goHome()
+}
+
+func (m Model) showPresets() (tea.Model, tea.Cmd) {
+	m.home.view = homePresets
+	m.sortPresets()
+	return m.goHome()
+}
+
+// lastBuildOf is the last build of planKey from the plans load, or nil when
+// the plan is not in the configured projects.
+func (m Model) lastBuildOf(planKey string) *provider.BuildSummary {
+	for _, p := range m.plans.items {
+		if p.Key == planKey {
+			return p.LastBuild
+		}
+	}
+	return nil
+}
+
+// sortPresets orders the presets in place by the presets sort. It sorts the
+// items rather than setting a list order, because the state and age columns
+// read the plans load, which changes under the list.
+func (m *Model) sortPresets() {
+	s := m.home.presetSort
+	keep, had := m.presets.selected()
+	items := m.presets.items
+	sort.SliceStable(items, func(i, j int) bool {
+		a, b := items[i], items[j]
+		var c int
+		switch s.col {
+		case colName:
+			c = strings.Compare(a.Plan, b.Plan)
+		case colState:
+			c = cmp.Compare(stateRank(m.lastBuildOf(a.Plan)), stateRank(m.lastBuildOf(b.Plan)))
+		case colAge:
+			c = compareAge(finishedAt(m.lastBuildOf(a.Plan)), finishedAt(m.lastBuildOf(b.Plan)))
+		default:
+			c = strings.Compare(a.Name, b.Name)
+		}
+		if c != 0 {
+			if s.desc {
+				return c > 0
+			}
+			return c < 0
+		}
+		return a.Name < b.Name
+	})
+	m.presets.refilter()
+	if had {
+		m.presets.selectFirst(func(t app.TargetInfo) bool { return t.Name == keep.Name })
+	}
+}
+
+// presetColumns fits the presets table to width; BRANCH takes what is left.
+func presetColumns(width int, rows []app.TargetInfo) []tableCol {
+	nameW, planW := len("TARGET"), len("PLAN")
+	for _, t := range rows {
+		nameW = max(nameW, lipgloss.Width(t.Name))
+		planW = max(planW, lipgloss.Width(t.Plan))
+	}
+	cols := []tableCol{
+		{title: "TARGET", width: min(nameW, 24)},
+		{title: "PLAN", width: min(planW, 24)},
+		{title: "BRANCH"},
+		{title: "STATE", width: 11},
+		{title: "#", width: 6, right: true},
+		{title: "AGE", width: 5},
+	}
+	return fillWidth(cols, width, "BRANCH")
+}
+
+// presetCells is one presets-table row. The state is the preset's plan's
+// (its master plan, not its branch).
+func presetCells(cols []tableCol, t app.TargetInfo, last *provider.BuildSummary, live *provider.Build, now time.Time) []string {
+	state, num, age, _ := buildCells(last, live, now)
+	branch := t.Branch
+	if branch == "" {
+		branch = "default"
+	}
+	out := make([]string, len(cols))
+	for i, c := range cols {
+		switch c.title {
+		case "TARGET":
+			out[i] = t.Name
+		case "PLAN":
+			out[i] = t.Plan
+		case "BRANCH":
+			out[i] = branch
+		case "STATE":
+			out[i] = state
+		case "#":
+			out[i] = num
+		case "AGE":
+			out[i] = age
+		}
+	}
+	return out
+}
+
+func (m Model) presetTable(width, height int) []string {
+	rows := m.presets.rows()
+	cols := presetColumns(width, rows)
+	start, end := m.presets.window(height - 1)
+	cells := make([][]string, 0, end-start)
+	for _, t := range rows[start:end] {
+		cells = append(cells, presetCells(cols, t, m.lastBuildOf(t.Plan), m.liveFor(t.Plan), m.now()))
+	}
+	return tableLines(cols, cells, m.presets.cursor-start)
+}
+
 // handleHomeKey takes the keys that mean something else, or nothing, on
 // Home. It reports handled=false for every other key, which then goes
 // through handleKey's shared switch with focus on Home's list.
@@ -366,7 +483,7 @@ func (m Model) handleHomeKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		next, cmd := m.drillFromHome(focusPresets)
 		return next.(Model), cmd, true
 	case key.Matches(msg, keys.Sort):
-		m.setHomeSort(m.home.sort.next())
+		m.setHomeSort(m.currentHomeSort().next())
 		return m, nil, true
 	case key.Matches(msg, keys.Refresh):
 		next, cmd := m.refreshHome()
@@ -383,20 +500,37 @@ func (m Model) handleHomeKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 // drillFromHome opens the panels on the row's plan, then focuses want. It is
 // enter on the Plans panel, so the builds load exactly as they do there.
 func (m Model) drillFromHome(want focus) (tea.Model, tea.Cmd) {
-	if _, ok := m.plans.selected(); !ok {
+	if m.home.view == homePresets {
+		if _, ok := m.presets.selected(); !ok {
+			return m, nil
+		}
+	} else if _, ok := m.plans.selected(); !ok {
 		return m, nil
 	}
 	m.screen = screenColumns
-	m.focus = focusPlans
-	m.home.tickGen++ // Home's refresh loop ends while the panels show
+	m.home.tickGen++
+	m.focus = m.homeFocus()
 	next, cmd := m.drill()
 	nm := next.(Model)
 	nm.focus = want
 	return nm, cmd
 }
 
-// setHomeSort re-sorts the plans and keeps the cursor on its plan.
+// currentHomeSort is the order of the table Home is currently showing.
+func (m Model) currentHomeSort() homeSort {
+	if m.home.view == homePresets {
+		return m.home.presetSort
+	}
+	return m.home.sort
+}
+
+// setHomeSort re-sorts the active table and keeps the cursor on its row.
 func (m *Model) setHomeSort(s homeSort) {
+	if m.home.view == homePresets {
+		m.home.presetSort = s
+		m.sortPresets()
+		return
+	}
 	keep, had := m.plans.selected()
 	m.home.sort = s
 	m.plans.setOrder(planLess(s))
@@ -405,11 +539,18 @@ func (m *Model) setHomeSort(s homeSort) {
 	}
 }
 
-// refreshHome is r on Home: reload the plans now.
+// refreshHome is r on Home: reload the plans now, and the presets too when
+// the presets table is showing.
 func (m Model) refreshHome() (tea.Model, tea.Cmd) {
 	m.err = nil
 	if m.svc == nil {
 		return m, nil
+	}
+	if m.home.view == homePresets && m.deps.Targets != nil {
+		m.presetsGen++
+		presets := loadPresetsCmd(m.deps, m.presetsGen)
+		load := m.loadPlans()
+		return m, tea.Batch(presets, load, m.restartHomeTick())
 	}
 	load := m.loadPlans()
 	tick := m.restartHomeTick()
@@ -451,10 +592,14 @@ func (m Model) homeHeader() string {
 			project = "all (none configured)"
 		}
 	}
+	count, sortLabel, query := fmt.Sprintf("%d plans", m.plans.len()), m.home.sort.label(homePlans), m.plans.query
+	if m.home.view == homePresets {
+		count, sortLabel, query = fmt.Sprintf("%d presets", m.presets.len()), m.home.presetSort.label(homePresets), m.presets.query
+	}
 	parts := []string{"bam", m.server, m.info.Version, m.user.Name, "project " + project,
-		fmt.Sprintf("%d plans", m.plans.len()), "sort " + m.home.sort.label(homePlans)}
-	if m.plans.query != "" {
-		parts = append(parts, "filter /"+m.plans.query)
+		count, "sort " + sortLabel}
+	if query != "" {
+		parts = append(parts, "filter /"+query)
 	}
 	switch {
 	case m.plans.loading && len(m.plans.items) > 0:
@@ -483,6 +628,9 @@ func (m Model) planTable(width, height int) []string {
 func (m Model) homeView() string {
 	body := m.height - 2
 	lines := m.planTable(m.width, body)
+	if m.home.view == homePresets {
+		lines = m.presetTable(m.width, body)
+	}
 	if len(lines) > body {
 		lines = lines[:body]
 	}
