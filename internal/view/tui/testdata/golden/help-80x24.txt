@@ -5,9 +5,9 @@
     ┃      g G              first / last row                               ┃    
     ┃      tab              next panel                                     ┃    
     ┃      shift-tab        previous panel                                 ┃    
-    ┃      1 2 3            focus Plans / Builds / Presets (on Home: open  ┃    
+    ┃      1 2 3            focus a panel (on Home: open it)               ┃    
     ┃      enter            drill in                                       ┃    
-    ┃      esc              back out one level; from Plans back to Home    ┃    
+    ┃      esc              back one level, close an overlay; from Plans t ┃    
     ┃HOME  enter            open the panels on the row's plan              ┃    
     ┃      s                next sort column                               ┃    
     ┃      :                command bar: :plans :presets :project :server  ┃    

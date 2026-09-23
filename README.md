@@ -197,9 +197,9 @@ It opens on the plans table; `enter` opens the panels for a plan:
 ```
 bam · env · 9.6.2 · jdoe · project all · 4 plans · sort key↑
 PROJECT  KEY          NAME             STATE      #    AGE    BY
-▸PROJ     PROJ-BUILD   Build and test   ✗ failed   482  12m    jdoe
+▸OPS      OPS-NIGHTLY  Nightly          ● running   91   now   sched
+ PROJ     PROJ-BUILD   Build and test   ✗ failed   482  12m    jdoe
  PROJ     PROJ-PROV    Provision lab    ✓ success    8   3h    sched
- OPS      OPS-NIGHTLY  Nightly          ● running   91   now   sched
 
  enter open  / filter  s sort  : cmd  R run  ?help  q quit
 ```
@@ -222,7 +222,7 @@ asks before it cancels one.
 │  provision-lab   ││                                                          │
 │  smoke           ││3 failed tests                                            │
 ╰──────────────────╯╰──────────────────────────────────────────────────────────╯
-lab · 9.6.4 · jdoe                      ?help  tab focus  l logs  o open  q quit
+lab · 9.6.4 · jdoe           ?help  : cmd  tab focus  l logs  o open  q quit
 ```
 
 `bam ui` opens it explicitly. To keep the UI out of the way, use `--no-tui`,
@@ -237,9 +237,9 @@ without a terminal, bare `bam` prints help exactly as before.
 | | `g` `G` | first / last row |
 | | `tab` | next panel |
 | | `shift-tab` | previous panel |
-| | `1` `2` `3` | focus Plans / Builds / Presets (on Home: open the panels) |
+| | `1` `2` `3` | focus a panel (on Home: open it) |
 | | `enter` | drill in |
-| | `esc` | back out one level; from Plans back to Home |
+| | `esc` | back one level, close an overlay; from Plans to Home |
 | Home | `enter` | open the panels on the row's plan |
 | | `s` | next sort column |
 | | `:` | command bar: :plans :presets :project :server :sort :q |
