@@ -200,6 +200,8 @@ PROJECT  KEY          NAME             STATE      #    AGE    BY
 ▸PROJ     PROJ-BUILD   Build and test   ✗ failed   482  12m    jdoe
  PROJ     PROJ-PROV    Provision lab    ✓ success    8   3h    sched
  OPS      OPS-NIGHTLY  Nightly          ● running   91   now   sched
+
+ enter open  / filter  s sort  : cmd  R run  ?help  q quit
 ```
 
 No lowercase key changes anything on the server. `R` only opens the run form,
@@ -240,7 +242,7 @@ without a terminal, bare `bam` prints help exactly as before.
 | | `esc` | back out one level; from Plans back to Home |
 | Home | `enter` | open the panels on the row's plan |
 | | `s` | next sort column |
-| | `:` | command bar: `:plans` `:presets` `:project KEY` `:server ALIAS` `:sort [-]COLUMN` `:q` |
+| | `:` | command bar: :plans :presets :project :server :sort :q |
 | View | `l` | logs for the selection (failed jobs by default) |
 | | `a` | all logs, not only failed |
 | | `f` | follow (log screen) |
