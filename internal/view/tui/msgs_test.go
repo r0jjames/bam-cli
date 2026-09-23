@@ -161,6 +161,35 @@ func TestLoadPlansCmdReportsAFailedProjectWithoutFailingTheOthers(t *testing.T) 
 	require.Error(t, got.Err)
 }
 
+func TestLoadProjectsCmdListsOnlyTheConfiguredProjects(t *testing.T) {
+	svc := testService()
+	f := svc.P.(*fake.Provider)
+	f.Projects = append(f.Projects,
+		provider.Project{Key: "OPS", Name: "Operations"},
+		provider.Project{Key: "LAB", Name: "Lab"})
+	svc.Cfg.Project = &config.ProjectFile{Version: 1, Projects: []string{"OPS", "PROJ"}}
+
+	got := loadProjectsCmd(context.Background(), svc, 0)().(projectsLoadedMsg)
+	keys := []string{}
+	for _, p := range got.Projects {
+		keys = append(keys, p.Key)
+	}
+	require.Equal(t, []string{"OPS", "PROJ"}, keys)
+}
+
+func TestLoadProjectsCmdListsEveryProjectWhenNoneConfigured(t *testing.T) {
+	svc := testService()
+	f := svc.P.(*fake.Provider)
+	f.Projects = append(f.Projects, provider.Project{Key: "OPS", Name: "Operations"})
+
+	got := loadProjectsCmd(context.Background(), svc, 0)().(projectsLoadedMsg)
+	keys := []string{}
+	for _, p := range got.Projects {
+		keys = append(keys, p.Key)
+	}
+	require.Equal(t, []string{"PROJ", "OPS"}, keys)
+}
+
 func TestLoadBuildsCmdCarriesThePlanKey(t *testing.T) {
 	msg := loadBuildsCmd(context.Background(), testService(), "PROJ-BUILD", 25, 0)()
 	got, ok := msg.(buildsLoadedMsg)

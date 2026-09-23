@@ -406,13 +406,31 @@ type projectsLoadedMsg struct {
 	Projects []provider.Project
 }
 
+// loadProjectsCmd lists the projects the project picker offers: the
+// configured projects that are actually on the server, in configured order,
+// or every server project when none is configured (spec §3.1's "P narrows to
+// one project" only makes sense among the projects Home itself can show).
 func loadProjectsCmd(ctx context.Context, svc *app.Service, gen int) tea.Cmd {
 	return func() tea.Msg {
 		ps, err := svc.P.ListProjects(ctx)
 		if err != nil {
 			return errMsg{Err: err, Where: "projects", Stream: streamPicker, Gen: gen}
 		}
-		return projectsLoadedMsg{Gen: gen, Projects: ps}
+		keys := svc.ProjectKeys()
+		if len(keys) == 0 {
+			return projectsLoadedMsg{Gen: gen, Projects: ps}
+		}
+		byKey := map[string]provider.Project{}
+		for _, p := range ps {
+			byKey[p.Key] = p
+		}
+		var out []provider.Project
+		for _, k := range keys {
+			if p, ok := byKey[k]; ok {
+				out = append(out, p)
+			}
+		}
+		return projectsLoadedMsg{Gen: gen, Projects: out}
 	}
 }
 
