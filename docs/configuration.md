@@ -84,7 +84,7 @@ Variable precedence, lowest to highest: plan values, target `defaults`, `--from 
         projects: [PROJ]
     color: auto
     pager: less -FRX
-    editor: vim                     # for bam run --edit; else BAM_EDITOR, VISUAL, EDITOR, vi
+    editor: vim                     # for bam run --edit; BAM_EDITOR overrides it; else VISUAL, EDITOR, vi
 
 A server defined in both files is merged field by field, and the machine file wins.
 
