@@ -24,7 +24,7 @@ func IsSecretName(name string) bool { return config.IsMaskedName(name) }
 type ResolvedVar struct {
 	Name      string
 	Value     string // never print directly; use Display
-	Source    string // plan | target | from #N | flag | env
+	Source    string // plan | target | from #N | flag | edit | env
 	Secret    bool
 	Declared  bool
 	PlanValue string

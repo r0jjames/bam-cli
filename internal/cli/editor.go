@@ -27,9 +27,9 @@ func runEditor(cmd string, initial []byte) ([]byte, error) {
 		return nil, err
 	}
 	path := f.Name()
-	defer os.Remove(path) // nolint:errcheck
+	defer func() { _ = os.Remove(path) }()
 	if _, err := f.Write(initial); err != nil {
-		_ = f.Close() // nolint:errcheck
+		_ = f.Close()
 		return nil, err
 	}
 	if err := f.Close(); err != nil {

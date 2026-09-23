@@ -86,6 +86,8 @@ Variable precedence, lowest to highest: plan values, target `defaults`, `--from 
     pager: less -FRX
     editor: vim                     # for bam run --edit; BAM_EDITOR overrides it; else VISUAL, EDITOR, vi
 
+A GUI editor needs its wait flag (`code --wait`, `gvim -f`), or it returns at once and the run starts with the values unchanged.
+
 A server defined in both files is merged field by field, and the machine file wins.
 
 ## Which server is used
