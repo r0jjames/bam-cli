@@ -132,3 +132,15 @@ func TestLinesAndNDJSONSkipProgressEvents(t *testing.T) {
 	NewNDJSON(o).Event(e)
 	assert.Empty(t, buf.String(), "NDJSON types stay state, stage, job and done (spec §7)")
 }
+
+func TestRunPlanLabelsAnEditedValue(t *testing.T) {
+	o, buf := testOut(true)
+	vs := app.VarSet{Vars: []app.ResolvedVar{
+		{Name: "cluster_name", Value: "beta", Source: "edit"},
+		{Name: "token", Value: "s3cret", Source: "env", Secret: true},
+	}}
+	RunPlan(o, app.PlanRef{PlanKey: "PROJ-PROV", MasterKey: "PROJ-PROV"}, vs)
+	assert.Equal(t, ""+
+		"Plan     PROJ-PROV\n"+
+		"Vars     cluster_name=beta (edit)  token=******** (env)\n", buf.String())
+}
