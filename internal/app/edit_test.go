@@ -186,6 +186,36 @@ func TestParseEditsReportsProblemsWithoutValues(t *testing.T) {
 	}
 }
 
+// TestEditBufferKeepsMultiLineAndInvalidNamesUnedited covers final review
+// finding 1: a non-secret value containing "\n" or "\r", or a row whose name
+// cannot be typed back (fails editNameRe), must never appear as a
+// name=value line. Only its comment goes in the buffer, so a save-unchanged
+// round trip cannot truncate the value or inject a bogus variable.
+func TestEditBufferKeepsMultiLineAndInvalidNamesUnedited(t *testing.T) {
+	ref := editRef()
+	opened := editOpened()
+	opened.Declared["multiline"] = true
+	opened.Declared["cr_value"] = true
+	opened.Vars = append(opened.Vars,
+		ResolvedVar{Name: "multiline", Value: "a\nFOO=bar", PlanValue: "a\nFOO=bar", Source: "plan", Declared: true},
+		ResolvedVar{Name: "cr_value", Value: "a\rb", PlanValue: "a\rb", Source: "plan", Declared: true},
+		ResolvedVar{Name: "bad name", Value: "x", PlanValue: "x", Source: "plan", Declared: false},
+	)
+
+	got := string(EditBuffer(ref, opened, emptyEnv, "work", false, nil))
+	assert.NotContains(t, got, "a\nFOO=bar")
+	assert.NotContains(t, got, "FOO=bar")
+	assert.NotContains(t, got, "a\rb")
+	assert.NotContains(t, got, "bad name=x")
+	assert.Contains(t, got, "# plan, multi-line value, kept as is\n")
+	assert.Contains(t, got, "# plan, name cannot be edited here, kept as is\n")
+
+	edits, abort, problems := ParseEdits([]byte(got), ref, opened)
+	assert.False(t, abort)
+	assert.Empty(t, problems)
+	assert.Empty(t, edits, "a save-unchanged round trip must produce no edits")
+}
+
 func TestParseEditsAbortsOnAnEmptyBuffer(t *testing.T) {
 	for _, text := range []string{"", "\n\n", "# only\n  # comments\n"} {
 		_, abort, problems := ParseEdits([]byte(text), editRef(), editOpened())

@@ -70,8 +70,9 @@ func editRows(ref PlanRef, opened VarSet) []editRow {
 }
 
 // comment is the line above a row: source, env reference, required,
-// options, secret. It never holds a secret value.
-func (r editRow) comment(getenv func(string) string) string {
+// options, secret, and an optional trailing note. It never holds a secret
+// value.
+func (r editRow) comment(getenv func(string) string, note string) string {
 	var parts []string
 	if src := r.V.Source; src != "" {
 		if !r.Secret && r.V.Declared && src != "plan" && r.V.Value != r.V.PlanValue {
@@ -100,6 +101,9 @@ func (r editRow) comment(getenv func(string) string) string {
 	}
 	if r.Secret {
 		parts = append(parts, "secret")
+	}
+	if note != "" {
+		parts = append(parts, note)
 	}
 	if len(parts) == 0 {
 		return ""
@@ -130,8 +134,22 @@ func EditBuffer(ref PlanRef, opened VarSet, getenv func(string) string, server s
 	b.WriteString("# " + MaskedDisplay + " keeps a secret's current value. A value of exactly ${NAME} reads the environment.\n")
 	b.WriteString("# Delete a line to keep its value. Delete every line, or quit with an error (:cq), to abort.\n\n")
 	for _, r := range editRows(ref, opened) {
-		b.WriteString(r.comment(getenv))
-		b.WriteString(r.Name + "=" + r.Shown + "\n")
+		switch {
+		// A raw value that spans lines would render as more than one
+		// name=value line and, saved back unchanged, would truncate the
+		// value and inject a bogus variable from what follows the first
+		// "\n" or "\r" (final review finding 1). Show only the comment;
+		// no line at all means ParseEdits keeps the resolved value.
+		case !r.Secret && strings.ContainsAny(r.Shown, "\n\r"):
+			b.WriteString(r.comment(getenv, "multi-line value, kept as is"))
+		// A name that ParseEdits could never accept back could never be
+		// saved unchanged either, so it gets the same treatment.
+		case !editNameRe.MatchString(r.Name):
+			b.WriteString(r.comment(getenv, "name cannot be edited here, kept as is"))
+		default:
+			b.WriteString(r.comment(getenv, ""))
+			b.WriteString(r.Name + "=" + r.Shown + "\n")
+		}
 	}
 	return ReopenBuffer([]byte(b.String()), problems)
 }
