@@ -51,6 +51,49 @@ func TestPlansLoadedNamesAMissingProject(t *testing.T) {
 	require.Equal(t, "project GONE is configured but not on lab", m.status)
 }
 
+// TestPlansLoadedClearsAPlansErrorOnceALoadFullySucceeds covers finding 5a:
+// an error that came from the plans stream must not survive a load in which
+// every project succeeded.
+func TestPlansLoadedClearsAPlansErrorOnceALoadFullySucceeds(t *testing.T) {
+	m := testModel()
+	boom := errors.New("bamboo returned 500")
+	m, _ = send(m, plansLoadedMsg{Gen: m.plansGen, Plans: []provider.Plan{plan("PROJ", "PROJ-B")},
+		Failed: []string{"OPS"}, Err: boom})
+	require.ErrorIs(t, m.err, boom)
+
+	m, _ = send(m, plansLoadedMsg{Gen: m.plansGen, Plans: []provider.Plan{plan("OPS", "OPS-N"), plan("PROJ", "PROJ-B")}})
+	require.NoError(t, m.err, "a fully successful load clears an error that came from the plans stream")
+}
+
+// TestAnErrorFromAnotherStreamSurvivesAPlansRefresh covers finding 5a's other
+// half: a plans refresh must never clear an error that came from a different
+// stream, such as a cancel that failed.
+func TestAnErrorFromAnotherStreamSurvivesAPlansRefresh(t *testing.T) {
+	m := testModel()
+	boom := errors.New("cannot cancel PROJ-BUILD-9")
+	m, _ = send(m, errMsg{Err: boom, Stream: streamCancel, Gen: m.cancelGen})
+	require.ErrorIs(t, m.err, boom)
+
+	m, _ = send(m, plansLoadedMsg{Gen: m.plansGen, Plans: []provider.Plan{plan("PROJ", "PROJ-A")}})
+	require.ErrorIs(t, m.err, boom, "a plans refresh must not clear an error from another stream")
+}
+
+// TestMissingProjectStatusOnlyChangesWhenTheSetChanges covers finding 5b: the
+// "configured but not on" status must not overwrite an unrelated status every
+// 30s refresh when the missing set has not changed.
+func TestMissingProjectStatusOnlyChangesWhenTheSetChanges(t *testing.T) {
+	m := testModel()
+	m, _ = send(m, plansLoadedMsg{Gen: m.plansGen, Missing: []string{"GONE"}})
+	require.Equal(t, "project GONE is configured but not on lab", m.status)
+
+	m.status = "copied to clipboard (osc 52)" // something else happened since
+	m, _ = send(m, plansLoadedMsg{Gen: m.plansGen, Missing: []string{"GONE"}})
+	require.Equal(t, "copied to clipboard (osc 52)", m.status, "an unchanged missing set must not overwrite another status")
+
+	m, _ = send(m, plansLoadedMsg{Gen: m.plansGen, Missing: []string{"GONE", "OTHER"}})
+	require.Equal(t, "project GONE, OTHER are configured but not on lab", m.status, "a changed missing set still says so")
+}
+
 func TestAPlansErrorMarksHomeStale(t *testing.T) {
 	m := testModel()
 	m, _ = send(m, errMsg{Err: errors.New("down"), Stream: streamPlans, Gen: m.plansGen})
@@ -151,7 +194,7 @@ func TestTheHeaderSaysRefreshingAndStale(t *testing.T) {
 
 func TestAWatchedBuildShowsAsRunningOnItsRow(t *testing.T) {
 	m := tickModel()
-	b := provider.Build{Key: "PROJ-PROV12-9", PlanKey: "PROJ-PROV12", Number: 9, State: provider.StateRunning}
+	b := provider.Build{Key: "PROJ-PROV12-9", PlanKey: "PROJ-PROV12", Branch: "develop", Number: 9, State: provider.StateRunning}
 	m.noteLive(b)
 	live := m.liveFor("PROJ-PROV")
 	require.NotNil(t, live)
@@ -206,6 +249,6 @@ func TestATriggeredBuildKeepsItsMarker(t *testing.T) {
 	m := tickModel()
 	m.svc = testService()
 	m, _ = send(m, triggeredMsg{Gen: m.formGen, Build: provider.Build{
-		Key: "PROJ-PROV12-9", PlanKey: "PROJ-PROV12", Number: 9, State: provider.StateQueued}})
+		Key: "PROJ-PROV12-9", PlanKey: "PROJ-PROV12", Branch: "develop", Number: 9, State: provider.StateQueued}})
 	require.NotNil(t, m.liveFor("PROJ-PROV"), "a just-triggered build must survive startWatch's own stopWatch")
 }

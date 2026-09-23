@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -124,16 +125,32 @@ func (m Model) plansLoaded(msg plansLoadedMsg) Model {
 	if msg.Err != nil {
 		m.err = msg.Err
 		m.home.stale = true
+		m.home.plansErr = true
 	} else {
 		m.home.stale = false
 		m.home.loadedAt = m.now()
-	}
-	if len(msg.Missing) > 0 {
-		verb := "is"
-		if len(msg.Missing) > 1 {
-			verb = "are"
+		// Only an error that came from the plans stream is this load's to
+		// clear: one from another stream (a failed cancel, say) is not a
+		// fact about the plans and must survive a plans refresh.
+		if m.home.plansErr {
+			m.err = nil
+			m.home.plansErr = false
 		}
-		m.status = "project " + strings.Join(msg.Missing, ", ") + " " + verb + " configured but not on " + m.server
+	}
+	// A 30s refresh repeats the same Missing set most of the time; setting
+	// the status every time would overwrite an unrelated one (a cancel, a
+	// copy) that has nothing to do with this load. Only a changed set says
+	// so again.
+	missing := append([]string(nil), msg.Missing...)
+	if !slices.Equal(missing, m.home.missing) {
+		if len(missing) > 0 {
+			verb := "is"
+			if len(missing) > 1 {
+				verb = "are"
+			}
+			m.status = "project " + strings.Join(missing, ", ") + " " + verb + " configured but not on " + m.server
+		}
+		m.home.missing = missing
 	}
 	if m.home.view == homePresets {
 		m.sortPresets()

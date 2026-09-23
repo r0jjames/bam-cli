@@ -279,14 +279,68 @@ func TestTheRunFormReturnsToWhereItWasOpened(t *testing.T) {
 	require.Equal(t, screenHome, m.screen)
 }
 
+// TestBackFromTheRunFormRestartsHomesAutoRefresh covers finding 1: a tick
+// that arrives while the run form is open ends the auto-refresh loop (it
+// dropped, off Home); nothing restarted it once esc closed the form back to
+// Home. back() must restart it exactly as goHome does elsewhere.
+func TestBackFromTheRunFormRestartsHomesAutoRefresh(t *testing.T) {
+	m := homeModel()
+	m, _ = send(m, mkKey("R"))
+	require.Equal(t, screenForm, m.screen)
+	tick := m.home.tickGen
+	// The tick arrives while off Home: homeTick's own guard drops it and ends
+	// the loop. The command it returns is never executed here (constraints).
+	m, _ = send(m, homeTickMsg{Gen: tick})
+	m, cmd := send(m, mkKey("esc"))
+	require.Equal(t, screenHome, m.screen)
+	require.NotNil(t, cmd, "back to Home must restart the loop")
+	require.Greater(t, m.home.tickGen, tick)
+}
+
+// TestEscOnPresetsPanelGoesThroughPlansFirst covers finding 2: esc from a
+// panel other than Plans always steps to Plans first (spec §2.1 step 3),
+// even when Home last showed the presets table and Plans and Presets are
+// siblings there.
+func TestEscOnPresetsPanelGoesThroughPlansFirst(t *testing.T) {
+	m := presetModel() // Home shows presets; homeFocus() is focusPresets
+	m, _ = send(m, mkKey("3"))
+	require.Equal(t, screenColumns, m.screen)
+	require.Equal(t, focusPresets, m.focus)
+
+	m, cmd := send(m, mkKey("esc"))
+	require.Equal(t, screenColumns, m.screen, "esc steps to Plans before Home")
+	require.Equal(t, focusPlans, m.focus)
+	require.Nil(t, cmd)
+
+	m, cmd = send(m, mkKey("esc"))
+	require.Equal(t, screenHome, m.screen)
+	require.Equal(t, homePresets, m.home.view)
+	require.NotNil(t, cmd)
+}
+
+// TestLiveForMatchesTheMasterAndItsBranches covers finding 3: a branch match
+// only counts when the live build itself names a branch. Without one, a plan
+// key that merely looks like a branch of another (PROJ-B2 of PROJ-B) must
+// mark only its own row.
 func TestLiveForMatchesTheMasterAndItsBranches(t *testing.T) {
 	m := homeModel()
-	m.home.live = map[string]provider.Build{"PROJ-PROV12": {Key: "PROJ-PROV12-9", PlanKey: "PROJ-PROV12", State: provider.StateRunning}}
-	require.NotNil(t, m.liveFor("PROJ-PROV"))
+	m.home.live = map[string]provider.Build{
+		"PROJ-PROV12": {Key: "PROJ-PROV12-9", PlanKey: "PROJ-PROV12", Branch: "develop", State: provider.StateRunning},
+	}
+	require.NotNil(t, m.liveFor("PROJ-PROV"), "a real branch build still marks its master")
 	require.Nil(t, m.liveFor("PROJ-PRO"), "a key prefix that is not a branch number does not match")
 	require.True(t, isBranchOf("PROJ-PROV12", "PROJ-PROV"))
 	require.False(t, isBranchOf("PROJ-PROVX", "PROJ-PROV"))
 	require.False(t, isBranchOf("PROJ-PROV", "PROJ-PROV"))
+}
+
+func TestLiveForExactKeyNeverNeedsABranch(t *testing.T) {
+	m := homeModel()
+	m.home.live = map[string]provider.Build{
+		"PROJ-B2": {Key: "PROJ-B2-1", PlanKey: "PROJ-B2", State: provider.StateRunning},
+	}
+	require.NotNil(t, m.liveFor("PROJ-B2"), "an exact key match always counts")
+	require.Nil(t, m.liveFor("PROJ-B"), "PROJ-B2 has no branch of its own; it must not mark PROJ-B")
 }
 
 func goldenHome(w, h int) Model {

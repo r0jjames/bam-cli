@@ -25,6 +25,8 @@ type homeState struct {
 	live       map[string]provider.Build // builds the UI watches or started, by plan key
 	loadedAt   time.Time                 // the last load in which every project succeeded
 	stale      bool                      // the last load, or part of it, failed
+	plansErr   bool                      // m.err came from the plans stream, not another one
+	missing    []string                  // the configured projects missing on the last load
 
 	tickGen int       // the auto-refresh loop's generation (home spec §4.2)
 	lastKey time.Time // the last key pressed, for the idle cut-off
@@ -348,7 +350,11 @@ func (m Model) homeFocus() focus {
 func (m Model) goHome() (tea.Model, tea.Cmd) {
 	m.screen = screenHome
 	m.focus = m.homeFocus()
-	return m, m.restartHomeTick()
+	// restartHomeTick has a pointer receiver and mutates m; calling it inline
+	// as a return operand would rely on Go's unspecified evaluation order
+	// between the two operands, so its mutation is applied here first.
+	cmd := m.restartHomeTick()
+	return m, cmd
 }
 
 // showPlans and showPresets pick Home's table (:plans, :presets).
@@ -550,7 +556,8 @@ func (m Model) refreshHome() (tea.Model, tea.Cmd) {
 		m.presetsGen++
 		presets := loadPresetsCmd(m.deps, m.presetsGen)
 		load := m.loadPlans()
-		return m, tea.Batch(presets, load, m.restartHomeTick())
+		tick := m.restartHomeTick()
+		return m, tea.Batch(presets, load, tick)
 	}
 	load := m.loadPlans()
 	tick := m.restartHomeTick()
@@ -558,10 +565,16 @@ func (m Model) refreshHome() (tea.Model, tea.Cmd) {
 }
 
 // liveFor is the unfinished build the UI is watching or just started on
-// planKey or one of its branches, or nil.
+// planKey or one of its branches, or nil. An exact key match always counts;
+// the branch match only counts when the live build itself names a branch —
+// otherwise a plan whose key merely looks like a branch of another (PROJ-B2
+// of PROJ-B) would mark the wrong row.
 func (m Model) liveFor(planKey string) *provider.Build {
 	for k, b := range m.home.live {
-		if (k == planKey || isBranchOf(k, planKey)) && !b.State.Finished() {
+		if b.State.Finished() {
+			continue
+		}
+		if k == planKey || (b.Branch != "" && isBranchOf(k, planKey)) {
 			return &b
 		}
 	}

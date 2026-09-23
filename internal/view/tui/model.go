@@ -289,7 +289,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.svc, m.info, m.user, m.server = msg.Svc, msg.Info, msg.User, msg.Alias
 		m.err = nil
-		return m, m.loadPlans()
+		cmd := m.loadPlans()
+		return m, cmd
 	case plansLoadedMsg:
 		if msg.Gen != m.plansGen {
 			return m, nil
@@ -434,6 +435,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.Err
 		m.status = ""
 		m.plans.loading, m.builds.loading = false, false
+		// plansErr tracks whether the error now showing came from the plans
+		// stream, so a later successful plans load knows whether it is the
+		// one that gets to clear it (finding 5).
+		m.home.plansErr = msg.Stream == streamPlans
 		if msg.Stream == streamPlans {
 			m.home.stale = true
 		}
@@ -695,12 +700,14 @@ func (m Model) refresh() (tea.Model, tea.Cmd) {
 	}
 	switch m.focus {
 	case focusPlans:
-		return m, m.loadPlans()
+		cmd := m.loadPlans()
+		return m, cmd
 	case focusBuilds:
 		if m.buildsPlan == "" {
 			return m, nil
 		}
-		return m, m.loadBuilds(m.buildsPlan, false)
+		cmd := m.loadBuilds(m.buildsPlan, false)
+		return m, cmd
 	case focusMain:
 		if m.detail == nil {
 			return m, nil
@@ -768,7 +775,8 @@ func (m Model) setProject(key string) (tea.Model, tea.Cmd) {
 		m.focus = focusPlans
 	}
 	load := m.loadPlans()
-	return m, tea.Batch(load, m.restartHomeTick())
+	tick := m.restartHomeTick()
+	return m, tea.Batch(load, tick)
 }
 
 // switchServer drops everything that belonged to the old server: its build,
@@ -1400,8 +1408,15 @@ func (m Model) back() (tea.Model, tea.Cmd) {
 		return m, nil
 	case m.screen == screenForm:
 		m.formGen++ // abandon a load still in flight
-		m.screen = m.formFrom
+		from := m.formFrom
+		m.screen = from
 		m.form = formState{}
+		if from == screenHome {
+			// A tick that arrived while the form was open ended the
+			// auto-refresh loop (homeTick drops beats off Home); nothing
+			// else restarts it, so returning here has to.
+			return m.goHome()
+		}
 		return m, nil
 	case m.screen == screenHome:
 		// Home is the top: esc clears the active table's filter and
@@ -1412,7 +1427,7 @@ func (m Model) back() (tea.Model, tea.Cmd) {
 			m.plans.setQuery("")
 		}
 		return m, nil
-	case m.focus != focusPlans && m.focus != m.homeFocus():
+	case m.focus != focusPlans:
 		m.focus = m.focus.parent()
 		return m, nil
 	}

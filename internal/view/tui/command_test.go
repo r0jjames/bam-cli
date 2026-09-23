@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/r0jjames/bam-cli/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -78,8 +79,24 @@ func TestProjectCommand(t *testing.T) {
 	require.NotNil(t, cmd)
 	m, _ = runCmdLine(m, "project all")
 	require.Equal(t, "", m.project)
-	m, _ = runCmdLine(homeModel(), "project NOPE")
+
+	// finding 4: rejecting an unknown project only makes sense once projects
+	// are actually configured; projectChoices falls back to the loaded
+	// plans' projects otherwise, and those are not a validation list.
+	configured := homeModel()
+	configured.svc.Cfg.Project = &config.ProjectFile{Version: 1, Projects: []string{"OPS", "PROJ"}}
+	m, _ = runCmdLine(configured, "project NOPE")
 	require.EqualError(t, m.err, `project "NOPE" is not listed; projects: OPS PROJ`)
+}
+
+// TestProjectCommandAcceptsAnyKeyWhenNothingIsConfigured covers finding 4:
+// with no configured projects, :project must accept any key rather than
+// reject it against the projects merely seen in the loaded plans.
+func TestProjectCommandAcceptsAnyKeyWhenNothingIsConfigured(t *testing.T) {
+	m, cmd := runCmdLine(homeModel(), "project OTHER")
+	require.Equal(t, "OTHER", m.project)
+	require.NoError(t, m.err)
+	require.NotNil(t, cmd)
 }
 
 func TestServerCommand(t *testing.T) {

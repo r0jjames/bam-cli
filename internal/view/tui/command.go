@@ -116,8 +116,14 @@ func (m Model) commandProject(arg string) (tea.Model, tea.Cmd, error) {
 		next, cmd := m.setProject("")
 		return next, cmd, nil
 	}
-	if known := m.projectChoices(); !slices.Contains(known, arg) {
-		return m, nil, fmt.Errorf("project %q is not listed; projects: %s", arg, strings.Join(known, " "))
+	// Only a configured project list is a validation list. projectChoices
+	// falls back to the projects seen in the loaded plans when none is
+	// configured, and that is completion's job, not a reason to reject a
+	// project the user knows about but the UI has not happened to load yet.
+	if m.svc != nil {
+		if known := m.svc.ProjectKeys(); len(known) > 0 && !slices.Contains(known, arg) {
+			return m, nil, fmt.Errorf("project %q is not listed; projects: %s", arg, strings.Join(known, " "))
+		}
 	}
 	next, cmd := m.setProject(arg)
 	return next, cmd, nil
