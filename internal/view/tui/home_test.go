@@ -153,3 +153,24 @@ func TestPlanMatchTextIncludesProjectAndState(t *testing.T) {
 		require.Contains(t, txt, want)
 	}
 }
+
+func TestPlanCellsFollowsTheColumns(t *testing.T) {
+	p := samplePlans()[0] // PROJ-BUILD, failed #4, 12m, Manual run by J Doe
+	cols := planColumns(120, samplePlans())
+	cells := planCells(cols, p, nil, homeNow)
+	require.Len(t, cells, len(cols))
+	got := map[string]string{}
+	for i, c := range cols {
+		got[c.title] = cells[i]
+	}
+	require.Equal(t, "PROJ", got["PROJECT"])
+	require.Equal(t, "PROJ-BUILD", got["KEY"])
+	require.Equal(t, "Build and test", got["NAME"])
+	require.Contains(t, got["STATE"], "failed")
+	require.Equal(t, "4", got["#"])
+	require.Equal(t, "12m", got["AGE"])
+	require.Equal(t, "J Doe", got["BY"])
+
+	narrow := planColumns(70, samplePlans())
+	require.Len(t, planCells(narrow, p, nil, homeNow), len(narrow), "cells follow the dropped columns")
+}
