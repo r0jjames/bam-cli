@@ -100,14 +100,15 @@ func TestRunEditDryRun(t *testing.T) {
 
 func TestRunEditJSON(t *testing.T) {
 	h := editHarness(t, setVar("cluster_name", "alpha"))
-	assert.Equal(t, 0, h.run("run", "provision-lab", "--edit", "--json"))
+	assert.Equal(t, 0, h.run("run", "provision-lab", "--var", "db_password=hunter2", "--edit", "--json"))
 	var doc struct {
 		Key       string            `json:"key"`
 		Variables map[string]string `json:"variables"`
 	}
 	require.NoError(t, json.Unmarshal(h.stdout.Bytes(), &doc))
 	assert.Equal(t, "PROJ-PROV12-9", doc.Key)
-	assert.Equal(t, map[string]string{"cluster_name": "alpha"}, doc.Variables)
+	assert.Equal(t, map[string]string{"cluster_name": "alpha", "db_password": "********"}, doc.Variables)
+	assert.NotContains(t, h.stdout.String(), "hunter2")
 }
 
 func TestRunEditWatch(t *testing.T) {
@@ -196,4 +197,23 @@ func TestRunEditNeverShowsASecret(t *testing.T) {
 	assert.NotContains(t, h.stderr.String(), "hunter2")
 	require.Len(t, h.fake.Triggered, 1)
 	assert.Equal(t, "hunter2", h.fake.Triggered[0].Variables["db_password"], "the untouched secret is still sent")
+}
+
+// TestRunEditNeverShowsASecretPassedAsVar covers final review finding 4: a
+// secret passed with --var, not a target default, must still be masked in
+// every buffer the editor sees, while the real value still reaches the
+// trigger.
+func TestRunEditNeverShowsASecretPassedAsVar(t *testing.T) {
+	h := editHarness(t, keepBuffer)
+	assert.Equal(t, 0, h.run("run", "provision-lab", "--var", "cluster_name=a", "--var", "db_password=hunter2", "--edit"))
+
+	require.Len(t, h.editorSeen, 1)
+	for _, buf := range h.editorSeen {
+		assert.NotContains(t, buf, "hunter2")
+		assert.Contains(t, buf, "db_password=********")
+	}
+	assert.NotContains(t, h.stdout.String(), "hunter2")
+	assert.NotContains(t, h.stderr.String(), "hunter2")
+	require.Len(t, h.fake.Triggered, 1)
+	assert.Equal(t, "hunter2", h.fake.Triggered[0].Variables["db_password"], "the value passed with --var is still sent")
 }

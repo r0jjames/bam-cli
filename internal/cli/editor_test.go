@@ -67,6 +67,10 @@ func TestRunEditorCancelled(t *testing.T) {
 }
 
 func TestRunEditorNotFound(t *testing.T) {
+	pattern := filepath.Join(os.TempDir(), "bam-run-*.env")
+	before, err := filepath.Glob(pattern)
+	require.NoError(t, err)
+
 	for _, cmd := range []string{"bam-no-such-editor-xyz", filepath.Join(t.TempDir(), "missing")} {
 		_, err := runEditor(cmd, []byte("a=1\n"))
 		require.Error(t, err, cmd)
@@ -75,4 +79,8 @@ func TestRunEditorNotFound(t *testing.T) {
 		require.ErrorAs(t, err, &e)
 		assert.Equal(t, "set BAM_EDITOR or EDITOR", e.Try)
 	}
+
+	after, err := filepath.Glob(pattern)
+	require.NoError(t, err)
+	assert.Equal(t, before, after, "the temp file is removed even when the editor is not found")
 }
