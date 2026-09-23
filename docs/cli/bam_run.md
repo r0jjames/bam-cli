@@ -11,6 +11,7 @@ bam run <plan|target> [flags]
 ```
       --branch string      plan branch to run
       --dry-run            resolve and validate variables, trigger nothing
+      --edit               review and change the variables in $EDITOR before running
       --from string        reuse variables of a build: number, key or last
   -h, --help               help for run
       --timeout duration   stop watching after this long (the build keeps running)
