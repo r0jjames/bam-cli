@@ -385,6 +385,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.form.ref, m.form.target, m.form.base = msg.Ref, msg.Target, msg.Base
 		m.form.fields = buildFields(msg.Base, msg.Ref)
 		m.form.cursor = 0
+		// A stray enter struck while loading (now ignored by handleFormKey,
+		// but a stale build or an older session could still reach here with
+		// editing left on) must not carry into the freshly loaded form.
+		m.form.editing = false
+		m.form.input.Blur()
 		m.revalidate()
 		return m, nil
 	case cancelledMsg:
@@ -1215,6 +1220,18 @@ func jobByKey(b provider.Build, key string) (provider.Job, bool) {
 // field is being edited every key is a character, so q is a q and ctrl-R
 // cannot be struck by accident.
 func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.form.loading {
+		// Nothing else is safe: fields is nil and cursor is 0, which makes
+		// onRevision() true and would let enter start editing the hidden
+		// revision input before there is a form to edit.
+		switch {
+		case key.Matches(msg, keys.Back):
+			return m.back()
+		case key.Matches(msg, keys.Quit):
+			return m.quit()
+		}
+		return m, nil
+	}
 	if m.form.editing {
 		switch msg.Type {
 		case tea.KeyEsc:
