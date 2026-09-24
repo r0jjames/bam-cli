@@ -1,0 +1,30 @@
+ bam · lab · 9.6.4 · jdoe · project all (none configured) · 3 presets · sort target↑
+  TARGET  PLAN        BRANCH                                                                  STATE             #  AGE
+  build   PROJ-BUILD  default                                                                 ✗ failed          4  12m
+  orphan  LAB-X       default                                                                 –                 –  –
+▸ smoke   PROJ-PROV   develop                                                                 ✓ success         8  3h
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+lab · 9.6.4 · jdoe                                             enter open  / filter  s sort  : cmd  R run  ?help  q quit

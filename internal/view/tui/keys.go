@@ -21,7 +21,8 @@ type keyMap struct {
 	CycleOption                  key.Binding
 	Cancel                       key.Binding
 	Server, Project, Branch      key.Binding
-	Help, Quit                   key.Binding
+	Sort, Help, Quit             key.Binding
+	Command                      key.Binding
 }
 
 // helpRow is one line of the help overlay and of the README table.
@@ -76,8 +77,10 @@ func defaultKeys() keyMap {
 		Server:      b("S", "S", "switch server"),
 		Project:     b("P", "P", "filter by project"),
 		Branch:      b("b", "b", "switch branch"),
+		Sort:        b("s", "s", "next sort column"),
 		Help:        b("?", "?", "help"),
 		Quit:        b("q ctrl+c", "q ctrl-c", "quit"),
+		Command:     b(":", ":", "command bar"),
 	}
 }
 
@@ -89,7 +92,8 @@ func allBindings(k keyMap) []key.Binding {
 		k.Panel1, k.Panel2, k.Panel3, k.Enter, k.Back,
 		k.Logs, k.AllLogs, k.Follow, k.Filter, k.NextMatch, k.PrevMatch,
 		k.Refresh, k.ExpandErr, k.Open, k.Copy, k.Run, k.Trigger, k.DryRun,
-		k.CycleOption, k.Cancel, k.Server, k.Project, k.Branch, k.Help, k.Quit,
+		k.CycleOption, k.Cancel, k.Server, k.Project, k.Branch, k.Sort, k.Help, k.Quit,
+		k.Command,
 	}
 }
 
@@ -100,9 +104,12 @@ func (k keyMap) helpRows() []helpRow {
 		{"MOVE", "g G", "first / last row"},
 		{"MOVE", "tab", "next panel"},
 		{"MOVE", "shift-tab", "previous panel"},
-		{"MOVE", "1 2 3", "focus Plans / Builds / Presets"},
+		{"MOVE", "1 2 3", "focus a panel (on Home: open it)"},
 		{"MOVE", "enter", "drill in"},
-		{"MOVE", "esc", "back out one level, close an overlay"},
+		{"MOVE", "esc", "back one level, close an overlay; from Plans to Home"},
+		{"HOME", "enter", "open the panels on the row's plan"},
+		{"HOME", "s", "next sort column"},
+		{"HOME", ":", "command bar: :plans :presets :project :server :sort :q"},
 		{"VIEW", "l", "logs for the selection (failed jobs by default)"},
 		{"VIEW", "a", "all logs, not only failed"},
 		{"VIEW", "f", "follow (log screen)"},

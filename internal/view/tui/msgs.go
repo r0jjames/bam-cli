@@ -29,6 +29,13 @@ type connectedMsg struct {
 type plansLoadedMsg struct {
 	Gen   int
 	Plans []provider.Plan
+	// Failed is the projects whose plans could not be listed, and Err the
+	// first such error. The model keeps those projects' previous rows, so one
+	// failing project does not blank the others (home spec §4.1).
+	Failed []string
+	Err    error
+	// Missing is the configured projects the server does not have.
+	Missing []string
 }
 
 type buildsLoadedMsg struct {
@@ -88,28 +95,46 @@ func connectCmd(ctx context.Context, d Deps, alias string, gen int) tea.Cmd {
 	}
 }
 
-// loadPlansCmd flattens every project's plans into one list, because the
-// Plans panel is flat and filtered rather than nested (spec §3). An empty
-// project means every project.
+// loadPlansCmd lists the plans of the configured projects (home spec §3.1),
+// or of every project on the server when none is configured. project, when
+// set, narrows it to one.
 func loadPlansCmd(ctx context.Context, svc *app.Service, project string, gen int) tea.Cmd {
 	return func() tea.Msg {
 		projects, err := svc.P.ListProjects(ctx)
 		if err != nil {
 			return errMsg{Err: err, Where: "plans", Stream: streamPlans, Gen: gen}
 		}
-		var out []provider.Plan
+		onServer := map[string]bool{}
 		for _, p := range projects {
-			if project != "" && p.Key != project {
+			onServer[p.Key] = true
+		}
+		msg := plansLoadedMsg{Gen: gen}
+		keys := svc.ProjectKeys()
+		if len(keys) == 0 {
+			for _, p := range projects {
+				keys = append(keys, p.Key)
+			}
+		}
+		for _, k := range keys {
+			if !onServer[k] {
+				msg.Missing = append(msg.Missing, k)
 				continue
 			}
-			plans, err := svc.P.ListPlans(ctx, p.Key)
-			if err != nil {
-				return errMsg{Err: err, Where: "plans", Stream: streamPlans, Gen: gen}
+			if project != "" && k != project {
+				continue
 			}
-			out = append(out, plans...)
+			plans, err := svc.P.ListPlans(ctx, k)
+			if err != nil {
+				msg.Failed = append(msg.Failed, k)
+				if msg.Err == nil {
+					msg.Err = err
+				}
+				continue
+			}
+			msg.Plans = append(msg.Plans, plans...)
 		}
-		sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
-		return plansLoadedMsg{Gen: gen, Plans: out}
+		sort.Slice(msg.Plans, func(i, j int) bool { return msg.Plans[i].Key < msg.Plans[j].Key })
+		return msg
 	}
 }
 
@@ -381,13 +406,31 @@ type projectsLoadedMsg struct {
 	Projects []provider.Project
 }
 
+// loadProjectsCmd lists the projects the project picker offers: the
+// configured projects that are actually on the server, in configured order,
+// or every server project when none is configured (spec §3.1's "P narrows to
+// one project" only makes sense among the projects Home itself can show).
 func loadProjectsCmd(ctx context.Context, svc *app.Service, gen int) tea.Cmd {
 	return func() tea.Msg {
 		ps, err := svc.P.ListProjects(ctx)
 		if err != nil {
 			return errMsg{Err: err, Where: "projects", Stream: streamPicker, Gen: gen}
 		}
-		return projectsLoadedMsg{Gen: gen, Projects: ps}
+		keys := svc.ProjectKeys()
+		if len(keys) == 0 {
+			return projectsLoadedMsg{Gen: gen, Projects: ps}
+		}
+		byKey := map[string]provider.Project{}
+		for _, p := range ps {
+			byKey[p.Key] = p
+		}
+		var out []provider.Project
+		for _, k := range keys {
+			if p, ok := byKey[k]; ok {
+				out = append(out, p)
+			}
+		}
+		return projectsLoadedMsg{Gen: gen, Projects: out}
 	}
 }
 

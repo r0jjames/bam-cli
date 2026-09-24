@@ -1,7 +1,7 @@
 ╭─1 Plans──────────╮┏━PROJ-BUILD-44━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-│▸ PROJ-BUILD      │┃✗ failed   #44   branch main   3m12s                      ┃
-│  PROJ-DEPLOY     │┃Manual run by jdoe                                        ┃
-│  OPS-NIGHTLY     │┃                                                          ┃
+│▸ OPS-NIGHTLY     │┃✗ failed   #44   branch main   3m12s                      ┃
+│  PROJ-BUILD      │┃Manual run by jdoe                                        ┃
+│  PROJ-DEPLOY     │┃                                                          ┃
 │                  │┃▸ ✓ Build                      42s                        ┃
 │                  │┃  ✗ Test                       2m30s                      ┃
 ╰──────────────────╯┃    ✗ Integration              2m30s                      ┃
@@ -21,4 +21,4 @@
 │                  │┃                                                          ┃
 │                  │┃                                                          ┃
 ╰──────────────────╯┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-lab · 9.6.4 · jdoe                      ?help  tab focus  l logs  o open  q quit
+lab · 9.6.4 · jdoe               ?help  : cmd  tab focus  l logs  o open  q quit

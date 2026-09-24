@@ -128,6 +128,68 @@ func TestLoadPlansCmdHonoursTheProjectFilter(t *testing.T) {
 	require.Empty(t, got.Plans)
 }
 
+func TestLoadPlansCmdUsesTheConfiguredProjects(t *testing.T) {
+	svc := testService()
+	f := svc.P.(*fake.Provider)
+	f.Projects = append(f.Projects,
+		provider.Project{Key: "OPS", Name: "Operations"},
+		provider.Project{Key: "LAB", Name: "Lab"})
+	f.Plans["OPS"] = []provider.Plan{{Key: "OPS-NIGHTLY", Name: "Nightly", ProjectKey: "OPS"}}
+	f.Plans["LAB"] = []provider.Plan{{Key: "LAB-SMOKE", Name: "Smoke", ProjectKey: "LAB"}}
+	svc.Cfg.Project = &config.ProjectFile{Version: 1, Projects: []string{"PROJ", "OPS", "GONE"}}
+
+	got := loadPlansCmd(context.Background(), svc, "", 3)().(plansLoadedMsg)
+	require.Equal(t, 3, got.Gen)
+	keys := []string{}
+	for _, p := range got.Plans {
+		keys = append(keys, p.Key)
+	}
+	require.Equal(t, []string{"OPS-NIGHTLY", "PROJ-BUILD", "PROJ-PROV"}, keys, "LAB is not configured")
+	require.Equal(t, []string{"GONE"}, got.Missing)
+	require.Empty(t, got.Failed)
+}
+
+func TestLoadPlansCmdReportsAFailedProjectWithoutFailingTheOthers(t *testing.T) {
+	svc := testService()
+	f := svc.P.(*fake.Provider)
+	// On the server, but the fake has no plans for it: ListPlans fails.
+	f.Projects = append(f.Projects, provider.Project{Key: "OPS", Name: "Operations"})
+
+	got := loadPlansCmd(context.Background(), svc, "", 0)().(plansLoadedMsg)
+	require.Len(t, got.Plans, 2, "PROJ still loads")
+	require.Equal(t, []string{"OPS"}, got.Failed)
+	require.Error(t, got.Err)
+}
+
+func TestLoadProjectsCmdListsOnlyTheConfiguredProjects(t *testing.T) {
+	svc := testService()
+	f := svc.P.(*fake.Provider)
+	f.Projects = append(f.Projects,
+		provider.Project{Key: "OPS", Name: "Operations"},
+		provider.Project{Key: "LAB", Name: "Lab"})
+	svc.Cfg.Project = &config.ProjectFile{Version: 1, Projects: []string{"OPS", "PROJ"}}
+
+	got := loadProjectsCmd(context.Background(), svc, 0)().(projectsLoadedMsg)
+	keys := []string{}
+	for _, p := range got.Projects {
+		keys = append(keys, p.Key)
+	}
+	require.Equal(t, []string{"OPS", "PROJ"}, keys)
+}
+
+func TestLoadProjectsCmdListsEveryProjectWhenNoneConfigured(t *testing.T) {
+	svc := testService()
+	f := svc.P.(*fake.Provider)
+	f.Projects = append(f.Projects, provider.Project{Key: "OPS", Name: "Operations"})
+
+	got := loadProjectsCmd(context.Background(), svc, 0)().(projectsLoadedMsg)
+	keys := []string{}
+	for _, p := range got.Projects {
+		keys = append(keys, p.Key)
+	}
+	require.Equal(t, []string{"PROJ", "OPS"}, keys)
+}
+
 func TestLoadBuildsCmdCarriesThePlanKey(t *testing.T) {
 	msg := loadBuildsCmd(context.Background(), testService(), "PROJ-BUILD", 25, 0)()
 	got, ok := msg.(buildsLoadedMsg)

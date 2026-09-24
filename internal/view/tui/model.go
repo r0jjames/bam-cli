@@ -20,6 +20,7 @@ const (
 	inputNone inputMode = iota
 	inputFilter
 	inputSearch
+	inputCommand
 )
 
 // screen is what fills the terminal. The log screen takes the whole width.
@@ -29,6 +30,7 @@ const (
 	screenColumns screen = iota
 	screenLogs
 	screenForm
+	screenHome // the plans table bam opens on (home spec §2)
 )
 
 // focus is which panel takes keys. Main is the right-hand panel.
@@ -132,25 +134,35 @@ type Model struct {
 
 	now func() time.Time
 
-	err    error
+	err error
+	// cmdErr marks err as the : bar's own mistake, which the next command
+	// clears; an error from anywhere else is not the bar's to clear.
+	cmdErr bool
 	status string
+
+	home homeState
+
+	formFrom screen // where esc from the run form returns
 }
 
 // New builds the initial model. It starts no work; Init does that.
 func New(d Deps) Model {
-	return Model{
+	m := Model{
 		deps:    d,
 		ctx:     context.Background(),
 		server:  d.Initial,
-		screen:  screenColumns,
+		screen:  screenHome,
 		focus:   focusPlans,
-		plans:   newList(func(p provider.Plan) string { return p.Key + " " + p.Name }),
+		plans:   newList(planMatchText),
 		builds:  newList(func(b provider.Build) string { return b.Key + " " + b.Branch + " " + b.Reason }),
-		presets: newList(func(t app.TargetInfo) string { return t.Name + " " + t.Plan }),
+		presets: newList(func(t app.TargetInfo) string { return t.Name + " " + t.Plan + " " + t.Branch }),
 		picker:  newList(func(p pickerItem) string { return p.Label + " " + p.Detail }),
 		now:     time.Now,
 		input:   textinput.New(),
 	}
+	m.plans.setOrder(planLess(m.home.sort))
+	m.home.lastKey = m.now()
+	return m
 }
 
 // loadPlans, loadBuilds and loadLogs own their stream's generation bump, so
@@ -256,6 +268,9 @@ func (m Model) Init() tea.Cmd {
 	if m.deps.Targets != nil {
 		cmds = append(cmds, loadPresetsCmd(m.deps, m.presetsGen))
 	}
+	if m.screen == screenHome {
+		cmds = append(cmds, homeTickCmd(m.home.tickGen))
+	}
 	return tea.Batch(cmds...)
 }
 
@@ -269,20 +284,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+	case homeTickMsg:
+		return m.homeTick(msg)
 	case connectedMsg:
 		if msg.Gen != m.connGen {
 			return m, nil
 		}
 		m.svc, m.info, m.user, m.server = msg.Svc, msg.Info, msg.User, msg.Alias
 		m.err = nil
-		return m, m.loadPlans()
+		cmd := m.loadPlans()
+		return m, cmd
 	case plansLoadedMsg:
 		if msg.Gen != m.plansGen {
 			return m, nil
 		}
-		m.plans.loading = false
-		m.plans.setItems(msg.Plans)
-		return m, nil
+		return m.plansLoaded(msg), nil
 	case buildsLoadedMsg:
 		if msg.Gen != m.buildsGen {
 			return m, nil
@@ -296,6 +312,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.presets.setItems(presetsForServer(msg.Targets, m.server))
+		m.sortPresets()
 		return m, nil
 	case projectsLoadedMsg:
 		if msg.Gen != m.pickerGen {
@@ -421,12 +438,44 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.Err
 		m.status = ""
 		m.plans.loading, m.builds.loading = false, false
+		// plansErr tracks whether the error now showing came from the plans
+		// stream, so a later successful plans load knows whether it is the
+		// one that gets to clear it (finding 5).
+		m.home.plansErr = msg.Stream == streamPlans
+		m.cmdErr = false
+		if msg.Stream == streamPlans {
+			m.home.stale = true
+		}
 		return m, nil
 	}
 	return m, nil
 }
 
+// handleKey notes the key for Home's idle cut-off, then dispatches it.
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// A terminal may deliver several typed characters in one message (a fast
+	// typist over ssh, a paste outside bracketed paste). Outside a text field
+	// they are keys, so each one is handled on its own, in order; once one of
+	// them opens a field, the rest become its text.
+	if msg.Type == tea.KeyRunes && !msg.Paste && len(msg.Runes) > 1 && m.inputFor == inputNone && !m.form.editing {
+		var next tea.Model = m
+		var cmds []tea.Cmd
+		for _, r := range msg.Runes {
+			var cmd tea.Cmd
+			next, cmd = next.(Model).handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}, Alt: msg.Alt})
+			cmds = append(cmds, cmd)
+		}
+		return next, tea.Batch(cmds...)
+	}
+	resume := m.noteKey()
+	next, cmd := m.dispatchKey(msg)
+	if resume == nil {
+		return next, cmd
+	}
+	return next, tea.Batch(resume, cmd)
+}
+
+func (m Model) dispatchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.inputFor != inputNone {
 		return m.handleInputKey(msg)
 	}
@@ -438,6 +487,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.screen == screenLogs {
 		return m.handleLogKey(msg)
+	}
+	if m.screen == screenHome {
+		if next, cmd, handled := m.handleHomeKey(msg); handled {
+			return next, cmd
+		}
 	}
 	switch {
 	case key.Matches(msg, keys.Quit):
@@ -466,6 +520,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.drill()
 	case key.Matches(msg, keys.Filter):
 		return m.startInput()
+	case key.Matches(msg, keys.Command):
+		return m.startCommand()
 	case key.Matches(msg, keys.NextMatch):
 		m.logs.nextMatch(1)
 	case key.Matches(msg, keys.PrevMatch):
@@ -520,6 +576,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // characters rather than commands.
 func (m Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
+	case tea.KeyTab:
+		if m.inputFor == inputCommand {
+			return m.completeInput(), nil
+		}
 	case tea.KeyEsc:
 		m.inputFor = inputNone
 		m.input.SetValue("")
@@ -529,6 +589,9 @@ func (m Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		mode, q := m.inputFor, m.input.Value()
 		m.inputFor = inputNone
 		m.input.Blur()
+		if mode == inputCommand {
+			return m.runCommandLine(q)
+		}
 		if mode == inputSearch {
 			m.logs.search(q)
 			return m, nil
@@ -655,12 +718,14 @@ func (m Model) refresh() (tea.Model, tea.Cmd) {
 	}
 	switch m.focus {
 	case focusPlans:
-		return m, m.loadPlans()
+		cmd := m.loadPlans()
+		return m, cmd
 	case focusBuilds:
 		if m.buildsPlan == "" {
 			return m, nil
 		}
-		return m, m.loadBuilds(m.buildsPlan, false)
+		cmd := m.loadBuilds(m.buildsPlan, false)
+		return m, cmd
 	case focusMain:
 		if m.detail == nil {
 			return m, nil
@@ -699,20 +764,7 @@ func (m Model) chooseOverlay() (tea.Model, tea.Cmd) {
 		return m.switchServer(it.Value)
 	case overlayProjects:
 		m.overlay = overlayNone
-		if it.Value == m.project {
-			return m, nil
-		}
-		m.project = it.Value
-		// The plans, the builds and the open build all belonged to the old
-		// filter. Leaving them selectable while the new list loads means
-		// enter can open a build from a project that is no longer shown.
-		m.leaveBuild()
-		m.buildsPlan = ""
-		m.buildsGen++
-		m.builds.setItems(nil)
-		m.plans.setItems(nil)
-		m.focus = focusPlans
-		return m, m.loadPlans()
+		return m.setProject(it.Value)
 	case overlayBranches:
 		m.overlay = overlayNone
 		m.leaveBuild()
@@ -722,6 +774,27 @@ func (m Model) chooseOverlay() (tea.Model, tea.Cmd) {
 	}
 	m.overlay = overlayNone
 	return m, nil
+}
+
+// setProject narrows the plans to one project, or to all with "". The
+// plans, the builds and the open build all belonged to the old filter, so
+// they go before the new list loads.
+func (m Model) setProject(key string) (tea.Model, tea.Cmd) {
+	if key == m.project {
+		return m, nil
+	}
+	m.project = key
+	m.leaveBuild()
+	m.buildsPlan = ""
+	m.buildsGen++
+	m.builds.setItems(nil)
+	m.plans.setItems(nil)
+	if m.screen != screenHome {
+		m.focus = focusPlans
+	}
+	load := m.loadPlans()
+	tick := m.restartHomeTick()
+	return m, tea.Batch(load, tick)
 }
 
 // switchServer drops everything that belonged to the old server: its build,
@@ -746,8 +819,10 @@ func (m Model) switchServer(alias string) (tea.Model, tea.Cmd) {
 	m.logsGen++
 	m.presetsGen++
 	m.cancelGen++
+	m.home.live = nil
 
 	cmds := []tea.Cmd{}
+	cmds = append(cmds, m.restartHomeTick())
 	if m.deps.Targets != nil {
 		cmds = append(cmds, loadPresetsCmd(m.deps, m.presetsGen))
 	}
@@ -908,6 +983,7 @@ func (m Model) drill() (tea.Model, tea.Cmd) {
 // second request.
 func (m Model) handleWatchEvent(e app.Event) (tea.Model, tea.Cmd) {
 	if e.Build.Key != "" {
+		m.noteLive(e.Build)
 		b := e.Build
 		m.detail = &b
 		m.progress = e.Progress
@@ -1159,6 +1235,8 @@ func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.DryRun):
 			m.overlay = overlayDryRun
 			return m, nil
+		case key.Matches(msg, keys.ExpandErr):
+			return m.expandErr()
 		}
 		return m, nil
 	}
@@ -1176,6 +1254,8 @@ func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.DryRun):
 		m.overlay = overlayDryRun
 		return m, nil
+	case key.Matches(msg, keys.ExpandErr):
+		return m.expandErr()
 	case key.Matches(msg, keys.Enter), key.Matches(msg, keys.CycleOption):
 		if len(m.form.fields[m.form.cursor].Options) > 0 {
 			m.form.cycle(1)
@@ -1250,6 +1330,9 @@ func (m Model) openTriggered(b provider.Build) (tea.Model, tea.Cmd) {
 
 	next, watch := m.startWatch(b.Key)
 	m = next.(Model)
+	// startWatch stops whatever was being watched before, which clears the
+	// old marker; note this build's only after, so it survives.
+	m.noteLive(b)
 	cmds := []tea.Cmd{watch}
 	if b.PlanKey != "" {
 		cmds = append(cmds, m.loadBuilds(b.PlanKey, false))
@@ -1299,6 +1382,7 @@ func (m Model) openForm() (tea.Model, tea.Cmd) {
 		from = b.Key
 	}
 
+	m.formFrom = m.screen
 	m.screen = screenForm
 	m.formGen++
 	m.form = formState{loading: true}
@@ -1346,14 +1430,30 @@ func (m Model) back() (tea.Model, tea.Cmd) {
 		return m, nil
 	case m.screen == screenForm:
 		m.formGen++ // abandon a load still in flight
-		m.screen = screenColumns
+		from := m.formFrom
+		m.screen = from
 		m.form = formState{}
+		if from == screenHome {
+			// A tick that arrived while the form was open ended the
+			// auto-refresh loop (homeTick drops beats off Home); nothing
+			// else restarts it, so returning here has to.
+			return m.goHome()
+		}
+		return m, nil
+	case m.screen == screenHome:
+		// Home is the top: esc clears the active table's filter and
+		// otherwise does nothing.
+		if m.home.view == homePresets && m.presets.query != "" {
+			m.presets.setQuery("")
+		} else if m.home.view == homePlans && m.plans.query != "" {
+			m.plans.setQuery("")
+		}
 		return m, nil
 	case m.focus != focusPlans:
 		m.focus = m.focus.parent()
 		return m, nil
 	}
-	return m.quit()
+	return m.goHome()
 }
 
 // quit cancels the watch on the way out. Cancelling a watch never stops the
@@ -1371,6 +1471,10 @@ func (m *Model) stopWatch() {
 	}
 	m.watchCh = nil
 	m.watchGen++
+	// At most one watch runs, so live holds only the build being watched (or
+	// just triggered). Every watch ends here, including a switch to a
+	// different build, so the old marker must not survive it.
+	m.home.live = nil
 }
 
 func (m Model) View() string {
@@ -1382,6 +1486,8 @@ func (m Model) View() string {
 		return m.overlayView(m.logsView())
 	case screenForm:
 		return m.overlayView(m.formView())
+	case screenHome:
+		return m.homeView()
 	}
 	return m.columnsView()
 }
@@ -1404,4 +1510,15 @@ func (m Model) columnsView() string {
 			m.leftColumn(lw, body),
 			m.mainPanel(m.width-lw, body)),
 		m.statusBar(m.width)))
+}
+
+// expandErr opens the error overlay on the error the status bar shows: its
+// What, Why and Try. The run form offers it too, because a refused trigger
+// leaves the user in the form with only the What on screen.
+func (m Model) expandErr() (tea.Model, tea.Cmd) {
+	if m.err == nil {
+		return m, nil
+	}
+	m.overlay = overlayError
+	return m, nil
 }

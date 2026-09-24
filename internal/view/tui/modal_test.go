@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/r0jjames/bam-cli/internal/app"
 	"github.com/r0jjames/bam-cli/internal/errs"
@@ -43,7 +44,13 @@ func TestChoosingAServerReconnectsAndReloads(t *testing.T) {
 	m, cmd := send(m, mkKey("enter"))
 	require.Equal(t, overlayNone, m.overlay, "choosing closes the overlay")
 	require.NotNil(t, cmd)
-	require.IsType(t, connectedMsg{}, cmd())
+	// switchServer also restarts Home's auto-refresh tick (home spec §4.2);
+	// that command must never run here — it blocks for homeRefreshEvery — so
+	// only the reconnect, last in the batch, is inspected.
+	batch, ok := cmd().(tea.BatchMsg)
+	require.True(t, ok)
+	require.Len(t, batch, 2, "the Home tick restart and the reconnect")
+	require.IsType(t, connectedMsg{}, batch[len(batch)-1]())
 	require.Equal(t, []string{"work"}, asked)
 }
 
@@ -276,5 +283,31 @@ func TestHelpFitsWholeOnATallTerminal(t *testing.T) {
 	v := m.View()
 	for _, row := range keys.helpRows() {
 		require.Contains(t, v, row.Keys)
+	}
+}
+
+// TestErrorOverlayWrapsALongWhy: the reason is the useful part of an error,
+// so a long one wraps rather than being cut at the box's edge.
+func TestErrorOverlayWrapsALongWhy(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.err = errs.Bamboof("could not start build of PROJ-SPECS").
+		WithWhy("Change detection ignored for plan PROJ-SPECS, plan is suspended from building as Bamboo could not find a license for this instance.")
+	m, _ = send(m, mkKey("e"))
+	v := m.View()
+	require.Contains(t, v, "suspended from")
+	require.Contains(t, v, "license for this")
+}
+
+// TestEOpensTheErrorInTheRunForm: a failed trigger leaves the user in the
+// form, so the form must let them read why.
+func TestEOpensTheErrorInTheRunForm(t *testing.T) {
+	for _, fields := range [][]formField{nil, {{Name: "cluster_name", Value: "lab1"}}} {
+		m := goldenModel(80, 24)
+		m.screen = screenForm
+		m.form = formState{fields: fields}
+		m.err = errs.Bamboof("could not start build of PROJ-SPECS").WithWhy("no license")
+		m, _ = send(m, mkKey("e"))
+		require.Equal(t, overlayError, m.overlay, "fields=%d", len(fields))
+		require.Contains(t, m.View(), "no license")
 	}
 }

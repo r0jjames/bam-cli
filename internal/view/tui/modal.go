@@ -107,10 +107,10 @@ func (m Model) overlayTitle() string {
 // undocumented and the README table cannot drift. The group is a column
 // rather than a heading row, because the whole table has to fit 24 rows.
 func (m Model) helpBody(width, height int) string {
-	const groupW, keysW = 5, 10
+	const groupW, keysW = 5, 16
 	var b strings.Builder
 	group := ""
-	for _, r := range keys.helpRows() {
+	for _, r := range append(keys.helpRows(), commandHelpRows()...) {
 		label := ""
 		if r.Group != group {
 			label, group = r.Group, r.Group
@@ -154,15 +154,18 @@ func (m Model) errorBody(width int) string {
 	lines := []string{errorStyle.Render(truncate(errorWhat(m.err), width-4))}
 	var e *errs.Error
 	if errors.As(m.err, &e) {
+		// Why and Try wrap: the reason is the part worth reading, and a
+		// Bamboo refusal is often longer than the box is wide.
+		wrap := lipgloss.NewStyle().Width(width - 4)
 		if e.Why != "" {
-			lines = append(lines, "", dimStyle.Render(truncate(e.Why, width-4)))
+			lines = append(lines, "", dimStyle.Render(wrap.Render(e.Why)))
 		}
 		try := e.Try
 		if try == "" && e.Kind == errs.KindAuth {
 			try = "run bam login for this server"
 		}
 		if try != "" {
-			lines = append(lines, "", truncate(try, width-4))
+			lines = append(lines, "", wrap.Render(try))
 		}
 	}
 	return strings.Join(lines, "\n")
