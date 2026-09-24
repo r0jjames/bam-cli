@@ -34,6 +34,8 @@ Check that `bam` does not shadow another command on your machine: `type bam`.
        bam logs --last --failed
        bam open --last
 
+   - `--revision REV` builds that commit instead of the newest: a full or short SHA, passed to Bamboo as given. Bamboo applies it to the plan's default repository. A revision Bamboo cannot build ends as "not built"; watch the build to see it. If the server ignores the revision, bam stops the build it queued and exits 5.
+
 A teammate who clones the repository only needs `bam login work`.
 
 ## Try it locally, without a Bamboo

@@ -7,7 +7,7 @@
 // safe to run (a smoke plan).
 //
 //	make e2e ARGS='-target smoke'
-//	make e2e ARGS='-server lab -plan LAB-SMOKE'
+//	make e2e ARGS='-server lab -plan LAB-SMOKE -revision abc1234'
 package e2e
 
 import (
@@ -26,6 +26,7 @@ var (
 	serverAlias = flag.String("server", "", "server alias (default: the one bam would use in this directory)")
 	targetName  = flag.String("target", "", "configured target to take the plan key from")
 	planKey     = flag.String("plan", "", "plan key that is safe to run (wins over -target)")
+	revision    = flag.String("revision", "", "an older commit of the plan's repository; runs the plan at it and checks the build used it")
 )
 
 func TestSmoke(t *testing.T) {
@@ -103,5 +104,15 @@ func TestSmoke(t *testing.T) {
 	}
 	if code, _, _ := run("logs", "--last"); code != 0 {
 		t.Fatalf("logs --last failed")
+	}
+	if *revision != "" {
+		code, _, _ := run("run", plan, "--revision", *revision, "--watch", "--timeout", "20m")
+		if code != 0 && code != 1 {
+			t.Fatalf("run --revision --watch exited %d; want 0 or 1", code)
+		}
+		code, out, _ := run("build", "show", "--last", "--json")
+		if code != 0 || !strings.Contains(out, `"revision": "`+*revision) {
+			t.Fatalf("build show --last does not report revision %s", *revision)
+		}
 	}
 }
