@@ -4,15 +4,15 @@
     "size": 0,
     "start-index": 0
   },
-  "buildCompletedDate": "2026-09-24T17:27:46.438Z",
-  "buildCompletedTime": "2026-09-24T17:27:46.438Z",
+  "buildCompletedDate": "2026-09-24T17:39:46.542Z",
+  "buildCompletedTime": "2026-09-24T17:39:46.542Z",
   "buildDuration": 0,
   "buildDurationDescription": "global.unknown",
   "buildDurationInSeconds": 0,
-  "buildNumber": 15,
-  "buildReason": "Custom build by \u003ca href=\"http://bamboo.example.com/browse/user/jdoe\"\u003ejdoe\u003c/a\u003e\u0026nbsp;with revision \u003ca href=\"http://bamboo.example.com/browse/LAB-SPECS-15#changesSummary\"\u003e0000000000000000000000000000000000000000\u003c/a\u003e",
+  "buildNumber": 19,
+  "buildReason": "Custom build by \u003ca href=\"http://bamboo.example.com/browse/user/jdoe\"\u003ejdoe\u003c/a\u003e\u0026nbsp;with revision \u003ca href=\"http://bamboo.example.com/browse/LAB-SPECS-19#changesSummary\"\u003e0000000000000000000000000000000000000000\u003c/a\u003e",
   "buildRelativeTime": "1 second ago",
-  "buildResultKey": "LAB-SPECS-15",
+  "buildResultKey": "LAB-SPECS-19",
   "buildState": "Unknown",
   "changes": {
     "max-result": 0,
@@ -27,13 +27,13 @@
   "continuable": false,
   "expand": "changes,metadata,plan,artifacts,comments,labels,jiraIssues,variables,stages",
   "finished": false,
-  "id": 1867795,
+  "id": 1867803,
   "jiraIssues": {
     "max-result": 0,
     "size": 0,
     "start-index": 0
   },
-  "key": "LAB-SPECS-15",
+  "key": "LAB-SPECS-19",
   "labels": {
     "max-result": 0,
     "size": 0,
@@ -41,7 +41,7 @@
   },
   "lifeCycleState": "NotBuilt",
   "link": {
-    "href": "http://bamboo.example.com/rest/api/latest/result/LAB-SPECS-15",
+    "href": "http://bamboo.example.com/rest/api/latest/result/LAB-SPECS-19",
     "rel": "self"
   },
   "metadata": {
@@ -50,7 +50,7 @@
     "start-index": 0
   },
   "notRunYet": false,
-  "number": 15,
+  "number": 19,
   "onceOff": true,
   "plan": {
     "enabled": true,
@@ -73,12 +73,12 @@
     "entityKey": {
       "key": "LAB-SPECS"
     },
-    "key": "LAB-SPECS-15",
-    "resultNumber": 15
+    "key": "LAB-SPECS-19",
+    "resultNumber": 19
   },
-  "prettyBuildCompletedTime": "Thu, 24 Sep, 05:27 PM",
+  "prettyBuildCompletedTime": "Thu, 24 Sep, 05:39 PM",
   "projectName": "lab",
-  "reasonSummary": "Custom build by \u003ca href=\"http://bamboo.example.com/browse/user/jdoe\"\u003ejdoe\u003c/a\u003e\u0026nbsp;with revision \u003ca href=\"http://bamboo.example.com/browse/LAB-SPECS-15#changesSummary\"\u003e0000000000000000000000000000000000000000\u003c/a\u003e",
+  "reasonSummary": "Custom build by \u003ca href=\"http://bamboo.example.com/browse/user/jdoe\"\u003ejdoe\u003c/a\u003e\u0026nbsp;with revision \u003ca href=\"http://bamboo.example.com/browse/LAB-SPECS-19#changesSummary\"\u003e0000000000000000000000000000000000000000\u003c/a\u003e",
   "restartable": true,
   "specsResult": false,
   "stages": {
@@ -92,7 +92,7 @@
         "displayClass": "NotBuilt",
         "displayMessage": "1 of 1 job not executed",
         "expand": "results",
-        "id": 1900555,
+        "id": 1900559,
         "lifeCycleState": "NotBuilt",
         "manual": false,
         "name": "Publish",
@@ -105,10 +105,10 @@
               "buildDuration": 0,
               "buildDurationDescription": "global.unknown",
               "buildDurationInSeconds": 0,
-              "buildNumber": 15,
+              "buildNumber": 19,
               "buildReason": "Custom revision build",
               "buildRelativeTime": "",
-              "buildResultKey": "LAB-SPECS-PUB-15",
+              "buildResultKey": "LAB-SPECS-PUB-19",
               "buildState": "Unknown",
               "changes": {
                 "max-result": 0,
@@ -117,16 +117,16 @@
               },
               "expand": "changes,metadata,plan,jiraIssues,variables",
               "hasExecutableAgents": true,
-              "id": 1867796,
+              "id": 1867804,
               "jiraIssues": {
                 "max-result": 0,
                 "size": 0,
                 "start-index": 0
               },
-              "key": "LAB-SPECS-PUB-15",
+              "key": "LAB-SPECS-PUB-19",
               "lifeCycleState": "NotBuilt",
               "link": {
-                "href": "http://bamboo.example.com/rest/api/latest/result/LAB-SPECS-PUB-15",
+                "href": "http://bamboo.example.com/rest/api/latest/result/LAB-SPECS-PUB-19",
                 "rel": "self"
               },
               "metadata": {
@@ -134,10 +134,10 @@
                 "size": 3,
                 "start-index": 0
               },
-              "number": 15,
+              "number": 19,
               "onceOff": true,
               "parent": {
-                "href": "http://bamboo.example.com/rest/api/latest/result/LAB-SPECS-15",
+                "href": "http://bamboo.example.com/rest/api/latest/result/LAB-SPECS-19",
                 "rel": "parent"
               },
               "plan": {
@@ -161,15 +161,15 @@
                 "entityKey": {
                   "key": "LAB-SPECS-PUB"
                 },
-                "key": "LAB-SPECS-PUB-15",
-                "resultNumber": 15
+                "key": "LAB-SPECS-PUB-19",
+                "resultNumber": 19
               },
               "prettyQueueDuration": "\u003c 1 sec",
               "prettyVcsUpdateDuration": "\u003c 1 sec",
               "projectName": "lab",
               "queueDuration": 0,
               "queueTimeInSeconds": 0,
-              "reasonSummary": "Custom build by \u003ca href=\"http://bamboo.example.com/browse/user/jdoe\"\u003ejdoe\u003c/a\u003e\u0026nbsp;with revision \u003ca href=\"http://bamboo.example.com/browse/LAB-SPECS-PUB-15#changesSummary\"\u003e0000000000000000000000000000000000000000\u003c/a\u003e",
+              "reasonSummary": "Custom build by \u003ca href=\"http://bamboo.example.com/browse/user/jdoe\"\u003ejdoe\u003c/a\u003e\u0026nbsp;with revision \u003ca href=\"http://bamboo.example.com/browse/LAB-SPECS-PUB-19#changesSummary\"\u003e0000000000000000000000000000000000000000\u003c/a\u003e",
               "specsResult": false,
               "stage": "Publish",
               "state": "Unknown",

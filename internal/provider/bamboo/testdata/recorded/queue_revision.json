@@ -1,8 +1,8 @@
 {
-  "buildNumber": 14,
-  "buildResultKey": "LAB-SPECS-14",
+  "buildNumber": 17,
+  "buildResultKey": "LAB-SPECS-17",
   "link": {
-    "href": "http://bamboo.example.com/rest/api/latest/result/LAB-SPECS-14",
+    "href": "http://bamboo.example.com/rest/api/latest/result/LAB-SPECS-17",
     "rel": "self"
   },
   "planKey": "LAB-SPECS",

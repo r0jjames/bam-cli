@@ -136,6 +136,12 @@ func (r *recorder) probeRun(plan string) error {
 	if err := r.probeTrigger(plan, "revision", url.Values{"customRevision": {older}}, older); err != nil {
 		return err
 	}
+	// A short SHA is what people paste from git log --oneline.
+	if len(older) > 7 {
+		if err := r.probeTrigger(plan, "revision_short", url.Values{"customRevision": {older[:7]}}, older); err != nil {
+			return err
+		}
+	}
 	if err := r.probeTrigger(plan, "revision_invalid", url.Values{"customRevision": {invalidRevision}}, invalidRevision); err != nil {
 		return err
 	}

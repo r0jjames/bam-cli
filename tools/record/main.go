@@ -19,9 +19,9 @@
 //	-trigger        also trigger a build, stop it, and record both
 //	-as KEY         placeholder project key in the recording (default LAB)
 //	-probe-run      read the queue endpoint's parameters from the WADL, then
-//	                trigger the plan with a custom revision, an unknown
-//	                revision, and a verbose-logs parameter if the WADL has
-//	                one, waiting for each build to finish
+//	                trigger the plan with a custom revision, its short
+//	                form, an unknown revision, and a verbose-logs parameter
+//	                if the WADL has one, waiting for each build to finish
 package main
 
 import (
