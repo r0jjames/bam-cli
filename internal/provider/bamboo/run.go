@@ -18,6 +18,10 @@ var _ provider.Provider = (*Client)(nil)
 
 const logPage = 500
 
+// customRevisionReason is Bamboo's triggerReason for a build queued with
+// customRevision. Any other reason means the server ignored the parameter.
+const customRevisionReason = "Custom revision build"
+
 type queueDTO struct {
 	PlanKey        string `json:"planKey"`
 	BuildNumber    int    `json:"buildNumber"`
@@ -26,7 +30,10 @@ type queueDTO struct {
 }
 
 // Trigger queues a build. Variables travel in the form body so their values
-// never appear in a URL or an access log.
+// never appear in a URL or an access log. When a revision is asked for and
+// the answer's trigger reason shows Bamboo ignored it, Trigger returns the
+// queued build together with an error wrapping errs.ErrUnsupported, so the
+// caller can stop the build.
 func (c *Client) Trigger(ctx context.Context, req provider.TriggerRequest) (provider.Build, error) {
 	form := url.Values{}
 	secret := map[string]bool{}
@@ -37,10 +44,14 @@ func (c *Client) Trigger(ctx context.Context, req provider.TriggerRequest) (prov
 			secret[key] = true
 		}
 	}
+	query := url.Values{"executeAllStages": {"true"}}
+	if req.Revision != "" {
+		query.Set("customRevision", req.Revision)
+	}
 	body, err := c.do(ctx, request{
 		method: http.MethodPost,
 		path:   api + "/queue/" + url.PathEscape(req.PlanKey),
-		query:  url.Values{"executeAllStages": {"true"}},
+		query:  query,
 		form:   form,
 		secret: secret,
 	})
@@ -62,8 +73,12 @@ func (c *Client) Trigger(ctx context.Context, req provider.TriggerRequest) (prov
 	if planKey == "" {
 		planKey = req.PlanKey
 	}
-	return provider.Build{Key: q.BuildResultKey, URL: c.URL(q.BuildResultKey), PlanKey: planKey,
-		Number: q.BuildNumber, State: provider.StateQueued, Reason: plainReason(q.TriggerReason)}, nil
+	b := provider.Build{Key: q.BuildResultKey, URL: c.URL(q.BuildResultKey), PlanKey: planKey,
+		Number: q.BuildNumber, State: provider.StateQueued, Reason: plainReason(q.TriggerReason)}
+	if req.Revision != "" && q.TriggerReason != customRevisionReason {
+		return b, errs.Bamboof("Bamboo ignored the revision").Wrap(errs.ErrUnsupported)
+	}
+	return b, nil
 }
 
 // StopBuild stops a queued or running build.

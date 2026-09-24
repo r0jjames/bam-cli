@@ -1,0 +1,22 @@
+{
+  "key": "PROJ-BUILD-47",
+  "planResultKey": {"key": "PROJ-BUILD-47", "entityKey": {"key": "PROJ-BUILD"}, "resultNumber": 47},
+  "buildResultKey": "PROJ-BUILD-47",
+  "buildNumber": 47,
+  "lifeCycleState": "NotBuilt",
+  "buildState": "Unknown",
+  "state": "Unknown",
+  "finished": false,
+  "notRunYet": false,
+  "onceOff": true,
+  "buildDuration": 0,
+  "buildDurationInSeconds": 0,
+  "buildReason": "Custom build by <a href=\"https://bamboo.example.com/browse/user/jdoe\">jdoe</a>&nbsp;with revision <a href=\"https://bamboo.example.com/browse/PROJ-BUILD-47#changesSummary\">0000000000000000000000000000000000000000</a>",
+  "reasonSummary": "Custom build by <a href=\"https://bamboo.example.com/browse/user/jdoe\">jdoe</a>&nbsp;with revision <a href=\"https://bamboo.example.com/browse/PROJ-BUILD-47#changesSummary\">0000000000000000000000000000000000000000</a>",
+  "buildCompletedTime": "2026-09-24T17:27:46.000Z",
+  "plan": {"key": "PROJ-BUILD", "shortName": "Publish"},
+  "vcsRevisions": {"size": 0, "vcsRevision": []},
+  "stages": {"size": 1, "stage": [{"name": "Publish", "state": "Unknown", "lifeCycleState": "NotBuilt",
+    "results": {"size": 1, "result": [{"buildResultKey": "PROJ-BUILD-JOB1-47", "key": "PROJ-BUILD-JOB1-47", "state": "Unknown", "lifeCycleState": "NotBuilt",
+      "plan": {"shortName": "Publish"}}]}}]}
+}
