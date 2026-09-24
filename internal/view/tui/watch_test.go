@@ -117,3 +117,13 @@ func TestWatchClosedStopsQuietly(t *testing.T) {
 	require.NoError(t, m.err)
 	require.Nil(t, m.watchCancel)
 }
+
+func TestANotBuiltRevisionRunSaysSo(t *testing.T) {
+	m := formModel()
+	m.form.revision = "abc1234"
+	next, _ := m.openTriggered(provider.Build{Key: "PROJ-PROV12-9", State: provider.StateQueued})
+	m = next.(Model)
+	next, _ = m.handleWatchEvent(app.Event{Type: app.EventDone, Build: provider.Build{Key: "PROJ-PROV12-9", State: provider.StateNotBuilt}})
+	m = next.(Model)
+	require.Equal(t, "Bamboo could not build revision abc1234", m.status)
+}

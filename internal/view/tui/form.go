@@ -25,15 +25,16 @@ type formField struct {
 // formState is the run form: what was fetched once, and what the user has
 // done to it since.
 type formState struct {
-	ref     app.PlanRef
-	target  string // the preset's name; empty for a bare plan
-	base    app.VarSet
-	fields  []formField
-	cursor  int
-	editing bool
-	input   textinput.Model
-	err     error // a form-level error that ctrl-R refuses on
-	loading bool
+	ref      app.PlanRef
+	target   string // the preset's name; empty for a bare plan
+	base     app.VarSet
+	fields   []formField
+	revision string // commit to build; empty builds the newest. Not a variable.
+	cursor   int
+	editing  bool
+	input    textinput.Model
+	err      error // a form-level error that ctrl-R refuses on
+	loading  bool
 }
 
 // buildFields turns a fetched VarSet into the form's rows, adding any name the
@@ -79,6 +80,10 @@ func buildFields(base app.VarSet, ref app.PlanRef) []formField {
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
+
+// onRevision says whether the cursor is on the Revision row, the last stop
+// after the variables.
+func (f formState) onRevision() bool { return f.cursor == len(f.fields) }
 
 // flags is what the form hands ValidateVars, in --var shape.
 //
@@ -168,6 +173,19 @@ func (m Model) formBody(width, height int) string {
 		lines = append(lines, strings.TrimRight(line, " "))
 	}
 
+	rev := m.form.revision
+	if rev == "" {
+		rev = dimStyle.Render("newest")
+	}
+	if m.form.editing && m.form.onRevision() {
+		rev = m.form.input.View()
+	}
+	revLine := m.cursorFor(true, m.form.onRevision()) +
+		lipgloss.NewStyle().Width(nameW).Render("revision") +
+		lipgloss.NewStyle().Width(valueW).Render(truncate(rev, valueW)) +
+		dimStyle.Render(truncate("commit to build", width-nameW-valueW-4))
+	lines = append(lines, strings.TrimRight(revLine, " "))
+
 	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("%d of %d changed from the plan's values",
 		m.changedCount(), len(m.form.fields))))
 	if m.form.err != nil {
@@ -218,6 +236,9 @@ func formValueWidth(width int) int {
 // an options field is edited: free text is never accepted for one, so the
 // commonest rejection cannot be typed.
 func (f *formState) cycle(delta int) {
+	if f.onRevision() {
+		return
+	}
 	fl := &f.fields[f.cursor]
 	if len(fl.Options) == 0 {
 		return
@@ -233,20 +254,25 @@ func (f *formState) cycle(delta int) {
 	fl.Value, fl.Touched = fl.Options[at], true
 }
 
-// move walks the fields and wraps.
+// move walks the variables and the Revision row after them, and wraps.
 func (f *formState) move(delta int) {
-	if len(f.fields) == 0 {
-		return
-	}
-	f.cursor = (f.cursor + delta + len(f.fields)) % len(f.fields)
+	rows := len(f.fields) + 1
+	f.cursor = (f.cursor + delta + rows) % rows
 }
 
-// startEditing opens the text input on the current field. A secret echoes
-// asterisks, so nothing typed reaches the screen.
+// startEditing opens the text input on the current field, or on the Revision
+// row. A secret echoes asterisks, so nothing typed reaches the screen.
 func (f *formState) startEditing() {
-	fl := f.fields[f.cursor]
 	f.input = textinput.New()
 	f.input.Prompt = ""
+	if f.onRevision() {
+		f.input.SetValue(f.revision)
+		f.input.CursorEnd()
+		f.input.Focus()
+		f.editing = true
+		return
+	}
+	fl := f.fields[f.cursor]
 	f.input.SetValue(fl.Value)
 	f.input.CursorEnd()
 	if fl.Secret {
@@ -259,10 +285,15 @@ func (f *formState) startEditing() {
 }
 
 // acceptEdit takes what was typed. An empty value typed on purpose is a
-// value, so Touched is set either way.
+// value, so Touched is set either way. The Revision row is not a field: it
+// has no Touched flag and never counts in "N of M changed".
 func (f *formState) acceptEdit() {
-	f.fields[f.cursor].Value = f.input.Value()
-	f.fields[f.cursor].Touched = true
+	if f.onRevision() {
+		f.revision = f.input.Value()
+	} else {
+		f.fields[f.cursor].Value = f.input.Value()
+		f.fields[f.cursor].Touched = true
+	}
 	f.editing = false
 	f.input.Blur()
 }
@@ -385,6 +416,9 @@ func (m Model) dryRunBody(width int) string {
 	vs = m.form.stripUntypedMasks(vs)
 
 	lines := []string{dimStyle.Render("plan " + m.form.ref.PlanKey)}
+	if m.form.revision != "" {
+		lines = append(lines, dimStyle.Render("revision "+m.form.revision))
+	}
 	changed := vs.Changed()
 	secret := vs.Secret()
 	if len(changed) == 0 {
