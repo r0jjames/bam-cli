@@ -18,6 +18,10 @@
 //	                failed build of the plan, "skip" to record none
 //	-trigger        also trigger a build, stop it, and record both
 //	-as KEY         placeholder project key in the recording (default LAB)
+//	-probe-run      read the queue endpoint's parameters from the WADL, then
+//	                trigger the plan with a custom revision, an unknown
+//	                revision, and a verbose-logs parameter if the WADL has
+//	                one, waiting for each build to finish
 package main
 
 import (
@@ -189,6 +193,7 @@ func run() error {
 		failedKey   = flag.String("failed", "", `failed build to record logs from ("skip" to record none; default: the newest failed build)`)
 		trigger     = flag.Bool("trigger", false, "also trigger a build, stop it, and record both")
 		asKey       = flag.String("as", "LAB", "placeholder project key the recorded project is renamed to")
+		probe       = flag.Bool("probe-run", false, "probe custom revision and verbose logs support; triggers the plan up to three times")
 	)
 	flag.Parse()
 
@@ -251,6 +256,14 @@ func run() error {
 	if err := r.updateDenylist(); err != nil {
 		return err
 	}
+	// The probe runs on a plan that is safe to trigger, usually not the one
+	// the base recordings come from, so it records its own files only.
+	if *probe {
+		if err := r.probeRun(plan); err != nil {
+			return err
+		}
+		return r.finish()
+	}
 	steps := []struct {
 		file, path string
 		query      url.Values
@@ -293,6 +306,11 @@ func run() error {
 			return err
 		}
 	}
+	return r.finish()
+}
+
+// finish warns about names the scrubber left and reminds to review.
+func (r *recorder) finish() error {
 	if err := r.warnResidual(); err != nil {
 		return err
 	}
@@ -301,6 +319,15 @@ func run() error {
 }
 
 func (r *recorder) call(method, path string, q url.Values) ([]byte, int, error) {
+	accept := "application/json"
+	if strings.HasPrefix(path, "/download/") {
+		accept = ""
+	}
+	return r.callAccept(method, path, q, accept)
+}
+
+// callAccept is call with an explicit Accept header; "" sends none.
+func (r *recorder) callAccept(method, path string, q url.Values, accept string) ([]byte, int, error) {
 	full := r.base + path
 	if len(q) > 0 {
 		full += "?" + q.Encode()
@@ -310,8 +337,8 @@ func (r *recorder) call(method, path string, q url.Values) ([]byte, int, error) 
 		return nil, 0, err
 	}
 	req.Header.Set("Authorization", "Bearer "+r.token)
-	if !strings.HasPrefix(path, "/download/") {
-		req.Header.Set("Accept", "application/json")
+	if accept != "" {
+		req.Header.Set("Accept", accept)
 	}
 	resp, err := r.http.Do(req)
 	if err != nil {
