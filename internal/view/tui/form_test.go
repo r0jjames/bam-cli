@@ -1045,7 +1045,6 @@ func TestDryRunShowsTheRevision(t *testing.T) {
 	require.Contains(t, m.dryRunBody(60), "revision abc1234")
 }
 
-// Review focus 5.
 func TestTheRevisionDoesNotSurviveTheForm(t *testing.T) {
 	m := formModel()
 	m.form.revision = "abc1234"

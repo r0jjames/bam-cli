@@ -247,7 +247,7 @@ func TestRunRevisionIgnored(t *testing.T) {
 		h.fake.TriggerErr = errs.Bamboof("Bamboo ignored the revision").Wrap(errs.ErrUnsupported)
 		args := []string{"run", "build", "--revision", "abc1234"}
 		if asJSON {
-			args = append(args, "--json") // review focus 4
+			args = append(args, "--json")
 		}
 		assert.Equal(t, 5, h.run(args...))
 		assert.Contains(t, h.stderr.String(), "Bamboo ignored the revision; PROJ-BUILD-483 was stopped")

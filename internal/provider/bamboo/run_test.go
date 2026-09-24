@@ -198,7 +198,8 @@ func TestTriggerWithoutRevisionSendsNone(t *testing.T) {
 	assert.False(t, has)
 }
 
-// Review focus 1: the value is not checked or trimmed by bam.
+// TestTriggerSendsTheRevisionVerbatim: the value is not checked or trimmed
+// by bam.
 func TestTriggerSendsTheRevisionVerbatim(t *testing.T) {
 	for _, rev := range []string{" abc1234", "v1.2", "main", "a&b=c"} {
 		c, rec := newTestServer(t, map[string]*route{"POST /rest/api/latest/queue/PROJ-BUILD": {fixture: "queue_revision.json"}})

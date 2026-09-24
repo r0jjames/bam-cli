@@ -201,7 +201,6 @@ func TestRunRetriesTheStopWhileTheBuildIsNotFound(t *testing.T) {
 	assert.Len(t, p.Stopped, 3)
 }
 
-// Review focus 2.
 func TestRunGivesUpStoppingAfterThirtySeconds(t *testing.T) {
 	p := fakeBamboo()
 	ignoredRevision(p)
@@ -222,7 +221,8 @@ func TestRunGivesUpStoppingAfterThirtySeconds(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// Review focus 3: only "not found" is worth waiting for.
+// TestRunDoesNotRetryAStopThatCannotWork: only "not found" is worth waiting
+// for; an unsupported stop fails once, immediately.
 func TestRunDoesNotRetryAStopThatCannotWork(t *testing.T) {
 	p := fakeBamboo()
 	ignoredRevision(p)
