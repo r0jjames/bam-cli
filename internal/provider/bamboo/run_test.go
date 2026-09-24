@@ -226,28 +226,32 @@ func TestTriggerReportsAnIgnoredRevision(t *testing.T) {
 
 func TestRecordedRevisionQueueAnswer(t *testing.T) {
 	for _, f := range []string{"recorded/queue_revision.json", "recorded/queue_revision_short.json", "recorded/queue_revision_invalid.json"} {
-		if _, err := os.Stat(filepath.Join("testdata", f)); err != nil {
-			t.Skipf("%s not recorded", f)
-		}
-		c, _ := newTestServer(t, map[string]*route{"POST /rest/api/latest/queue/REC-PLAN": {fixture: f}})
-		b, err := c.Trigger(ctx, provider.TriggerRequest{PlanKey: "REC-PLAN", Revision: "abc1234"})
-		require.NoError(t, err, "%s: Bamboo 12.1.8 took the revision", f)
-		assert.NotEmpty(t, b.Key, f)
+		t.Run(f, func(t *testing.T) {
+			if _, err := os.Stat(filepath.Join("testdata", f)); err != nil {
+				t.Skipf("%s not recorded", f)
+			}
+			c, _ := newTestServer(t, map[string]*route{"POST /rest/api/latest/queue/REC-PLAN": {fixture: f}})
+			b, err := c.Trigger(ctx, provider.TriggerRequest{PlanKey: "REC-PLAN", Revision: "abc1234"})
+			require.NoError(t, err, "%s: Bamboo 12.1.8 took the revision", f)
+			assert.NotEmpty(t, b.Key, f)
+		})
 	}
 }
 
 func TestRecordedInvalidRevisionIsNotBuilt(t *testing.T) {
 	for _, f := range []string{"result_revision_not_built.json", "recorded/result_revision_invalid.json"} {
-		if _, err := os.Stat(filepath.Join("testdata", f)); err != nil {
-			t.Skipf("%s not recorded", f)
-		}
-		c, _ := newTestServer(t, map[string]*route{
-			"GET /rest/api/latest/result/REC-PLAN-1?expand=" + buildExpand: {fixture: f},
+		t.Run(f, func(t *testing.T) {
+			if _, err := os.Stat(filepath.Join("testdata", f)); err != nil {
+				t.Skipf("%s not recorded", f)
+			}
+			c, _ := newTestServer(t, map[string]*route{
+				"GET /rest/api/latest/result/REC-PLAN-1?expand=" + buildExpand: {fixture: f},
+			})
+			b, err := c.GetBuild(ctx, "REC-PLAN-1")
+			require.NoError(t, err, f)
+			assert.Equal(t, provider.StateNotBuilt, b.State, f)
+			assert.Empty(t, b.Revisions, f)
 		})
-		b, err := c.GetBuild(ctx, "REC-PLAN-1")
-		require.NoError(t, err, f)
-		assert.Equal(t, provider.StateNotBuilt, b.State, f)
-		assert.Empty(t, b.Revisions, f)
 	}
 }
 
