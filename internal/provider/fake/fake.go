@@ -30,6 +30,7 @@ type Provider struct {
 	TriggerResult provider.Build
 	TriggerErr    error
 	StopErr       error
+	StopErrs      []error                        // returned by StopBuild in order, one per call; after them StopErr applies
 	LogErrs       []error                        // returned by FetchLog in order, one per call; nil entries succeed
 	Progressions  map[string][]provider.Progress // by build key; BuildProgress walks it and repeats the last entry
 	ProgressErr   error
@@ -172,6 +173,11 @@ func (f *Provider) StopBuild(_ context.Context, key string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.Stopped = append(f.Stopped, key)
+	if len(f.StopErrs) > 0 {
+		err := f.StopErrs[0]
+		f.StopErrs = f.StopErrs[1:]
+		return err
+	}
 	return f.StopErr
 }
 

@@ -15,11 +15,23 @@ const (
 	MaxPoll = 10 * time.Second
 )
 
+// Stopping a build whose revision Bamboo ignored: a build that was only just
+// queued may have no job to stop yet, so a not-found answer is retried.
+const (
+	stopRetryEvery = 2 * time.Second
+	stopRetryFor   = 30 * time.Second
+)
+
 // Run triggers the plan with the variables that differ from the plan's
-// values and records the build as this repository's last build.
+// values and records the build as this repository's last build. When a
+// revision was asked for and Bamboo ignored it, the build (which runs the
+// newest commit) is stopped and Run fails.
 func (s *Service) Run(ctx context.Context, ref PlanRef, vs VarSet) (provider.Build, error) {
-	b, err := s.P.Trigger(ctx, provider.TriggerRequest{PlanKey: ref.PlanKey, Variables: vs.Changed(), Secret: vs.Secret()})
+	b, err := s.P.Trigger(ctx, provider.TriggerRequest{PlanKey: ref.PlanKey, Variables: vs.Changed(), Secret: vs.Secret(), Revision: ref.Revision})
 	if err != nil {
+		if ref.Revision != "" && b.Key != "" && errors.Is(err, errs.ErrUnsupported) {
+			return b, s.stopIgnoredRevision(ctx, b.Key)
+		}
 		return provider.Build{}, err
 	}
 	rec := LastRecord{BuildKey: b.Key, Origin: s.Origin, PlanKey: ref.PlanKey, TriggeredAt: s.Clock.Now()}
@@ -29,6 +41,29 @@ func (s *Service) Run(ctx context.Context, ref PlanRef, vs VarSet) (provider.Bui
 	// The build is already running; failing to remember it only loses --last.
 	_ = s.State.SetLast(s.Cfg.RepoRoot, rec)
 	return b, nil
+}
+
+// stopIgnoredRevision stops a build that runs the newest commit instead of
+// the revision the user chose, and returns the error that says so.
+func (s *Service) stopIgnoredRevision(ctx context.Context, key string) error {
+	deadline := s.Clock.Now().Add(stopRetryFor)
+	err := s.P.StopBuild(ctx, key)
+	for err != nil && errors.Is(err, errs.ErrNotFound) && s.Clock.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			err = ctx.Err()
+		case <-s.Clock.After(stopRetryEvery):
+			err = s.P.StopBuild(ctx, key)
+		}
+	}
+	if err != nil {
+		return errs.Bamboof("Bamboo ignored the revision; %s is building the newest commit", key).
+			WithWhy("this Bamboo does not support building a chosen revision over REST").
+			WithTry("bam build cancel " + key)
+	}
+	return errs.Bamboof("Bamboo ignored the revision; %s was stopped", key).
+		WithWhy("this Bamboo does not support building a chosen revision over REST").
+		WithTry("run without --revision, or use Run customised in Bamboo")
 }
 
 // EventType names what changed between two polls.
