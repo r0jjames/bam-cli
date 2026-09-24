@@ -53,7 +53,15 @@ func TestRunJSONMasksSecrets(t *testing.T) {
 	var buf bytes.Buffer
 	require.NoError(t, WriteNDJSON(&buf, doc))
 	assert.NotContains(t, buf.String(), "hunter2")
-	assert.Equal(t, `{"key":"PROJ-BUILD-45","url":"https://bamboo.example.com/browse/PROJ-BUILD-45","plan_key":"PROJ-BUILD12","branch":"develop","variables":{"db_password":"********","env":"staging"}}`+"\n", buf.String())
+	assert.Equal(t, `{"key":"PROJ-BUILD-45","url":"https://bamboo.example.com/browse/PROJ-BUILD-45","plan_key":"PROJ-BUILD12","branch":"develop","revision":"","variables":{"db_password":"********","env":"staging"}}`+"\n", buf.String())
+}
+
+func TestRunJSONCarriesTheRevision(t *testing.T) {
+	d := RunJSON(provider.Build{Key: "PROJ-BUILD-46"}, app.PlanRef{PlanKey: "PROJ-BUILD", Revision: "abc1234"}, app.VarSet{})
+	assert.Equal(t, "abc1234", d.Revision)
+	raw, err := json.Marshal(RunJSON(provider.Build{}, app.PlanRef{PlanKey: "PROJ-BUILD"}, app.VarSet{}))
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"revision":""`, "an empty revision is present, as branch is")
 }
 
 func TestEventJSON(t *testing.T) {

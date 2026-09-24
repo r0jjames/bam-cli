@@ -110,11 +110,11 @@ func newRunCmd(r *runtime) *cobra.Command {
 				if r.flags.json {
 					return view.WriteJSON(r.env.Stdout, view.RunJSON(b, ref, vs))
 				}
-				view.Queued(o, b, false)
+				view.Queued(o, b, false, ref.Revision)
 				return nil
 			}
 			if !r.flags.json {
-				view.Queued(o, b, true)
+				view.Queued(o, b, true, ref.Revision)
 			}
 			return r.watchLoop(ctx, svc, b.Key, limit)
 		}),

@@ -18,6 +18,9 @@ func RunPlan(o Out, ref app.PlanRef, vs app.VarSet) {
 		plan += fmt.Sprintf("  (branch %s, %s)", ref.Branch, ref.PlanKey)
 	}
 	fmt.Fprintf(o.W, "%-8s %s\n", "Plan", plan)
+	if ref.Revision != "" {
+		fmt.Fprintf(o.W, "%-8s %s\n", "Revision", ref.Revision)
+	}
 	var parts []string
 	defaults := 0
 	for _, v := range vs.Vars {
@@ -37,12 +40,24 @@ func RunPlan(o Out, ref app.PlanRef, vs app.VarSet) {
 	fmt.Fprintf(o.W, "%-8s %s\n", "Vars", line)
 }
 
-// Queued prints the line after a trigger succeeds.
-func Queued(o Out, b provider.Build, watching bool) {
+// Queued prints the line after a trigger succeeds. Without a watch it says
+// how to follow the build; with a revision, that the revision is checked
+// only when the build starts.
+func Queued(o Out, b provider.Build, watching bool, revision string) {
 	fmt.Fprintf(o.W, "%s   %s   %s\n", style.Colored(o.Style, provider.StateSuccess, "✓ Queued"), o.Key(b.Key, b.URL), b.URL)
-	if !watching {
+	switch {
+	case watching:
+	case revision != "":
+		fmt.Fprintf(o.W, "  revision %s is checked when the build starts: bam watch %s\n", revision, b.Key)
+	default:
 		fmt.Fprintf(o.W, "  watch: bam watch %s\n", b.Key)
 	}
+}
+
+// RevisionNotBuilt follows the result of a watched build that Bamboo could
+// not build at the chosen revision.
+func RevisionNotBuilt(o Out, revision string) {
+	fmt.Fprintf(o.W, "Bamboo could not build revision %s\n", revision)
 }
 
 // Result prints the final line of a watched build and, unless it passed, what to do next.
