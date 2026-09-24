@@ -1,0 +1,10 @@
+{
+  "buildNumber": 15,
+  "buildResultKey": "LAB-SPECS-15",
+  "link": {
+    "href": "http://bamboo.example.com/rest/api/latest/result/LAB-SPECS-15",
+    "rel": "self"
+  },
+  "planKey": "LAB-SPECS",
+  "triggerReason": "Custom revision build"
+}
