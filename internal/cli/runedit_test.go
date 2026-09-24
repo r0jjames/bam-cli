@@ -217,3 +217,10 @@ func TestRunEditNeverShowsASecretPassedAsVar(t *testing.T) {
 	require.Len(t, h.fake.Triggered, 1)
 	assert.Equal(t, "hunter2", h.fake.Triggered[0].Variables["db_password"], "the value passed with --var is still sent")
 }
+
+func TestRunEditHeaderNamesTheRevision(t *testing.T) {
+	h := editHarness(t, keepBuffer)
+	assert.Equal(t, 0, h.run("run", "provision-lab", "--edit", "--revision", "abc1234", "--var", "cluster_name=a", "--dry-run"))
+	require.Len(t, h.editorSeen, 1)
+	assert.Contains(t, h.editorSeen[0], "· revision abc1234 · server ")
+}
