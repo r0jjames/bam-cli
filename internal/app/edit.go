@@ -124,6 +124,9 @@ func EditBuffer(ref PlanRef, opened VarSet, getenv func(string) string, server s
 	} else {
 		head = append(head, "default branch")
 	}
+	if ref.Revision != "" {
+		head = append(head, "revision "+ref.Revision)
+	}
 	head = append(head, "server "+server)
 	action := "run"
 	if dryRun {

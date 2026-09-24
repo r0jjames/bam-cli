@@ -223,3 +223,13 @@ func TestParseEditsAbortsOnAnEmptyBuffer(t *testing.T) {
 		assert.Empty(t, problems)
 	}
 }
+
+func TestEditBufferHeaderNamesTheRevision(t *testing.T) {
+	ref := PlanRef{PlanKey: "PROJ-BUILD", MasterKey: "PROJ-BUILD", Revision: "abc1234"}
+	got := string(EditBuffer(ref, VarSet{}, func(string) string { return "" }, "lab", false, nil))
+	assert.Contains(t, got, "# bam run PROJ-BUILD · default branch · revision abc1234 · server lab\n")
+
+	ref.Revision = ""
+	got = string(EditBuffer(ref, VarSet{}, func(string) string { return "" }, "lab", false, nil))
+	assert.NotContains(t, got, "revision")
+}
