@@ -81,7 +81,7 @@ Adoption path: the author first, on a personal Bamboo and a work Bamboo; then wo
 ### Then (v0.3)
 
 - Duration estimate and progress bar from Bamboo's own progress endpoint, in both the commands and the UI.
-- `run --edit`, `run --revision`, `run --verbose` (the last two once the capability probe confirms REST support).
+- `run --edit`, and `run --revision` to build a chosen commit (Bamboo's REST queue takes `customRevision`; confirmed on Bamboo 12.1.8).
 - `bam target sync` to refresh a preset when the plan's variables change.
 
 ### Future
@@ -95,6 +95,7 @@ Adoption path: the author first, on a personal Bamboo and a work Bamboo; then wo
 - Replacing the Bamboo web UI, or exposing every REST endpoint.
 - Bamboo administration, plan creation or plan editing. Bamboo Specs stay in each project's own repository.
 - Bamboo deployment projects (environments and releases).
+- `run --verbose` (verbose build logs). Bamboo's REST build queue has no verbose-logs parameter; only the deployment queue has `verboseLogging` (confirmed on Bamboo 12.1.8), and deployments are out of scope.
 - Running builds locally, or running Terraform, Ansible, Helm or kubectl directly.
 - Bamboo Server, and Bamboo Data Center before 9.x.
 - HTTP basic authentication.
