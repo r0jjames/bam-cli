@@ -27,6 +27,7 @@ type MachineFile struct {
 	Repos         map[string]Repo   `yaml:"repos,omitempty"`
 	Color         string            `yaml:"color,omitempty"`
 	Pager         string            `yaml:"pager,omitempty"`
+	Editor        string            `yaml:"editor,omitempty"`
 }
 
 type Server struct {

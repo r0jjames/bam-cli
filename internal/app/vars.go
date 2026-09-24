@@ -24,7 +24,7 @@ func IsSecretName(name string) bool { return config.IsMaskedName(name) }
 type ResolvedVar struct {
 	Name      string
 	Value     string // never print directly; use Display
-	Source    string // plan | target | from #N | flag | env
+	Source    string // plan | target | from #N | flag | edit | env
 	Secret    bool
 	Declared  bool
 	PlanValue string
@@ -200,10 +200,38 @@ func (s *Service) VarBase(ctx context.Context, ref PlanRef, from string) (VarSet
 	return set, nil
 }
 
+// Edit is one variable changed in bam run --edit's editor.
+type Edit struct{ Name, Value string }
+
 // ValidateVars applies the rules to already-fetched values: the --var flags,
 // ${ENV} resolution, required names and allowed values. It touches no
 // network and no clock, so the terminal UI calls it on every keystroke.
 func ValidateVars(ref PlanRef, base VarSet, flags []string, getenv func(string) string) (VarSet, error) {
+	return ValidateEdited(ref, base, flags, nil, getenv)
+}
+
+// ApplyVars applies the --var flags to base and checks no rule. It is the set
+// bam run --edit opens the editor on: a required name still empty or an
+// unset ${ENV} is shown there, not refused. Only --var syntax fails.
+func ApplyVars(ref PlanRef, base VarSet, flags []string) (VarSet, error) {
+	return applyInputs(ref, base, flags, nil)
+}
+
+// ValidateEdited is ValidateVars with the editor's changes applied last:
+// plan < target < --from < --var < edit. An edited value of exactly ${NAME}
+// is read from the environment like a target default.
+func ValidateEdited(ref PlanRef, base VarSet, flags []string, edits []Edit, getenv func(string) string) (VarSet, error) {
+	set, err := applyInputs(ref, base, flags, edits)
+	if err != nil {
+		return VarSet{}, err
+	}
+	return checkRules(ref, set, getenv)
+}
+
+// applyInputs lays the flags, then the edits, over base and warns about
+// names the plan does not declare. An edited name already warned about as a
+// flag is not warned about twice.
+func applyInputs(ref PlanRef, base VarSet, flags []string, edits []Edit) (VarSet, error) {
 	set := VarSet{FromBuild: base.FromBuild, DeclaredKnown: base.DeclaredKnown, Declared: base.Declared}
 	set.Warnings = append(set.Warnings, base.Warnings...)
 
@@ -228,39 +256,65 @@ func ValidateVars(ref PlanRef, base VarSet, flags []string, getenv func(string) 
 		_, ok := t.Defaults[name]
 		return ok
 	}
+	warned := map[string]bool{}
+	warnUndeclared := func(name string) {
+		if !set.DeclaredKnown || base.Declared[name] || inTarget(name) {
+			return
+		}
+		warned[name] = true
+		w := fmt.Sprintf("%s is not a declared variable of %s", name, ref.MasterKey)
+		if c := Closest(name, sortedNames(base.Declared), 1); len(c) > 0 {
+			w += "; did you mean " + c[0] + "?"
+		}
+		set.Warnings = append(set.Warnings, w)
+	}
 
 	for _, f := range flags {
 		name, val, ok := strings.Cut(f, "=")
 		if !ok || name == "" {
 			return VarSet{}, errs.Usagef("--var takes name=value, not %q", f)
 		}
-		if set.DeclaredKnown && !base.Declared[name] && !inTarget(name) {
-			w := fmt.Sprintf("%s is not a declared variable of %s", name, ref.MasterKey)
-			if c := Closest(name, sortedNames(base.Declared), 1); len(c) > 0 {
-				w += "; did you mean " + c[0] + "?"
-			}
-			set.Warnings = append(set.Warnings, w)
-		}
+		warnUndeclared(name)
 		v := get(name)
 		v.Value, v.Source = val, "flag"
 	}
+	for _, e := range edits {
+		if !warned[e.Name] {
+			warnUndeclared(e.Name)
+		}
+		v := get(e.Name)
+		v.Value, v.Source = e.Value, "edit"
+	}
 
-	names := sortedNames(vars)
-	for _, name := range names {
-		v := vars[name]
-		if v.Source != "target" {
+	for _, name := range sortedNames(vars) {
+		set.Vars = append(set.Vars, *vars[name])
+	}
+	return set, nil
+}
+
+// checkRules resolves ${ENV} values of target defaults and edits, then
+// enforces required names and allowed values. set is not modified.
+func checkRules(ref PlanRef, set VarSet, getenv func(string) string) (VarSet, error) {
+	out := set
+	out.Vars = append([]ResolvedVar(nil), set.Vars...)
+	vars := map[string]*ResolvedVar{}
+	// Vars is sorted by name, so errors come in the same order as before.
+	for i := range out.Vars {
+		v := &out.Vars[i]
+		vars[v.Name] = v
+		if v.Source != "target" && v.Source != "edit" {
 			continue
 		}
 		if envName, ok := config.EnvRef(v.Value); ok {
 			val := getenv(envName)
 			if val == "" {
-				return VarSet{}, errs.Usagef("variable %s needs environment variable %s, which is not set", name, envName).
-					WithTry(fmt.Sprintf("export %s=..., or pass --var %s=VALUE", envName, name))
+				return VarSet{}, errs.Usagef("variable %s needs environment variable %s, which is not set", v.Name, envName).
+					WithTry(fmt.Sprintf("export %s=..., or pass --var %s=VALUE", envName, v.Name))
 			}
 			v.Value, v.Source, v.Secret = val, "env", true
 		}
 	}
-	if t != nil {
+	if t := ref.Target; t != nil {
 		for _, name := range t.Required {
 			if v, ok := vars[name]; !ok || v.Value == "" {
 				return VarSet{}, errs.Usagef("%s is required by target %s", name, t.Name).
@@ -278,11 +332,7 @@ func ValidateVars(ref PlanRef, base VarSet, flags []string, getenv func(string) 
 			}
 		}
 	}
-
-	for _, name := range names {
-		set.Vars = append(set.Vars, *vars[name])
-	}
-	return set, nil
+	return out, nil
 }
 
 // VarRow is one line of bam plan vars.

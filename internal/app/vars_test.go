@@ -277,3 +277,113 @@ func TestVarBaseMarksAnEnvRefTargetDefaultSecret(t *testing.T) {
 	assert.False(t, ct.Secret)
 	assert.Equal(t, "dcos", ct.Display())
 }
+
+func emptyEnv(string) string { return "" }
+
+// TestApplyVarsChecksNoRules: the edit buffer opens on this set, so an empty
+// required name and an unset ${ENV} must not be errors here.
+func TestApplyVarsChecksNoRules(t *testing.T) {
+	tgt := config.ResolvedTarget{Name: "provision-lab", Target: config.Target{
+		Required: []string{"cluster_name"},
+		Defaults: config.StringMap{"token": "${LAB_TOKEN}"},
+	}}
+	ref := PlanRef{PlanKey: "PROJ-PROV", MasterKey: "PROJ-PROV", Target: &tgt}
+	base := VarSet{DeclaredKnown: true, Declared: map[string]bool{"cluster_type": true},
+		Vars: []ResolvedVar{
+			{Name: "cluster_type", Value: "k8s", PlanValue: "k8s", Source: "plan", Declared: true},
+			{Name: "token", Value: "${LAB_TOKEN}", Source: "target", Secret: true},
+		}}
+
+	got, err := ApplyVars(ref, base, []string{"cluster_type=dcos"})
+	require.NoError(t, err)
+	ct, _ := got.Get("cluster_type")
+	assert.Equal(t, "dcos", ct.Value)
+	assert.Equal(t, "flag", ct.Source)
+	tok, _ := got.Get("token")
+	assert.Equal(t, "${LAB_TOKEN}", tok.Value, "ApplyVars resolves nothing")
+
+	_, err = ApplyVars(ref, base, []string{"novalue"})
+	require.Error(t, err)
+	assert.Equal(t, errs.KindUsage, errs.KindOf(err))
+}
+
+func TestValidateEditedAnEditBeatsAFlag(t *testing.T) {
+	ref := PlanRef{PlanKey: "PROJ-PROV", MasterKey: "PROJ-PROV"}
+	base := VarSet{DeclaredKnown: true, Declared: map[string]bool{"cluster_name": true},
+		Vars: []ResolvedVar{{Name: "cluster_name", Source: "plan", Declared: true}}}
+
+	got, err := ValidateEdited(ref, base, []string{"cluster_name=alpha"},
+		[]Edit{{Name: "cluster_name", Value: "beta"}}, emptyEnv)
+	require.NoError(t, err)
+	v, _ := got.Get("cluster_name")
+	assert.Equal(t, "beta", v.Value)
+	assert.Equal(t, "edit", v.Source)
+	assert.Equal(t, map[string]string{"cluster_name": "beta"}, got.Changed())
+}
+
+func TestValidateEditedResolvesAnEditedEnvReference(t *testing.T) {
+	ref := PlanRef{PlanKey: "PROJ-PROV", MasterKey: "PROJ-PROV"}
+	base := VarSet{DeclaredKnown: true, Declared: map[string]bool{"token": true},
+		Vars: []ResolvedVar{{Name: "token", Source: "plan", Declared: true}}}
+	env := func(k string) string {
+		if k == "LAB_TOKEN" {
+			return "s3cret"
+		}
+		return ""
+	}
+
+	got, err := ValidateEdited(ref, base, nil, []Edit{{Name: "token", Value: "${LAB_TOKEN}"}}, env)
+	require.NoError(t, err)
+	tok, _ := got.Get("token")
+	assert.Equal(t, "s3cret", tok.Value)
+	assert.Equal(t, "env", tok.Source)
+	assert.True(t, tok.Secret, "a value read from the environment is secret")
+
+	_, err = ValidateEdited(ref, base, nil, []Edit{{Name: "token", Value: "${LAB_TOKEN}"}}, emptyEnv)
+	require.Error(t, err)
+	assert.Equal(t, errs.KindUsage, errs.KindOf(err))
+	assert.Contains(t, err.Error(), "LAB_TOKEN")
+}
+
+// TestValidateEditedLeavesAFlagEnvReferenceLiteral pins today's --var
+// behaviour: the shell expands references, bam does not.
+func TestValidateEditedLeavesAFlagEnvReferenceLiteral(t *testing.T) {
+	ref := PlanRef{PlanKey: "PROJ-PROV", MasterKey: "PROJ-PROV"}
+	base := VarSet{DeclaredKnown: true, Declared: map[string]bool{"token": true},
+		Vars: []ResolvedVar{{Name: "token", Source: "plan", Declared: true}}}
+	got, err := ValidateEdited(ref, base, []string{"token=${LAB_TOKEN}"}, nil, emptyEnv)
+	require.NoError(t, err)
+	tok, _ := got.Get("token")
+	assert.Equal(t, "${LAB_TOKEN}", tok.Value)
+	assert.Equal(t, "flag", tok.Source)
+}
+
+func TestValidateEditedAppliesTheRulesToEdits(t *testing.T) {
+	tgt := config.ResolvedTarget{Name: "provision-lab", Target: config.Target{
+		Required: []string{"cluster_name"},
+		Options:  config.StringListMap{"cluster_type": {"k8s", "dcos"}},
+	}}
+	ref := PlanRef{PlanKey: "PROJ-PROV", MasterKey: "PROJ-PROV", Target: &tgt}
+	base := VarSet{DeclaredKnown: true, Declared: map[string]bool{"cluster_name": true, "cluster_type": true}}
+
+	_, err := ValidateEdited(ref, base, []string{"cluster_name=a"}, []Edit{{Name: "cluster_type", Value: "swarm"}}, emptyEnv)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `cluster_type="swarm" is not allowed by target provision-lab`)
+
+	_, err = ValidateEdited(ref, base, []string{"cluster_name=a"}, []Edit{{Name: "cluster_name", Value: ""}}, emptyEnv)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cluster_name is required by target provision-lab")
+}
+
+func TestValidateEditedWarnsOnceForAnUndeclaredName(t *testing.T) {
+	ref := PlanRef{PlanKey: "PROJ-PROV", MasterKey: "PROJ-PROV"}
+	base := VarSet{DeclaredKnown: true, Declared: map[string]bool{"cluster_name": true}}
+
+	got, err := ValidateEdited(ref, base, []string{"clustr_name=a"},
+		[]Edit{{Name: "clustr_name", Value: "b"}, {Name: "extra", Value: "x"}}, emptyEnv)
+	require.NoError(t, err)
+	require.Len(t, got.Warnings, 2, "clustr_name was already warned about as a --var")
+	assert.Contains(t, got.Warnings[0], "clustr_name is not a declared variable of PROJ-PROV")
+	assert.Contains(t, got.Warnings[1], "extra is not a declared variable of PROJ-PROV")
+	assert.Equal(t, "b", got.Changed()["clustr_name"])
+}
