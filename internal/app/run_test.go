@@ -236,6 +236,7 @@ func TestRunDoesNotRetryAStopThatCannotWork(t *testing.T) {
 	require.ErrorAs(t, err, &e)
 	assert.Equal(t, "Bamboo ignored the revision; PROJ-BUILD-46 is building the newest commit", e.What)
 	assert.Len(t, p.Stopped, 1)
+	assert.True(t, errors.Is(err, errs.ErrUnsupported), "the stop's cause must still be visible, e.g. for --debug")
 }
 
 // Without a revision, an unsupported error from Trigger is an ordinary failure.

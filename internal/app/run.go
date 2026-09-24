@@ -59,7 +59,8 @@ func (s *Service) stopIgnoredRevision(ctx context.Context, key string) error {
 	if err != nil {
 		return errs.Bamboof("Bamboo ignored the revision; %s is building the newest commit", key).
 			WithWhy("this Bamboo does not support building a chosen revision over REST").
-			WithTry("bam build cancel " + key)
+			WithTry("bam build cancel " + key).
+			Wrap(err)
 	}
 	return errs.Bamboof("Bamboo ignored the revision; %s was stopped", key).
 		WithWhy("this Bamboo does not support building a chosen revision over REST").
