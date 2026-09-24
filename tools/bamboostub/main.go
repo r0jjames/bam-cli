@@ -221,9 +221,16 @@ func (s *stub) handleQueue(w http.ResponseWriter, r *http.Request) {
 		s.live[resultKey] = &build{planKey: key, number: num, started: s.now()}
 		s.mu.Unlock()
 		log.Printf("trigger %s with %d variables", resultKey, len(r.PostForm))
+		// A real Bamboo Data Center reports "Custom revision build" only
+		// when it honored customRevision; bam.Client.Trigger stops any
+		// build queued with a revision whose reason says otherwise.
+		reason := "Manual build"
+		if r.URL.Query().Get("customRevision") != "" {
+			reason = "Custom revision build"
+		}
 		out, _ := json.Marshal(map[string]any{
 			"planKey": key, "buildNumber": num, "buildResultKey": resultKey,
-			"triggerReason": "Manual build",
+			"triggerReason": reason,
 		})
 		writeJSON(w, out)
 	case http.MethodDelete:

@@ -101,6 +101,20 @@ func TestTriggeredBuildRunsToSuccess(t *testing.T) {
 	assert.False(t, got.FinishedAt.IsZero())
 }
 
+// TestTriggerWithARevisionReportsCustomRevisionBuild: bam.Client.Trigger
+// treats any trigger reason other than "Custom revision build" as Bamboo
+// having ignored the revision and stops the build it just queued. The stub
+// must answer the reason a real Bamboo Data Center gives when customRevision
+// is honored, or `bam run --revision` against the local stub always fails.
+func TestTriggerWithARevisionReportsCustomRevisionBuild(t *testing.T) {
+	_, c := testStub(t)
+	ctx := context.Background()
+
+	b, err := c.Trigger(ctx, provider.TriggerRequest{PlanKey: "PROJ-BUILD", Revision: "abc1234"})
+	require.NoError(t, err)
+	assert.Equal(t, provider.StateQueued, b.State)
+}
+
 func TestCancelledBuildReportsStopped(t *testing.T) {
 	_, c := testStub(t)
 	ctx := context.Background()
