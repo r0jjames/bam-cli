@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -140,4 +141,38 @@ func TestHelpListsTheCommands(t *testing.T) {
 	for _, r := range commandHelpRows() {
 		require.Contains(t, v, r.Keys)
 	}
+}
+
+// TestACommandErrorClearsOnTheNextCommand: a mistyped command's error must
+// not outlive the next command the user runs.
+func TestACommandErrorClearsOnTheNextCommand(t *testing.T) {
+	m, _ := runCmdLine(homeModel(), "p")
+	require.Error(t, m.err)
+	m, _ = runCmdLine(m, "presets")
+	require.NoError(t, m.err, "a successful command clears the error of the one before")
+
+	m, _ = runCmdLine(homeModel(), "frobnicate")
+	require.Error(t, m.err)
+	m, _ = send(m, mkKey(":"))
+	require.NoError(t, m.err, "opening the prompt again clears it, so the prompt line is not fighting an old error")
+}
+
+// TestACommandNeverClearsAnotherError: only the command bar's own errors are
+// its to clear.
+func TestACommandNeverClearsAnotherError(t *testing.T) {
+	m := homeModel()
+	m, _ = send(m, errMsg{Err: errors.New("bamboo returned 500"), Stream: streamCancel, Gen: m.cancelGen})
+	m, _ = runCmdLine(m, "presets")
+	require.EqualError(t, m.err, "bamboo returned 500")
+}
+
+// TestAPastedChunkActsLikeTypedKeys: a terminal may deliver several typed
+// characters as one message; they must act as the keys they are.
+func TestAPastedChunkActsLikeTypedKeys(t *testing.T) {
+	m, _ := send(homeModel(), mkKey("/fail"))
+	require.Equal(t, inputFilter, m.inputFor)
+	require.Equal(t, "fail", m.input.Value())
+
+	m, _ = send(homeModel(), mkKey("ss"))
+	require.Equal(t, homeSort{col: colState}, m.home.sort)
 }

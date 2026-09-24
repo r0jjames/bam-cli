@@ -77,6 +77,7 @@ func (m Model) startCommand() (tea.Model, tea.Cmd) {
 	if m.screen != screenHome && m.screen != screenColumns {
 		return m, nil
 	}
+	m.clearCmdErr()
 	m.inputFor = inputCommand
 	m.input.SetValue("")
 	m.input.Prompt = ":"
@@ -91,6 +92,7 @@ func (m Model) runCommandLine(line string) (tea.Model, tea.Cmd) {
 	if len(fields) == 0 {
 		return m, nil
 	}
+	m.clearCmdErr()
 	c, err := findCommand(fields[0])
 	if err == nil {
 		arg := strings.Join(fields[1:], " ")
@@ -108,7 +110,16 @@ func (m Model) runCommandLine(line string) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.err = errs.Usagef("%s", err.Error())
+	m.cmdErr, m.home.plansErr = true, false
 	return m, nil
+}
+
+// clearCmdErr drops an error the : bar itself set, so a mistyped command
+// does not linger after the next one. Errors from anywhere else stay.
+func (m *Model) clearCmdErr() {
+	if m.cmdErr {
+		m.err, m.cmdErr = nil, false
+	}
 }
 
 func (m Model) commandProject(arg string) (tea.Model, tea.Cmd, error) {

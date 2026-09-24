@@ -605,9 +605,9 @@ func (m Model) homeHeader() string {
 			project = "all (none configured)"
 		}
 	}
-	count, sortLabel, query := fmt.Sprintf("%d plans", m.plans.len()), m.home.sort.label(homePlans), m.plans.query
+	count, sortLabel, query := countOf(m.plans.len(), "plan"), m.home.sort.label(homePlans), m.plans.query
 	if m.home.view == homePresets {
-		count, sortLabel, query = fmt.Sprintf("%d presets", m.presets.len()), m.home.presetSort.label(homePresets), m.presets.query
+		count, sortLabel, query = countOf(m.presets.len(), "preset"), m.home.presetSort.label(homePresets), m.presets.query
 	}
 	parts := []string{"bam", m.server, m.info.Version, m.user.Name, "project " + project,
 		count, "sort " + sortLabel}
@@ -657,4 +657,12 @@ func (m Model) homeView() string {
 	}
 	out = append(out, m.statusBar(m.width))
 	return m.overlayView(strings.Join(out, "\n"))
+}
+
+// countOf is "1 plan", "3 plans": the header's row count.
+func countOf(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }

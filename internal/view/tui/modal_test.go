@@ -285,3 +285,29 @@ func TestHelpFitsWholeOnATallTerminal(t *testing.T) {
 		require.Contains(t, v, row.Keys)
 	}
 }
+
+// TestErrorOverlayWrapsALongWhy: the reason is the useful part of an error,
+// so a long one wraps rather than being cut at the box's edge.
+func TestErrorOverlayWrapsALongWhy(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.err = errs.Bamboof("could not start build of PROJ-SPECS").
+		WithWhy("Change detection ignored for plan PROJ-SPECS, plan is suspended from building as Bamboo could not find a license for this instance.")
+	m, _ = send(m, mkKey("e"))
+	v := m.View()
+	require.Contains(t, v, "suspended from")
+	require.Contains(t, v, "license for this")
+}
+
+// TestEOpensTheErrorInTheRunForm: a failed trigger leaves the user in the
+// form, so the form must let them read why.
+func TestEOpensTheErrorInTheRunForm(t *testing.T) {
+	for _, fields := range [][]formField{nil, {{Name: "cluster_name", Value: "lab1"}}} {
+		m := goldenModel(80, 24)
+		m.screen = screenForm
+		m.form = formState{fields: fields}
+		m.err = errs.Bamboof("could not start build of PROJ-SPECS").WithWhy("no license")
+		m, _ = send(m, mkKey("e"))
+		require.Equal(t, overlayError, m.overlay, "fields=%d", len(fields))
+		require.Contains(t, m.View(), "no license")
+	}
+}

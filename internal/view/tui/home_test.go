@@ -435,3 +435,11 @@ func TestHomeGoldenPresets120x30(t *testing.T) {
 	m.user = provider.User{Name: "jdoe"}
 	requireGolden(t, "home-presets-120x30", m.View())
 }
+
+func TestTheHeaderCountsOnePlanInTheSingular(t *testing.T) {
+	m := homeModel()
+	m.applyFilter("fail")
+	require.Contains(t, m.homeHeader(), "· 1 plan ·")
+	m.applyFilter("")
+	require.Contains(t, m.homeHeader(), "· 4 plans ·")
+}

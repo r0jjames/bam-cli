@@ -134,7 +134,10 @@ type Model struct {
 
 	now func() time.Time
 
-	err    error
+	err error
+	// cmdErr marks err as the : bar's own mistake, which the next command
+	// clears; an error from anywhere else is not the bar's to clear.
+	cmdErr bool
 	status string
 
 	home homeState
@@ -439,6 +442,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// stream, so a later successful plans load knows whether it is the
 		// one that gets to clear it (finding 5).
 		m.home.plansErr = msg.Stream == streamPlans
+		m.cmdErr = false
 		if msg.Stream == streamPlans {
 			m.home.stale = true
 		}
@@ -449,6 +453,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleKey notes the key for Home's idle cut-off, then dispatches it.
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// A terminal may deliver several typed characters in one message (a fast
+	// typist over ssh, a paste outside bracketed paste). Outside a text field
+	// they are keys, so each one is handled on its own, in order; once one of
+	// them opens a field, the rest become its text.
+	if msg.Type == tea.KeyRunes && !msg.Paste && len(msg.Runes) > 1 && m.inputFor == inputNone && !m.form.editing {
+		var next tea.Model = m
+		var cmds []tea.Cmd
+		for _, r := range msg.Runes {
+			var cmd tea.Cmd
+			next, cmd = next.(Model).handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}, Alt: msg.Alt})
+			cmds = append(cmds, cmd)
+		}
+		return next, tea.Batch(cmds...)
+	}
 	resume := m.noteKey()
 	next, cmd := m.dispatchKey(msg)
 	if resume == nil {
@@ -1217,6 +1235,8 @@ func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.DryRun):
 			m.overlay = overlayDryRun
 			return m, nil
+		case key.Matches(msg, keys.ExpandErr):
+			return m.expandErr()
 		}
 		return m, nil
 	}
@@ -1234,6 +1254,8 @@ func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.DryRun):
 		m.overlay = overlayDryRun
 		return m, nil
+	case key.Matches(msg, keys.ExpandErr):
+		return m.expandErr()
 	case key.Matches(msg, keys.Enter), key.Matches(msg, keys.CycleOption):
 		if len(m.form.fields[m.form.cursor].Options) > 0 {
 			m.form.cycle(1)
@@ -1488,4 +1510,15 @@ func (m Model) columnsView() string {
 			m.leftColumn(lw, body),
 			m.mainPanel(m.width-lw, body)),
 		m.statusBar(m.width)))
+}
+
+// expandErr opens the error overlay on the error the status bar shows: its
+// What, Why and Try. The run form offers it too, because a refused trigger
+// leaves the user in the form with only the What on screen.
+func (m Model) expandErr() (tea.Model, tea.Cmd) {
+	if m.err == nil {
+		return m, nil
+	}
+	m.overlay = overlayError
+	return m, nil
 }
