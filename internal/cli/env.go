@@ -49,6 +49,7 @@ type Env struct {
 	Connect     func(bamboo.Options) (Backend, error)
 	OpenBrowser func(url string) error
 	RunPager    func(cmd string, r io.Reader) error
+	RunEditor   func(cmd string, initial []byte) ([]byte, error)
 	ReadSecret  func() (string, error)
 	// RunTUI opens the terminal UI. It is a field so tests can assert on the
 	// Deps the CLI builds without starting a terminal program.
@@ -100,6 +101,7 @@ func SystemEnv() Env {
 		},
 		OpenBrowser: browser.OpenURL,
 		RunPager:    runPager,
+		RunEditor:   runEditor,
 		ReadSecret: func() (string, error) {
 			b, err := term.ReadPassword(int(os.Stdin.Fd()))
 			return string(b), err

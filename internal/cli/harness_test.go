@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -115,6 +116,11 @@ type harness struct {
 	probe       []bamboo.ProbeResult
 	connectOpts []bamboo.Options
 	tuiRuns     []tui.Deps
+	// editorReplies answers the editor's Nth opening with the Nth function;
+	// editorSeen and editorCmds record every buffer and command it was given.
+	editorReplies []func(in string) (string, error)
+	editorSeen    []string
+	editorCmds    []string
 }
 
 var fixedNow = time.Date(2026, 9, 12, 12, 0, 0, 0, time.UTC)
@@ -180,9 +186,20 @@ func newHarness(t *testing.T) *harness {
 		},
 		OpenBrowser: func(u string) error { h.opened = append(h.opened, u); return nil },
 		RunPager:    func(_ string, r io.Reader) error { _, err := io.Copy(h.stdout, r); return err },
-		ReadSecret:  func() (string, error) { return h.secret, nil },
-		RunTUI:      func(_ context.Context, d tui.Deps) error { h.tuiRuns = append(h.tuiRuns, d); return nil },
-		GOOS:        "linux",
+		RunEditor: func(cmd string, in []byte) ([]byte, error) {
+			h.editorCmds = append(h.editorCmds, cmd)
+			h.editorSeen = append(h.editorSeen, string(in))
+			if len(h.editorReplies) == 0 {
+				return nil, errors.New("harness: the editor opened more often than the test scripted")
+			}
+			next := h.editorReplies[0]
+			h.editorReplies = h.editorReplies[1:]
+			out, err := next(string(in))
+			return []byte(out), err
+		},
+		ReadSecret: func() (string, error) { return h.secret, nil },
+		RunTUI:     func(_ context.Context, d tui.Deps) error { h.tuiRuns = append(h.tuiRuns, d); return nil },
+		GOOS:       "linux",
 	}
 	return h
 }

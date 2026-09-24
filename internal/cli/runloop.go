@@ -40,7 +40,7 @@ func addRunLoop(root *cobra.Command, r *runtime) {
 func newRunCmd(r *runtime) *cobra.Command {
 	var vars []string
 	var from, branch string
-	var watch, dryRun bool
+	var watch, dryRun, edit bool
 	var timeout time.Duration
 	cmd := &cobra.Command{
 		Use:               "run <plan|target>",
@@ -48,6 +48,11 @@ func newRunCmd(r *runtime) *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: r.completeTargets,
 		RunE: r.wrap(func(cmd *cobra.Command, args []string) error {
+			// The editor inherits stdin and stdout; on a pipe it would hang
+			// or write into the pipe. Checked before any config or network.
+			if edit && (!r.env.StdinTTY || !r.env.StdoutTTY) {
+				return errs.Usagef("--edit needs a terminal").WithTry("pass the values with --var")
+			}
 			ctx := cmd.Context()
 			svc, _, err := r.connectFor(ctx, args[0])
 			if err != nil {
@@ -57,8 +62,17 @@ func newRunCmd(r *runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			vs, err := svc.ResolveVars(ctx, ref, app.VarOptions{From: from, Flags: vars})
-			if err != nil {
+			var vs app.VarSet
+			if edit {
+				base, err := svc.VarBase(ctx, ref, from)
+				if err != nil {
+					return err
+				}
+				vs, err = r.editVars(ctx, ref, base, vars, svc.Server.Alias, dryRun)
+				if err != nil {
+					return err
+				}
+			} else if vs, err = svc.ResolveVars(ctx, ref, app.VarOptions{From: from, Flags: vars}); err != nil {
 				return err
 			}
 			view.PrintWarnings(r.env.Stderr, vs.Warnings)
@@ -112,6 +126,7 @@ func newRunCmd(r *runtime) *cobra.Command {
 	f.BoolVar(&watch, "watch", false, "follow the build until it finishes")
 	f.DurationVar(&timeout, "timeout", 0, "stop watching after this long (the build keeps running)")
 	f.BoolVar(&dryRun, "dry-run", false, "resolve and validate variables, trigger nothing")
+	f.BoolVar(&edit, "edit", false, "review and change the variables in $EDITOR before running")
 	_ = cmd.RegisterFlagCompletionFunc("var", r.completeVar)
 	return cmd
 }

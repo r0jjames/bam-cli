@@ -275,6 +275,7 @@ and `bam build cancel` on the command line, stop a build.
 | see a plan's variables and what the last build used | `bam plan vars provision-lab` |
 | run with the previous build's variables | `bam run provision-lab --from last` |
 | check variables without running | `bam run provision-lab --dry-run` |
+| review and change variables in your editor, then run | `bam run provision-lab --edit` |
 | see recent builds | `bam build list provision-lab` |
 | follow a running build | `bam watch --last` |
 | read only the failed jobs' logs | `bam logs --last --failed` |

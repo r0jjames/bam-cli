@@ -121,3 +121,12 @@ func TestLoadRejectsUnknownKey(t *testing.T) {
 	assert.Equal(t, errs.KindConfig, errs.KindOf(err))
 	assert.Contains(t, err.Error(), "servrs")
 }
+
+func TestLoadMachineEditor(t *testing.T) {
+	dir := t.TempDir()
+	machine := filepath.Join(dir, "m.yaml")
+	writeFile(t, machine, "version: 1\npager: less -FRX\neditor: code --wait\n")
+	cfg, err := Load(LoadOptions{WorkDir: dir, Home: dir, MachineFile: machine, Getenv: noEnv})
+	require.NoError(t, err)
+	assert.Equal(t, "code --wait", cfg.Machine.Editor)
+}
