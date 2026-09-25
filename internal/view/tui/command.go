@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -243,11 +244,14 @@ func (m Model) completeInput() Model {
 	return m
 }
 
+// commonPrefix is the longest prefix the candidates share, cut on a rune
+// boundary so tab never leaves half a multi-byte rune in the prompt.
 func commonPrefix(ss []string) string {
 	p := ss[0]
 	for _, s := range ss[1:] {
 		for !strings.HasPrefix(s, p) {
-			p = p[:len(p)-1]
+			_, size := utf8.DecodeLastRuneInString(p)
+			p = p[:len(p)-size]
 		}
 	}
 	return p
