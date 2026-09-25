@@ -29,6 +29,7 @@ type PlanRef struct {
 	PlanKey   string // branch plan key when a branch is chosen, else MasterKey
 	MasterKey string
 	Branch    string // branch short name; empty for the default branch
+	Revision  string // commit to build, set by the caller for one run; ResolvePlan never sets it
 	Target    *config.ResolvedTarget
 }
 

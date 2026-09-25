@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/r0jjames/bam-cli/internal/errs"
 	"github.com/r0jjames/bam-cli/internal/provider"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -185,4 +186,81 @@ func TestHelpListsShortcuts(t *testing.T) {
 	assert.Equal(t, 0, h.run("--help"))
 	assert.Contains(t, h.stdout.String(), "Shortcuts:")
 	assert.Regexp(t, `run\s+Trigger a plan or target`, h.stdout.String())
+}
+
+func TestRunRevisionDryRun(t *testing.T) {
+	h := newHarness(t)
+	assert.Equal(t, 0, h.run("run", "build", "--revision", "abc1234", "--dry-run"))
+	assert.Contains(t, h.stdout.String(), "Revision abc1234\n")
+	assert.Empty(t, h.fake.Triggered)
+
+	h = newHarness(t)
+	assert.Equal(t, 0, h.run("run", "build", "--revision", "abc1234", "--dry-run", "--json"))
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(h.stdout.Bytes(), &doc))
+	assert.Equal(t, "abc1234", doc["revision"])
+}
+
+func TestRunJSONHasAnEmptyRevisionByDefault(t *testing.T) {
+	h := newHarness(t)
+	h.fake.TriggerResult = queuedBuild("PROJ-BUILD-483")
+	assert.Equal(t, 0, h.run("run", "build", "--json"))
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(h.stdout.Bytes(), &doc))
+	assert.Equal(t, "", doc["revision"])
+}
+
+func TestRunRevisionWithoutWatch(t *testing.T) {
+	h := newHarness(t)
+	h.fake.TriggerResult = queuedBuild("PROJ-BUILD-483")
+	assert.Equal(t, 0, h.run("run", "build", "--revision", "abc1234"))
+	require.Len(t, h.fake.Triggered, 1)
+	assert.Equal(t, "abc1234", h.fake.Triggered[0].Revision)
+	assert.Contains(t, h.stdout.String(), "revision abc1234 is checked when the build starts: bam watch PROJ-BUILD-483")
+}
+
+func TestRunRevisionNotBuilt(t *testing.T) {
+	h := newHarness(t)
+	h.fake.TriggerResult = queuedBuild("PROJ-BUILD-483")
+	h.fake.Sequences = map[string][]provider.Build{"PROJ-BUILD-483": {
+		{Key: "PROJ-BUILD-483", State: provider.StateQueued},
+		{Key: "PROJ-BUILD-483", State: provider.StateNotBuilt},
+	}}
+	assert.Equal(t, 1, h.run("run", "build", "--revision", "0000000", "--watch"))
+	out := h.stdout.String()
+	assert.Contains(t, out, "Bamboo could not build revision 0000000\n")
+	assert.Greater(t, strings.Index(out, "Bamboo could not build"), strings.Index(out, "next:"), "after the result and its hints")
+}
+
+func TestRunNotBuiltWithoutRevisionSaysNothingAboutRevisions(t *testing.T) {
+	h := newHarness(t)
+	h.fake.TriggerResult = queuedBuild("PROJ-BUILD-483")
+	h.fake.Sequences = map[string][]provider.Build{"PROJ-BUILD-483": {{Key: "PROJ-BUILD-483", State: provider.StateNotBuilt}}}
+	assert.Equal(t, 1, h.run("run", "build", "--watch"))
+	assert.NotContains(t, h.stdout.String(), "revision")
+}
+
+func TestRunRevisionIgnored(t *testing.T) {
+	for _, asJSON := range []bool{false, true} {
+		h := newHarness(t)
+		h.fake.TriggerResult = queuedBuild("PROJ-BUILD-483")
+		h.fake.TriggerErr = errs.Bamboof("Bamboo ignored the revision").Wrap(errs.ErrUnsupported)
+		args := []string{"run", "build", "--revision", "abc1234"}
+		if asJSON {
+			args = append(args, "--json")
+		}
+		assert.Equal(t, 5, h.run(args...))
+		assert.Contains(t, h.stderr.String(), "Bamboo ignored the revision; PROJ-BUILD-483 was stopped")
+		assert.Equal(t, []string{"PROJ-BUILD-483"}, h.fake.Stopped)
+		if asJSON {
+			assert.Empty(t, h.stdout.String())
+		}
+	}
+}
+
+func TestRunRevisionNeedsAValue(t *testing.T) {
+	h := newHarness(t)
+	assert.Equal(t, 2, h.run("run", "build", "--revision", ""))
+	assert.Contains(t, h.stderr.String(), "--revision needs a value")
+	assert.Empty(t, h.connectOpts, "no network before the check")
 }

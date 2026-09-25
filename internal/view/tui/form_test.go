@@ -195,6 +195,25 @@ func TestFormLoadedFillsTheFields(t *testing.T) {
 	require.Equal(t, "provision-lab", m.form.target)
 }
 
+// TestEnterWhileLoadingIsIgnoredUntilTheFormArrives: onRevision() is true
+// while the form is loading (fields nil, cursor 0), so enter must not start
+// editing the hidden revision input; and once the fields arrive, the earlier
+// enter must not have left editing on to swallow the next real keystroke.
+func TestEnterWhileLoadingIsIgnoredUntilTheFormArrives(t *testing.T) {
+	m := goldenModel(80, 24)
+	m.screen, m.form.loading = screenForm, true
+
+	m, _ = send(m, mkKey("enter"))
+	require.False(t, m.form.editing, "enter while loading must not start editing")
+
+	m, _ = send(m, formLoadedMsg{Gen: m.formGen, Ref: sampleRef(), Target: "provision-lab", Base: sampleBase()})
+	require.False(t, m.form.editing, "the load must not inherit editing from the stray enter")
+	for _, f := range m.form.fields {
+		require.False(t, f.Touched, f.Name+" must not be touched")
+	}
+	require.Equal(t, "", m.form.fields[0].Value, "the first field's value must be unchanged")
+}
+
 func TestStaleFormLoadIsDropped(t *testing.T) {
 	m := formModel()
 	stale := m.formGen
@@ -235,7 +254,7 @@ func TestTabMovesBetweenFields(t *testing.T) {
 	m, _ = send(m, mkKey("shift+tab"))
 	require.Equal(t, 0, m.form.cursor)
 	m, _ = send(m, mkKey("shift+tab"))
-	require.Equal(t, 2, m.form.cursor, "moving back from the first field wraps")
+	require.Equal(t, 3, m.form.cursor, "moving back from the first field wraps to the revision row")
 }
 
 func TestJAndKMoveBetweenFieldsToo(t *testing.T) {
@@ -977,6 +996,98 @@ func TestTheFormSendsExactlyWhatBamRunSends(t *testing.T) {
 	require.Equal(t, want.Changed(), f.stripUntypedMasks(got).Changed())
 	require.Equal(t, "shhh", want.Changed()["token"], "the resolved secret is what goes to Bamboo")
 	require.Equal(t, map[string]bool{"db_password": true, "token": true}, got.Secret())
+}
+
+func TestFormShowsTheRevisionRowLast(t *testing.T) {
+	v := formModel().View()
+	require.Contains(t, v, "revision")
+	require.Contains(t, v, "newest")
+	require.Contains(t, v, "1 of 3 changed", "the revision row is not a variable")
+}
+
+func TestFormCursorReachesTheRevisionRowAndWraps(t *testing.T) {
+	m := formModel()
+	for i := 0; i < 3; i++ {
+		m, _ = send(m, mkKey("j"))
+	}
+	require.True(t, m.form.onRevision())
+	m, _ = send(m, mkKey("j"))
+	require.Equal(t, 0, m.form.cursor, "down from the revision row wraps to the first variable")
+}
+
+func TestFormTypesARevision(t *testing.T) {
+	m := formModel()
+	m.form.cursor = len(m.form.fields)
+	m, _ = send(m, mkKey("enter"))
+	require.True(t, m.form.editing)
+	m, _ = send(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("abc1234")})
+	m, _ = send(m, mkKey("enter"))
+	require.Equal(t, "abc1234", m.form.revision)
+	require.Equal(t, 1, m.changedCount(), "typing a revision changes no variable")
+	require.Contains(t, m.View(), "abc1234")
+}
+
+func TestCtrlRSendsTheRevision(t *testing.T) {
+	m := formModel()
+	m.form.revision = "abc1234"
+	m.revalidate()
+	_, cmd := send(m, tea.KeyMsg{Type: tea.KeyCtrlR})
+	require.NotNil(t, cmd)
+	cmd()
+	f := m.svc.P.(*fake.Provider)
+	require.Len(t, f.Triggered, 1)
+	require.Equal(t, "abc1234", f.Triggered[0].Revision)
+}
+
+func TestDryRunShowsTheRevision(t *testing.T) {
+	m := formModel()
+	m.form.revision = "abc1234"
+	require.Contains(t, m.dryRunBody(60), "revision abc1234")
+}
+
+func TestTheRevisionDoesNotSurviveTheForm(t *testing.T) {
+	m := formModel()
+	m.form.revision = "abc1234"
+	m, _ = send(m, mkKey("esc"))
+	require.NotEqual(t, screenForm, m.screen)
+	require.Equal(t, "", m.form.revision)
+
+	m.screen, m.form.loading = screenForm, true
+	m, _ = send(m, formLoadedMsg{Gen: m.formGen, Ref: sampleRef(), Target: "provision-lab", Base: sampleBase()})
+	require.Equal(t, "", m.form.revision)
+}
+
+func TestAPlanWithNoVariablesCanStillTakeARevision(t *testing.T) {
+	m := formModel()
+	m.form.fields = nil
+	m.form.cursor = 0
+	require.True(t, m.form.onRevision())
+	m, _ = send(m, mkKey("enter"))
+	require.True(t, m.form.editing)
+}
+
+// TestAPlanWithNoVariablesSendsATypedRevision: the only row is Revision, and
+// ctrl-R after typing on it must reach the trigger with that value.
+func TestAPlanWithNoVariablesSendsATypedRevision(t *testing.T) {
+	m := formModel()
+	m.form.base = app.VarSet{DeclaredKnown: true, Declared: map[string]bool{}}
+	m.form.fields = nil
+	m.form.ref.Target = nil
+	m.form.cursor = 0
+	require.True(t, m.form.onRevision())
+
+	m, _ = send(m, mkKey("enter"))
+	require.True(t, m.form.editing)
+	m, _ = send(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("abc1234")})
+	m, _ = send(m, mkKey("enter"))
+	require.Equal(t, "abc1234", m.form.revision)
+
+	_, cmd := send(m, tea.KeyMsg{Type: tea.KeyCtrlR})
+	require.NotNil(t, cmd)
+	cmd()
+	f := m.svc.P.(*fake.Provider)
+	require.Len(t, f.Triggered, 1)
+	require.Equal(t, "abc1234", f.Triggered[0].Revision)
 }
 
 // TestAMaskedReadbackIsNeverSentBack is the one value the form does strip.

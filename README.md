@@ -276,11 +276,14 @@ and `bam build cancel` on the command line, stop a build.
 | run with the previous build's variables | `bam run provision-lab --from last` |
 | check variables without running | `bam run provision-lab --dry-run` |
 | review and change variables in your editor, then run | `bam run provision-lab --edit` |
+| build a chosen commit instead of the newest | `bam run provision-lab --revision abc1234` |
 | see recent builds | `bam build list provision-lab` |
 | follow a running build | `bam watch --last` |
 | read only the failed jobs' logs | `bam logs --last --failed` |
 | stop a build | `bam build cancel --last` |
 | open anything in Bamboo | `bam open PROJ-PLAN-123` |
+
+`--revision` takes a full or short SHA and passes it to Bamboo as given; Bamboo applies it to the plan's default repository. A revision Bamboo cannot build ends as "not built", so add `--watch` to see it. If the server ignores the revision, bam stops the build it queued and exits 5.
 
 Every command has `--help`, and every read command has `--json`. The full reference is in [docs/cli](docs/cli/bam.md).
 

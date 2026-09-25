@@ -176,6 +176,85 @@ func TestStopBuildFallsBackToJobKeys(t *testing.T) {
 	assert.Equal(t, "yes", (*saved)[len(*saved)-1].Stop)
 }
 
+func TestTriggerSendsTheRevisionInTheQuery(t *testing.T) {
+	c, rec := newTestServer(t, map[string]*route{"POST /rest/api/latest/queue/PROJ-BUILD": {fixture: "queue_revision.json"}})
+	b, err := c.Trigger(ctx, provider.TriggerRequest{PlanKey: "PROJ-BUILD", Revision: "abc1234",
+		Variables: map[string]string{"env": "staging"}})
+	require.NoError(t, err)
+	assert.Equal(t, "PROJ-BUILD-46", b.Key)
+
+	r := rec.all()[0]
+	assert.Equal(t, "abc1234", r.URL.Query().Get("customRevision"))
+	assert.Equal(t, "true", r.URL.Query().Get("executeAllStages"))
+	assert.NotContains(t, rec.form[0], "customRevision", "the revision is a query parameter, not a form field")
+	assert.Contains(t, rec.form[0], "bamboo.variable.env=staging")
+}
+
+func TestTriggerWithoutRevisionSendsNone(t *testing.T) {
+	c, rec := newTestServer(t, map[string]*route{"POST /rest/api/latest/queue/PROJ-BUILD": {fixture: "queue.json"}})
+	_, err := c.Trigger(ctx, provider.TriggerRequest{PlanKey: "PROJ-BUILD"})
+	require.NoError(t, err)
+	_, has := rec.all()[0].URL.Query()["customRevision"]
+	assert.False(t, has)
+}
+
+// TestTriggerSendsTheRevisionVerbatim: the value is not checked or trimmed
+// by bam.
+func TestTriggerSendsTheRevisionVerbatim(t *testing.T) {
+	for _, rev := range []string{" abc1234", "v1.2", "main", "a&b=c"} {
+		c, rec := newTestServer(t, map[string]*route{"POST /rest/api/latest/queue/PROJ-BUILD": {fixture: "queue_revision.json"}})
+		_, err := c.Trigger(ctx, provider.TriggerRequest{PlanKey: "PROJ-BUILD", Revision: rev})
+		require.NoError(t, err, rev)
+		assert.Equal(t, rev, rec.all()[0].URL.Query().Get("customRevision"), rev)
+	}
+}
+
+// A server that does not know customRevision ignores it and answers with an
+// ordinary trigger reason; the build is queued at the newest commit.
+func TestTriggerReportsAnIgnoredRevision(t *testing.T) {
+	c, _ := newTestServer(t, map[string]*route{"POST /rest/api/latest/queue/PROJ-BUILD": {fixture: "queue.json"}})
+	b, err := c.Trigger(ctx, provider.TriggerRequest{PlanKey: "PROJ-BUILD", Revision: "abc1234"})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, errs.ErrUnsupported))
+	var e *errs.Error
+	require.ErrorAs(t, err, &e)
+	assert.Equal(t, errs.KindBamboo, e.Kind)
+	assert.Equal(t, "Bamboo ignored the revision", e.What)
+	assert.Equal(t, "PROJ-BUILD-45", b.Key, "the queued build comes back so the caller can stop it")
+	assert.Equal(t, provider.StateQueued, b.State)
+}
+
+func TestRecordedRevisionQueueAnswer(t *testing.T) {
+	for _, f := range []string{"recorded/queue_revision.json", "recorded/queue_revision_short.json", "recorded/queue_revision_invalid.json"} {
+		t.Run(f, func(t *testing.T) {
+			if _, err := os.Stat(filepath.Join("testdata", f)); err != nil {
+				t.Skipf("%s not recorded", f)
+			}
+			c, _ := newTestServer(t, map[string]*route{"POST /rest/api/latest/queue/REC-PLAN": {fixture: f}})
+			b, err := c.Trigger(ctx, provider.TriggerRequest{PlanKey: "REC-PLAN", Revision: "abc1234"})
+			require.NoError(t, err, "%s: Bamboo 12.1.8 took the revision", f)
+			assert.NotEmpty(t, b.Key, f)
+		})
+	}
+}
+
+func TestRecordedInvalidRevisionIsNotBuilt(t *testing.T) {
+	for _, f := range []string{"result_revision_not_built.json", "recorded/result_revision_invalid.json"} {
+		t.Run(f, func(t *testing.T) {
+			if _, err := os.Stat(filepath.Join("testdata", f)); err != nil {
+				t.Skipf("%s not recorded", f)
+			}
+			c, _ := newTestServer(t, map[string]*route{
+				"GET /rest/api/latest/result/REC-PLAN-1?expand=" + buildExpand: {fixture: f},
+			})
+			b, err := c.GetBuild(ctx, "REC-PLAN-1")
+			require.NoError(t, err, f)
+			assert.Equal(t, provider.StateNotBuilt, b.State, f)
+			assert.Empty(t, b.Revisions, f)
+		})
+	}
+}
+
 func TestStopBuildWithNoStoppableJobReportsNotFound(t *testing.T) {
 	detail := `{"key":"PROJ-BUILD-45","lifeCycleState":"Finished","state":"Successful","stages":{"stage":[
 		{"name":"Build","lifeCycleState":"Finished","state":"Successful","results":{"result":[

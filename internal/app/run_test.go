@@ -8,6 +8,7 @@ import (
 
 	"github.com/r0jjames/bam-cli/internal/errs"
 	"github.com/r0jjames/bam-cli/internal/provider"
+	"github.com/r0jjames/bam-cli/internal/provider/fake"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -142,4 +143,109 @@ func TestWatchCancelStopsWatchingButNotTheBuild(t *testing.T) {
 		assert.NotEqual(t, EventDone, e.Type)
 	}
 	assert.Empty(t, p.Stopped, "interrupting a watch never stops the build")
+}
+
+func ignoredRevision(p *fake.Provider) {
+	p.TriggerResult = provider.Build{Key: "PROJ-BUILD-46", Number: 46, State: provider.StateQueued}
+	p.TriggerErr = errs.Bamboof("Bamboo ignored the revision").Wrap(errs.ErrUnsupported)
+}
+
+func notFound() error {
+	return errs.Bamboof("queued or running build not found").Wrap(errs.ErrNotFound)
+}
+
+func TestRunPassesTheRevision(t *testing.T) {
+	p := fakeBamboo()
+	p.TriggerResult = provider.Build{Key: "PROJ-BUILD-46", State: provider.StateQueued}
+	s := newService(t, p)
+	ref, _ := s.ResolvePlan(bg, "PROJ-BUILD", "")
+	ref.Revision = "abc1234"
+	_, err := s.Run(bg, ref, VarSet{})
+	require.NoError(t, err)
+	require.Len(t, p.Triggered, 1)
+	assert.Equal(t, "abc1234", p.Triggered[0].Revision)
+}
+
+func TestRunStopsABuildWhoseRevisionWasIgnored(t *testing.T) {
+	p := fakeBamboo()
+	ignoredRevision(p)
+	s := newService(t, p)
+	ref, _ := s.ResolvePlan(bg, "PROJ-BUILD", "")
+	ref.Revision = "abc1234"
+
+	_, err := s.Run(bg, ref, VarSet{})
+	var e *errs.Error
+	require.ErrorAs(t, err, &e)
+	assert.Equal(t, errs.KindBamboo, e.Kind)
+	assert.Equal(t, "Bamboo ignored the revision; PROJ-BUILD-46 was stopped", e.What)
+	assert.Equal(t, "this Bamboo does not support building a chosen revision over REST", e.Why)
+	assert.Equal(t, "run without --revision, or use Run customised in Bamboo", e.Try)
+	assert.Equal(t, []string{"PROJ-BUILD-46"}, p.Stopped)
+	_, ok, _ := s.State.Last(s.Cfg.RepoRoot)
+	assert.False(t, ok, "a stopped build is not this repository's last build")
+}
+
+// A build that was just queued may have no job to stop yet.
+func TestRunRetriesTheStopWhileTheBuildIsNotFound(t *testing.T) {
+	p := fakeBamboo()
+	ignoredRevision(p)
+	p.StopErrs = []error{notFound(), notFound()}
+	s := newService(t, p)
+	ref, _ := s.ResolvePlan(bg, "PROJ-BUILD", "")
+	ref.Revision = "abc1234"
+
+	_, err := s.Run(bg, ref, VarSet{})
+	var e *errs.Error
+	require.ErrorAs(t, err, &e)
+	assert.Equal(t, "Bamboo ignored the revision; PROJ-BUILD-46 was stopped", e.What)
+	assert.Len(t, p.Stopped, 3)
+}
+
+func TestRunGivesUpStoppingAfterThirtySeconds(t *testing.T) {
+	p := fakeBamboo()
+	ignoredRevision(p)
+	p.StopErr = notFound()
+	s := newService(t, p)
+	ref, _ := s.ResolvePlan(bg, "PROJ-BUILD", "")
+	ref.Revision = "abc1234"
+	start := s.Clock.Now()
+
+	_, err := s.Run(bg, ref, VarSet{})
+	var e *errs.Error
+	require.ErrorAs(t, err, &e)
+	assert.Equal(t, "Bamboo ignored the revision; PROJ-BUILD-46 is building the newest commit", e.What)
+	assert.Equal(t, "bam build cancel PROJ-BUILD-46", e.Try)
+	assert.Equal(t, 30*time.Second, s.Clock.Now().Sub(start))
+	assert.Len(t, p.Stopped, 16, "one try at once, then one every 2s for 30s")
+	_, ok, _ := s.State.Last(s.Cfg.RepoRoot)
+	assert.False(t, ok)
+}
+
+// TestRunDoesNotRetryAStopThatCannotWork: only "not found" is worth waiting
+// for; an unsupported stop fails once, immediately.
+func TestRunDoesNotRetryAStopThatCannotWork(t *testing.T) {
+	p := fakeBamboo()
+	ignoredRevision(p)
+	p.StopErr = errs.Bamboof("stopping builds is not supported").Wrap(errs.ErrUnsupported)
+	s := newService(t, p)
+	ref, _ := s.ResolvePlan(bg, "PROJ-BUILD", "")
+	ref.Revision = "abc1234"
+
+	_, err := s.Run(bg, ref, VarSet{})
+	var e *errs.Error
+	require.ErrorAs(t, err, &e)
+	assert.Equal(t, "Bamboo ignored the revision; PROJ-BUILD-46 is building the newest commit", e.What)
+	assert.Len(t, p.Stopped, 1)
+	assert.True(t, errors.Is(err, errs.ErrUnsupported), "the stop's cause must still be visible, e.g. for --debug")
+}
+
+// Without a revision, an unsupported error from Trigger is an ordinary failure.
+func TestRunWithoutRevisionDoesNotStopOnUnsupported(t *testing.T) {
+	p := fakeBamboo()
+	ignoredRevision(p)
+	s := newService(t, p)
+	ref, _ := s.ResolvePlan(bg, "PROJ-BUILD", "")
+	_, err := s.Run(bg, ref, VarSet{})
+	require.Error(t, err)
+	assert.Empty(t, p.Stopped)
 }

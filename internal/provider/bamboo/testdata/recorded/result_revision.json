@@ -1,0 +1,269 @@
+{
+  "artifacts": {
+    "max-result": 0,
+    "size": 0,
+    "start-index": 0
+  },
+  "buildCompletedDate": "2026-09-24T17:39:34.073Z",
+  "buildCompletedTime": "2026-09-24T17:39:34.073Z",
+  "buildDuration": 9447,
+  "buildDurationDescription": "9 seconds",
+  "buildDurationInSeconds": 9,
+  "buildNumber": 17,
+  "buildReason": "Custom build by \u003ca href=\"http://bamboo.example.com/browse/user/jdoe\"\u003ejdoe\u003c/a\u003e\u0026nbsp;with revision \u003ca href=\"http://bamboo.example.com/browse/LAB-SPECS-17#changesSummary\"\u003e9b30b9aba03a4f45881629b03531006b89c1e0e7\u003c/a\u003e",
+  "buildRelativeTime": "1 second ago",
+  "buildResultKey": "LAB-SPECS-17",
+  "buildStartedTime": "2026-09-24T17:39:24.394Z",
+  "buildState": "Successful",
+  "buildTestSummary": "No tests found",
+  "changes": {
+    "max-result": 1,
+    "size": 1,
+    "start-index": 0
+  },
+  "comments": {
+    "max-result": 0,
+    "size": 0,
+    "start-index": 0
+  },
+  "continuable": false,
+  "expand": "changes,metadata,plan,vcsRevisions,artifacts,comments,labels,jiraIssues,variables,stages",
+  "failedTestCount": 0,
+  "finished": true,
+  "id": 1867799,
+  "jiraIssues": {
+    "max-result": 0,
+    "size": 0,
+    "start-index": 0
+  },
+  "key": "LAB-SPECS-17",
+  "labels": {
+    "max-result": 0,
+    "size": 0,
+    "start-index": 0
+  },
+  "lifeCycleState": "Finished",
+  "link": {
+    "href": "http://bamboo.example.com/rest/api/latest/result/LAB-SPECS-17",
+    "rel": "self"
+  },
+  "metadata": {
+    "max-result": 4,
+    "size": 4,
+    "start-index": 0
+  },
+  "notRunYet": false,
+  "number": 17,
+  "onceOff": true,
+  "plan": {
+    "enabled": true,
+    "id": 786441,
+    "key": "LAB-SPECS",
+    "link": {
+      "href": "http://bamboo.example.com/rest/api/latest/plan/LAB-SPECS",
+      "rel": "self"
+    },
+    "name": "lab - Publish Specs",
+    "planKey": {
+      "key": "LAB-SPECS"
+    },
+    "shortKey": "SPECS",
+    "shortName": "Publish Specs",
+    "type": "chain"
+  },
+  "planName": "Publish Specs",
+  "planResultKey": {
+    "entityKey": {
+      "key": "LAB-SPECS"
+    },
+    "key": "LAB-SPECS-17",
+    "resultNumber": 17
+  },
+  "prettyBuildCompletedTime": "Thu, 24 Sep, 05:39 PM",
+  "prettyBuildStartedTime": "Thu, 24 Sep, 05:39 PM",
+  "projectName": "lab",
+  "quarantinedTestCount": 0,
+  "reasonSummary": "Custom build by \u003ca href=\"http://bamboo.example.com/browse/user/jdoe\"\u003ejdoe\u003c/a\u003e\u0026nbsp;with revision \u003ca href=\"http://bamboo.example.com/browse/LAB-SPECS-17#changesSummary\"\u003e9b30b9aba03a4f45881629b03531006b89c1e0e7\u003c/a\u003e",
+  "restartable": false,
+  "skippedTestCount": 0,
+  "specsResult": false,
+  "stages": {
+    "expand": "stage",
+    "max-result": 1,
+    "size": 1,
+    "stage": [
+      {
+        "collapsedByDefault": false,
+        "description": "",
+        "displayClass": "Successful",
+        "displayMessage": "1 job passed",
+        "expand": "results",
+        "id": 1900557,
+        "lifeCycleState": "Finished",
+        "manual": false,
+        "name": "Publish",
+        "restartable": false,
+        "results": {
+          "expand": "result",
+          "max-result": 1,
+          "result": [
+            {
+              "artifacts": {
+                "max-result": 1,
+                "size": 1,
+                "start-index": 0
+              },
+              "buildCompletedDate": "2026-09-24T17:39:33.809Z",
+              "buildCompletedTime": "2026-09-24T17:39:33.809Z",
+              "buildDuration": 9422,
+              "buildDurationDescription": "9 seconds",
+              "buildDurationInSeconds": 9,
+              "buildNumber": 17,
+              "buildReason": "Custom revision build",
+              "buildRelativeTime": "1 second ago",
+              "buildResultKey": "LAB-SPECS-PUB-17",
+              "buildStartedTime": "2026-09-24T17:39:24.387Z",
+              "buildState": "Successful",
+              "buildTestSummary": "No tests found",
+              "changes": {
+                "max-result": 1,
+                "size": 1,
+                "start-index": 0
+              },
+              "comments": {
+                "max-result": 0,
+                "size": 0,
+                "start-index": 0
+              },
+              "expand": "changes,testResults,metadata,plan,vcsRevisions,artifacts,comments,labels,jiraIssues,variables,logFiles",
+              "failedTestCount": 0,
+              "id": 1867800,
+              "jiraIssues": {
+                "max-result": 0,
+                "size": 0,
+                "start-index": 0
+              },
+              "key": "LAB-SPECS-PUB-17",
+              "labels": {
+                "max-result": 0,
+                "size": 0,
+                "start-index": 0
+              },
+              "lifeCycleState": "Finished",
+              "link": {
+                "href": "http://bamboo.example.com/rest/api/latest/result/LAB-SPECS-PUB-17",
+                "rel": "self"
+              },
+              "logFiles": [
+                "http://bamboo.example.com/download/LAB-SPECS-PUB/build_logs/plan-786441-PUB-17.log"
+              ],
+              "metadata": {
+                "max-result": 44,
+                "size": 44,
+                "start-index": 0
+              },
+              "number": 17,
+              "onceOff": true,
+              "parent": {
+                "href": "http://bamboo.example.com/rest/api/latest/result/LAB-SPECS-17",
+                "rel": "parent"
+              },
+              "plan": {
+                "enabled": true,
+                "id": 786442,
+                "key": "LAB-SPECS-PUB",
+                "link": {
+                  "href": "http://bamboo.example.com/rest/api/latest/plan/LAB-SPECS-PUB",
+                  "rel": "self"
+                },
+                "name": "lab - Publish Specs - Publish",
+                "planKey": {
+                  "key": "LAB-SPECS-PUB"
+                },
+                "shortKey": "SPECS-PUB",
+                "shortName": "Publish",
+                "type": "job"
+              },
+              "planName": "Publish",
+              "planResultKey": {
+                "entityKey": {
+                  "key": "LAB-SPECS-PUB"
+                },
+                "key": "LAB-SPECS-PUB-17",
+                "resultNumber": 17
+              },
+              "prettyBuildCompletedTime": "Thu, 24 Sep, 05:39 PM",
+              "prettyBuildStartedTime": "Thu, 24 Sep, 05:39 PM",
+              "prettyQueueDuration": "\u003c 1 sec",
+              "prettyQueueStartedTime": "Thu, 24 Sep, 05:39 PM",
+              "prettyVcsUpdateDuration": "---",
+              "prettyVcsUpdateStartedTime": "Thu, 24 Sep, 05:39 PM",
+              "projectName": "lab",
+              "quarantinedTestCount": 0,
+              "queueDuration": 26,
+              "queueStartedTime": "2026-09-24T17:39:24.362Z",
+              "queueTimeInSeconds": 0,
+              "reasonSummary": "Custom build by \u003ca href=\"http://bamboo.example.com/browse/user/jdoe\"\u003ejdoe\u003c/a\u003e\u0026nbsp;with revision \u003ca href=\"http://bamboo.example.com/browse/LAB-SPECS-PUB#changesSummary\"\u003e9b30b9aba03a4f45881629b03531006b89c1e0e7\u003c/a\u003e",
+              "skippedTestCount": 0,
+              "specsResult": false,
+              "stage": "Publish",
+              "state": "Successful",
+              "successfulTestCount": 0,
+              "testResults": {
+                "all": 0,
+                "existingFailed": 0,
+                "failed": 0,
+                "fixed": 0,
+                "newFailed": 0,
+                "quarantined": 0,
+                "skipped": 0,
+                "successful": 0
+              },
+              "variables": {
+                "max-result": 0,
+                "size": 0,
+                "start-index": 0
+              },
+              "vcsRevisionKey": "9b30b9aba03a4f45881629b03531006b89c1e0e7",
+              "vcsRevisions": {
+                "max-result": 1,
+                "size": 1,
+                "start-index": 0
+              },
+              "vcsUpdateDuration": -1,
+              "vcsUpdateInSeconds": 0,
+              "vcsUpdateStartedTime": "2026-09-24T17:39:24.388Z"
+            }
+          ],
+          "size": 1,
+          "start-index": 0
+        },
+        "runnable": false,
+        "state": "Successful"
+      }
+    ],
+    "start-index": 0
+  },
+  "state": "Successful",
+  "successful": true,
+  "successfulTestCount": 0,
+  "variables": {
+    "max-result": 0,
+    "size": 0,
+    "start-index": 0
+  },
+  "vcsRevisionKey": "9b30b9aba03a4f45881629b03531006b89c1e0e7",
+  "vcsRevisions": {
+    "expand": "vcsRevision",
+    "max-result": 1,
+    "size": 1,
+    "start-index": 0,
+    "vcsRevision": [
+      {
+        "repositoryId": 950277,
+        "repositoryName": "lab",
+        "vcsRevisionKey": "9b30b9aba03a4f45881629b03531006b89c1e0e7"
+      }
+    ]
+  }
+}

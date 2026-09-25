@@ -160,6 +160,7 @@ type TriggerRequest struct {
 	PlanKey   string
 	Variables map[string]string
 	Secret    map[string]bool // names whose values must be redacted in logs
+	Revision  string          // commit to build; empty builds the newest
 }
 
 type LogOptions struct {

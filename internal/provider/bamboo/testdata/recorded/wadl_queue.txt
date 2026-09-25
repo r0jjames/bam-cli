@@ -1,0 +1,11 @@
+# queue resource
+POST queue/deployment: environmentId versionId verboseLogging
+GET queue/deployment: expand
+DELETE queue/deployment/{deploymentResultId}
+GET queue
+POST queue/{projectKey : ([^-/]+)}-{buildKey}: stage executeAllStages customRevision
+POST queue/{projectKey : ([^-/]+)}-{buildKey}: stage executeAllStages customRevision
+DELETE queue/{projectKey : ([^-/]+)}-{buildKey}-{buildNumber : ([0-9]+)}
+PUT queue/{projectKey : ([^-/]+)}-{buildKey}-{buildNumber : ([0-9]+)}: stage executeAllStages
+# parameters mentioning verbose
+POST queue/deployment: verboseLogging

@@ -127,6 +127,10 @@ type Model struct {
 	watchCancel context.CancelFunc
 	watchCh     <-chan app.Event
 
+	// revisionRun is the build the form last triggered with a revision, so a
+	// not-built result can say which revision Bamboo could not build.
+	revisionRun struct{ Key, Rev string }
+
 	followCancel context.CancelFunc
 	followLines  <-chan []string
 	followDone   <-chan error
@@ -381,6 +385,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.form.ref, m.form.target, m.form.base = msg.Ref, msg.Target, msg.Base
 		m.form.fields = buildFields(msg.Base, msg.Ref)
 		m.form.cursor = 0
+		// A stray enter struck while loading (now ignored by handleFormKey,
+		// but a stale build or an older session could still reach here with
+		// editing left on) must not carry into the freshly loaded form.
+		m.form.editing = false
+		m.form.input.Blur()
 		m.revalidate()
 		return m, nil
 	case cancelledMsg:
@@ -1000,6 +1009,9 @@ func (m Model) handleWatchEvent(e app.Event) (tea.Model, tea.Cmd) {
 		m.stopWatch()
 		return m, nil
 	case app.EventDone:
+		if e.Build.Key == m.revisionRun.Key && m.revisionRun.Rev != "" && e.Build.State == provider.StateNotBuilt {
+			m.status = "Bamboo could not build revision " + m.revisionRun.Rev
+		}
 		m.stopWatch()
 		if m.svc != nil && m.buildsPlan != "" {
 			return m, m.loadBuilds(m.buildsPlan, false)
@@ -1208,6 +1220,18 @@ func jobByKey(b provider.Build, key string) (provider.Job, bool) {
 // field is being edited every key is a character, so q is a q and ctrl-R
 // cannot be struck by accident.
 func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.form.loading {
+		// Nothing else is safe: fields is nil and cursor is 0, which makes
+		// onRevision() true and would let enter start editing the hidden
+		// revision input before there is a form to edit.
+		switch {
+		case key.Matches(msg, keys.Back):
+			return m.back()
+		case key.Matches(msg, keys.Quit):
+			return m.quit()
+		}
+		return m, nil
+	}
 	if m.form.editing {
 		switch msg.Type {
 		case tea.KeyEsc:
@@ -1221,24 +1245,6 @@ func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.form.input, cmd = m.form.input.Update(msg)
 		return m, cmd
-	}
-	if len(m.form.fields) == 0 {
-		// A plan with no variables is a valid thing to run: an empty VarSet
-		// is what bam run sends for it. Only the field keys are missing.
-		switch {
-		case key.Matches(msg, keys.Back):
-			return m.back()
-		case key.Matches(msg, keys.Quit):
-			return m.quit()
-		case key.Matches(msg, keys.Trigger):
-			return m.trigger()
-		case key.Matches(msg, keys.DryRun):
-			m.overlay = overlayDryRun
-			return m, nil
-		case key.Matches(msg, keys.ExpandErr):
-			return m.expandErr()
-		}
-		return m, nil
 	}
 	switch {
 	case key.Matches(msg, keys.Back):
@@ -1257,7 +1263,7 @@ func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.ExpandErr):
 		return m.expandErr()
 	case key.Matches(msg, keys.Enter), key.Matches(msg, keys.CycleOption):
-		if len(m.form.fields[m.form.cursor].Options) > 0 {
+		if !m.form.onRevision() && len(m.form.fields[m.form.cursor].Options) > 0 {
 			m.form.cycle(1)
 			m.revalidate()
 			return m, nil
@@ -1289,7 +1295,9 @@ func (m Model) trigger() (tea.Model, tea.Cmd) {
 		m.form.err = err
 		return m, nil
 	}
-	return m, runCmd(m.baseCtx(), m.svc, m.form.ref, m.form.stripUntypedMasks(vs), m.formGen)
+	ref := m.form.ref
+	ref.Revision = m.form.revision
+	return m, runCmd(m.baseCtx(), m.svc, ref, m.form.stripUntypedMasks(vs), m.formGen)
 }
 
 // askCancel confirms before stopping a build. Cancelling is the one action
@@ -1320,6 +1328,7 @@ func (m Model) askCancel() (tea.Model, tea.Cmd) {
 // the drill-into-a-build path, so at most one watch still runs.
 func (m Model) openTriggered(b provider.Build) (tea.Model, tea.Cmd) {
 	m.screen = screenColumns
+	m.revisionRun.Key, m.revisionRun.Rev = b.Key, m.form.revision
 	m.form = formState{}
 	m.focus = focusMain
 	m.detail = &b

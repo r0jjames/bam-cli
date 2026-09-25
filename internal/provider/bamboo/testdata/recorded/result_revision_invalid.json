@@ -1,0 +1,201 @@
+{
+  "artifacts": {
+    "max-result": 0,
+    "size": 0,
+    "start-index": 0
+  },
+  "buildCompletedDate": "2026-09-24T17:39:46.542Z",
+  "buildCompletedTime": "2026-09-24T17:39:46.542Z",
+  "buildDuration": 0,
+  "buildDurationDescription": "global.unknown",
+  "buildDurationInSeconds": 0,
+  "buildNumber": 19,
+  "buildReason": "Custom build by \u003ca href=\"http://bamboo.example.com/browse/user/jdoe\"\u003ejdoe\u003c/a\u003e\u0026nbsp;with revision \u003ca href=\"http://bamboo.example.com/browse/LAB-SPECS-19#changesSummary\"\u003e0000000000000000000000000000000000000000\u003c/a\u003e",
+  "buildRelativeTime": "1 second ago",
+  "buildResultKey": "LAB-SPECS-19",
+  "buildState": "Unknown",
+  "changes": {
+    "max-result": 0,
+    "size": 0,
+    "start-index": 0
+  },
+  "comments": {
+    "max-result": 0,
+    "size": 0,
+    "start-index": 0
+  },
+  "continuable": false,
+  "expand": "changes,metadata,plan,artifacts,comments,labels,jiraIssues,variables,stages",
+  "finished": false,
+  "id": 1867803,
+  "jiraIssues": {
+    "max-result": 0,
+    "size": 0,
+    "start-index": 0
+  },
+  "key": "LAB-SPECS-19",
+  "labels": {
+    "max-result": 0,
+    "size": 0,
+    "start-index": 0
+  },
+  "lifeCycleState": "NotBuilt",
+  "link": {
+    "href": "http://bamboo.example.com/rest/api/latest/result/LAB-SPECS-19",
+    "rel": "self"
+  },
+  "metadata": {
+    "max-result": 4,
+    "size": 4,
+    "start-index": 0
+  },
+  "notRunYet": false,
+  "number": 19,
+  "onceOff": true,
+  "plan": {
+    "enabled": true,
+    "id": 786441,
+    "key": "LAB-SPECS",
+    "link": {
+      "href": "http://bamboo.example.com/rest/api/latest/plan/LAB-SPECS",
+      "rel": "self"
+    },
+    "name": "lab - Publish Specs",
+    "planKey": {
+      "key": "LAB-SPECS"
+    },
+    "shortKey": "SPECS",
+    "shortName": "Publish Specs",
+    "type": "chain"
+  },
+  "planName": "Publish Specs",
+  "planResultKey": {
+    "entityKey": {
+      "key": "LAB-SPECS"
+    },
+    "key": "LAB-SPECS-19",
+    "resultNumber": 19
+  },
+  "prettyBuildCompletedTime": "Thu, 24 Sep, 05:39 PM",
+  "projectName": "lab",
+  "reasonSummary": "Custom build by \u003ca href=\"http://bamboo.example.com/browse/user/jdoe\"\u003ejdoe\u003c/a\u003e\u0026nbsp;with revision \u003ca href=\"http://bamboo.example.com/browse/LAB-SPECS-19#changesSummary\"\u003e0000000000000000000000000000000000000000\u003c/a\u003e",
+  "restartable": true,
+  "specsResult": false,
+  "stages": {
+    "expand": "stage",
+    "max-result": 1,
+    "size": 1,
+    "stage": [
+      {
+        "collapsedByDefault": false,
+        "description": "",
+        "displayClass": "NotBuilt",
+        "displayMessage": "1 of 1 job not executed",
+        "expand": "results",
+        "id": 1900559,
+        "lifeCycleState": "NotBuilt",
+        "manual": false,
+        "name": "Publish",
+        "restartable": true,
+        "results": {
+          "expand": "result",
+          "max-result": 1,
+          "result": [
+            {
+              "buildDuration": 0,
+              "buildDurationDescription": "global.unknown",
+              "buildDurationInSeconds": 0,
+              "buildNumber": 19,
+              "buildReason": "Custom revision build",
+              "buildRelativeTime": "",
+              "buildResultKey": "LAB-SPECS-PUB-19",
+              "buildState": "Unknown",
+              "changes": {
+                "max-result": 0,
+                "size": 0,
+                "start-index": 0
+              },
+              "expand": "changes,metadata,plan,jiraIssues,variables",
+              "hasExecutableAgents": true,
+              "id": 1867804,
+              "jiraIssues": {
+                "max-result": 0,
+                "size": 0,
+                "start-index": 0
+              },
+              "key": "LAB-SPECS-PUB-19",
+              "lifeCycleState": "NotBuilt",
+              "link": {
+                "href": "http://bamboo.example.com/rest/api/latest/result/LAB-SPECS-PUB-19",
+                "rel": "self"
+              },
+              "metadata": {
+                "max-result": 3,
+                "size": 3,
+                "start-index": 0
+              },
+              "number": 19,
+              "onceOff": true,
+              "parent": {
+                "href": "http://bamboo.example.com/rest/api/latest/result/LAB-SPECS-19",
+                "rel": "parent"
+              },
+              "plan": {
+                "enabled": true,
+                "id": 786442,
+                "key": "LAB-SPECS-PUB",
+                "link": {
+                  "href": "http://bamboo.example.com/rest/api/latest/plan/LAB-SPECS-PUB",
+                  "rel": "self"
+                },
+                "name": "lab - Publish Specs - Publish",
+                "planKey": {
+                  "key": "LAB-SPECS-PUB"
+                },
+                "shortKey": "SPECS-PUB",
+                "shortName": "Publish",
+                "type": "job"
+              },
+              "planName": "Publish",
+              "planResultKey": {
+                "entityKey": {
+                  "key": "LAB-SPECS-PUB"
+                },
+                "key": "LAB-SPECS-PUB-19",
+                "resultNumber": 19
+              },
+              "prettyQueueDuration": "\u003c 1 sec",
+              "prettyVcsUpdateDuration": "\u003c 1 sec",
+              "projectName": "lab",
+              "queueDuration": 0,
+              "queueTimeInSeconds": 0,
+              "reasonSummary": "Custom build by \u003ca href=\"http://bamboo.example.com/browse/user/jdoe\"\u003ejdoe\u003c/a\u003e\u0026nbsp;with revision \u003ca href=\"http://bamboo.example.com/browse/LAB-SPECS-PUB-19#changesSummary\"\u003e0000000000000000000000000000000000000000\u003c/a\u003e",
+              "specsResult": false,
+              "stage": "Publish",
+              "state": "Unknown",
+              "variables": {
+                "max-result": 0,
+                "size": 0,
+                "start-index": 0
+              },
+              "vcsUpdateDuration": 0,
+              "vcsUpdateInSeconds": 0
+            }
+          ],
+          "size": 1,
+          "start-index": 0
+        },
+        "runnable": false,
+        "state": "Unknown"
+      }
+    ],
+    "start-index": 0
+  },
+  "state": "Unknown",
+  "successful": false,
+  "variables": {
+    "max-result": 0,
+    "size": 0,
+    "start-index": 0
+  }
+}

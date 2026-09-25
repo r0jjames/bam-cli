@@ -39,7 +39,7 @@ func addRunLoop(root *cobra.Command, r *runtime) {
 
 func newRunCmd(r *runtime) *cobra.Command {
 	var vars []string
-	var from, branch string
+	var from, branch, revision string
 	var watch, dryRun, edit bool
 	var timeout time.Duration
 	cmd := &cobra.Command{
@@ -53,6 +53,10 @@ func newRunCmd(r *runtime) *cobra.Command {
 			if edit && (!r.env.StdinTTY || !r.env.StdoutTTY) {
 				return errs.Usagef("--edit needs a terminal").WithTry("pass the values with --var")
 			}
+			// Checked before any config or network, like --edit's terminal.
+			if cmd.Flags().Changed("revision") && revision == "" {
+				return errs.Usagef("--revision needs a value")
+			}
 			ctx := cmd.Context()
 			svc, _, err := r.connectFor(ctx, args[0])
 			if err != nil {
@@ -62,6 +66,7 @@ func newRunCmd(r *runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			ref.Revision = revision
 			var vs app.VarSet
 			if edit {
 				base, err := svc.VarBase(ctx, ref, from)
@@ -110,19 +115,20 @@ func newRunCmd(r *runtime) *cobra.Command {
 				if r.flags.json {
 					return view.WriteJSON(r.env.Stdout, view.RunJSON(b, ref, vs))
 				}
-				view.Queued(o, b, false)
+				view.Queued(o, b, false, ref.Revision)
 				return nil
 			}
 			if !r.flags.json {
-				view.Queued(o, b, true)
+				view.Queued(o, b, true, ref.Revision)
 			}
-			return r.watchLoop(ctx, svc, b.Key, limit)
+			return r.watchLoop(ctx, svc, b.Key, limit, ref.Revision)
 		}),
 	}
 	f := cmd.Flags()
 	f.StringArrayVar(&vars, "var", nil, "variable name=value (repeatable)")
 	f.StringVar(&from, "from", "", "reuse variables of a build: number, key or last")
 	f.StringVar(&branch, "branch", "", "plan branch to run")
+	f.StringVar(&revision, "revision", "", "commit to build instead of the newest; Bamboo applies it to the plan's default repository")
 	f.BoolVar(&watch, "watch", false, "follow the build until it finishes")
 	f.DurationVar(&timeout, "timeout", 0, "stop watching after this long (the build keeps running)")
 	f.BoolVar(&dryRun, "dry-run", false, "resolve and validate variables, trigger nothing")
@@ -132,8 +138,10 @@ func newRunCmd(r *runtime) *cobra.Command {
 }
 
 // watchLoop renders a build until it finishes. Interrupts and timeouts stop
-// watching only; the build keeps running.
-func (r *runtime) watchLoop(ctx context.Context, svc *app.Service, key string, limit time.Duration) error {
+// watching only; the build keeps running. revision, when set, is the
+// revision the build was asked for; a not-built result then says Bamboo
+// could not build it.
+func (r *runtime) watchLoop(ctx context.Context, svc *app.Service, key string, limit time.Duration, revision string) error {
 	wctx, cancel := ctx, context.CancelFunc(func() {})
 	if limit > 0 {
 		wctx, cancel = context.WithTimeout(ctx, limit)
@@ -177,6 +185,11 @@ func (r *runtime) watchLoop(ctx context.Context, svc *app.Service, key string, l
 			rend.Event(e)
 			switch e.Type {
 			case app.EventDone:
+				if e.Build.State == provider.StateNotBuilt && revision != "" && !r.flags.json {
+					if o, err := r.out(); err == nil {
+						view.RevisionNotBuilt(o, revision)
+					}
+				}
 				if e.Build.State != provider.StateSuccess {
 					return &resultError{State: e.Build.State}
 				}
@@ -210,7 +223,7 @@ func newWatchCmd(r *runtime) *cobra.Command {
 					limit = time.Duration(t.Timeout)
 				}
 			}
-			return r.watchLoop(cmd.Context(), svc, key, limit)
+			return r.watchLoop(cmd.Context(), svc, key, limit, "")
 		}),
 	}
 	cmd.Flags().BoolVar(&last, "last", false, "the last build bam triggered from this repository")

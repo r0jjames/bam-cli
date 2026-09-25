@@ -3,9 +3,9 @@
 ┃▸ cluster_name          beta                      required                    ┃
 ┃  cluster_type          k8s                       k8s | dcos                  ┃
 ┃  ssh_key               ********                  plan                        ┃
+┃  revision              newest                    commit to build             ┃
 ┃                                                                              ┃
 ┃1 of 3 changed from the plan's values                                         ┃
-┃                                                                              ┃
 ┃                                                                              ┃
 ┃                                                                              ┃
 ┃                                                                              ┃

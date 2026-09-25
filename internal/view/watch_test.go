@@ -47,12 +47,39 @@ func TestRunPlanAndQueued(t *testing.T) {
 		{Name: "debug", Value: "false", Source: "plan", Declared: true, PlanValue: "false"},
 	}}
 	RunPlan(o, app.PlanRef{PlanKey: "PROJ-BUILD12", MasterKey: "PROJ-BUILD", Branch: "develop"}, vs)
-	Queued(o, provider.Build{Key: "PROJ-BUILD12-44", URL: url44}, false)
+	Queued(o, provider.Build{Key: "PROJ-BUILD12-44", URL: url44}, false, "")
 	assert.Equal(t, ""+
 		"Plan     PROJ-BUILD  (branch develop, PROJ-BUILD12)\n"+
 		"Vars     env=staging (flag)  region=eu (target)  db_password=******** (env)  +1 plan defaults\n"+
 		"✓ Queued   PROJ-BUILD12-44   "+url44+"\n"+
 		"  watch: bam watch PROJ-BUILD12-44\n", buf.String())
+}
+
+func TestRunPlanNamesTheRevision(t *testing.T) {
+	o, buf := testOut(true)
+	RunPlan(o, app.PlanRef{PlanKey: "PROJ-BUILD", MasterKey: "PROJ-BUILD", Revision: "abc1234"}, app.VarSet{})
+	assert.Equal(t, ""+
+		"Plan     PROJ-BUILD\n"+
+		"Revision abc1234\n"+
+		"Vars     none\n", buf.String())
+}
+
+func TestQueuedWithARevisionSaysWhenItIsChecked(t *testing.T) {
+	o, buf := testOut(true)
+	Queued(o, provider.Build{Key: "PROJ-BUILD12-44", URL: url44}, false, "abc1234")
+	assert.Equal(t, ""+
+		"✓ Queued   PROJ-BUILD12-44   "+url44+"\n"+
+		"  revision abc1234 is checked when the build starts: bam watch PROJ-BUILD12-44\n", buf.String())
+
+	o, buf = testOut(true)
+	Queued(o, provider.Build{Key: "PROJ-BUILD12-44", URL: url44}, true, "abc1234")
+	assert.Equal(t, "✓ Queued   PROJ-BUILD12-44   "+url44+"\n", buf.String(), "a watch shows the outcome itself")
+}
+
+func TestRevisionNotBuilt(t *testing.T) {
+	o, buf := testOut(true)
+	RevisionNotBuilt(o, "abc1234")
+	assert.Equal(t, "Bamboo could not build revision abc1234\n", buf.String())
 }
 
 func TestResultFailed(t *testing.T) {
