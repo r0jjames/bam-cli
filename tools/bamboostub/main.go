@@ -222,8 +222,9 @@ func (s *stub) handleQueue(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 		log.Printf("trigger %s with %d variables", resultKey, len(r.PostForm))
 		// A real Bamboo Data Center reports "Custom revision build" only
-		// when it honored customRevision; bam.Client.Trigger stops any
-		// build queued with a revision whose reason says otherwise.
+		// when it honored customRevision; for any other reason bam's
+		// Trigger reports the revision as ignored and app.Run stops the
+		// build.
 		reason := "Manual build"
 		if r.URL.Query().Get("customRevision") != "" {
 			reason = "Custom revision build"
