@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -22,6 +23,36 @@ func testModel() Model {
 func send(m Model, msg tea.Msg) (Model, tea.Cmd) {
 	next, cmd := m.Update(msg)
 	return next.(Model), cmd
+}
+
+// instantHomeTick makes Home's auto-refresh tick fire at once, so a test can
+// run every command of a batch without knowing where the tick sits in it.
+// tea.Tick reads the duration when the command is built, so call it before
+// the model makes any. No test in this package runs in parallel, so the
+// swap is safe.
+func instantHomeTick(t *testing.T) {
+	t.Helper()
+	old := homeRefreshEvery
+	homeRefreshEvery = 0
+	t.Cleanup(func() { homeRefreshEvery = old })
+}
+
+// runBatch runs cmd and, when it is a batch, every command inside it, and
+// returns the messages in batch order. Callers use instantHomeTick first.
+func runBatch(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		return []tea.Msg{msg}
+	}
+	var out []tea.Msg
+	for _, sub := range batch {
+		out = append(out, runBatch(sub)...)
+	}
+	return out
 }
 
 // TestTabCyclesPanels pins the tab order of spec §3.
@@ -302,6 +333,7 @@ func TestPresetRowShowsNamePlanAndBranch(t *testing.T) {
 // already-connected branch; Init's receiver is a copy, so a bump made there
 // is lost and every plansLoadedMsg it asked for would be dropped as stale.
 func TestInitAfterHandshakeFillsPlans(t *testing.T) {
+	instantHomeTick(t)
 	d := Deps{
 		Connect: func(context.Context, string) (*app.Service, error) { return testService(), nil },
 		Servers: []Server{{Alias: "lab", URL: "https://bamboo.lab.example"}},
@@ -314,34 +346,29 @@ func TestInitAfterHandshakeFillsPlans(t *testing.T) {
 
 	// Run what Init asks for and feed every message back, the way the
 	// bubbletea loop does. On Home, Init's batch also starts the auto-refresh
-	// tick (home spec §4.2); that command must never run here — it blocks for
-	// homeRefreshEvery — so it is asserted present but left undelivered, and
-	// only the plans load is drained.
-	var deliver func(Model, tea.Cmd) Model
-	deliver = func(m Model, cmd tea.Cmd) Model {
-		if cmd == nil {
-			return m
-		}
-		switch msg := cmd().(type) {
-		case tea.BatchMsg:
-			for _, sub := range msg {
-				m = deliver(m, sub)
+	// tick (home spec §4.2); its beat is dropped so the loop stops here.
+	var feed func(Model, []tea.Msg) Model
+	feed = func(m Model, msgs []tea.Msg) Model {
+		for _, msg := range msgs {
+			if _, tick := msg.(homeTickMsg); tick || msg == nil {
+				continue
 			}
-		case nil:
-		default:
-			m, cmd = send(m, msg)
-			m = deliver(m, cmd)
+			var next tea.Cmd
+			m, next = send(m, msg)
+			m = feed(m, runBatch(next))
 		}
 		return m
 	}
 
 	init := m.Init()
 	require.NotNil(t, init)
-	batch, ok := init().(tea.BatchMsg)
-	require.True(t, ok)
-	require.Len(t, batch, 2, "the plans load and the Home auto-refresh tick")
-	m = deliver(m, batch[0])
-
+	msgs := runBatch(init)
+	require.Len(t, msgs, 2, "the plans load and the Home auto-refresh tick")
+	require.True(t, slices.ContainsFunc(msgs, func(msg tea.Msg) bool {
+		_, ok := msg.(homeTickMsg)
+		return ok
+	}), "Init starts the Home auto-refresh tick")
+	m = feed(m, msgs)
 	require.NoError(t, m.err)
 	require.NotZero(t, m.plans.len(), "the Plans panel is empty after start-up")
 	require.False(t, m.plans.loading)
