@@ -779,7 +779,8 @@ func (m Model) chooseOverlay() (tea.Model, tea.Cmd) {
 		m.leaveBuild()
 		m.buildsPlan = it.Value
 		m.focus = focusBuilds
-		return m, m.loadBuilds(it.Value, true)
+		cmd := m.loadBuilds(it.Value, true)
+		return m, cmd
 	}
 	m.overlay = overlayNone
 	return m, nil
@@ -935,7 +936,8 @@ func (m Model) drill() (tea.Model, tea.Cmd) {
 		}
 		m.focus = focusBuilds
 		m.leaveBuild()
-		return m, m.loadBuilds(p.Key, true)
+		cmd := m.loadBuilds(p.Key, true)
+		return m, cmd
 	case focusBuilds:
 		b, ok := m.builds.selected()
 		if !ok || m.svc == nil {
@@ -1014,7 +1016,8 @@ func (m Model) handleWatchEvent(e app.Event) (tea.Model, tea.Cmd) {
 		}
 		m.stopWatch()
 		if m.svc != nil && m.buildsPlan != "" {
-			return m, m.loadBuilds(m.buildsPlan, false)
+			cmd := m.loadBuilds(m.buildsPlan, false)
+			return m, cmd
 		}
 		return m, nil
 	}

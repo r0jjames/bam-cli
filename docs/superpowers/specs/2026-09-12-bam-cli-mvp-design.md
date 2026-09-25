@@ -1,6 +1,6 @@
 # Bam CLI - MVP Design (v0.1)
 
-**Status:** Approved design, awaiting implementation plan | **Date:** 2026-09-12
+**Status:** Implemented | **Date:** 2026-09-12
 **Product requirements:** [`docs/prd.md`](../../prd.md)
 
 This spec is the input to the v0.1 implementation plan. It refines the earlier design notes kept outside this repository; section 14 lists every change from those notes. All hosts, keys and user names are placeholders.

@@ -10,10 +10,11 @@ import (
 	"github.com/r0jjames/bam-cli/internal/provider"
 )
 
-const (
-	homeRefreshEvery = 30 * time.Second
-	homeIdleAfter    = 10 * time.Minute
-)
+const homeIdleAfter = 10 * time.Minute
+
+// homeRefreshEvery is a variable only so tests can make the tick fire at
+// once (see instantHomeTick); nothing else changes it.
+var homeRefreshEvery = 30 * time.Second
 
 // homeTickMsg is one beat of Home's auto-refresh loop.
 type homeTickMsg struct{ Gen int }

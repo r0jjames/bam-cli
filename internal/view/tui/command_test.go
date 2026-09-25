@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"testing"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/r0jjames/bam-cli/internal/config"
@@ -175,4 +176,24 @@ func TestAPastedChunkActsLikeTypedKeys(t *testing.T) {
 
 	m, _ = send(homeModel(), mkKey("ss"))
 	require.Equal(t, homeSort{col: colState}, m.home.sort)
+}
+
+// TestCommonPrefixKeepsWholeRunes: tab must never leave half a multi-byte
+// rune in the prompt. "é" and "è" share their first UTF-8 byte.
+func TestCommonPrefixKeepsWholeRunes(t *testing.T) {
+	for _, tc := range []struct {
+		in   []string
+		want string
+	}{
+		{[]string{"presets", "project"}, "pr"},
+		{[]string{"préfixe a", "préfixe b"}, "préfixe "},
+		{[]string{"café", "cafè"}, "caf"},
+		{[]string{"é", "è"}, ""},
+		{[]string{"same", "same"}, "same"},
+		{[]string{"abc", "ab"}, "ab"},
+	} {
+		got := commonPrefix(tc.in)
+		require.Equal(t, tc.want, got, "%q", tc.in)
+		require.True(t, utf8.ValidString(got), "%q gave invalid UTF-8 %q", tc.in, got)
+	}
 }
